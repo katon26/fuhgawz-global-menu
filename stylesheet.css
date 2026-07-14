@@ -1,0 +1,19 @@
+/* Aero Global Menu stylesheet */
+
+.zenith-panel-button {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+    font-weight: 500;
+    transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
+    border-radius: 4px;
+    margin: 3px 2px;
+}
+
+.zenith-panel-button:hover {
+    background-color: rgba(255, 255, 255, 0.12) !important;
+    color: #ffffff !important;
+}
+
+.zenith-panel-button:active {
+    background-color: rgba(255, 255, 255, 0.2) !important;
+}

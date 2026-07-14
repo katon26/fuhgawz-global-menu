@@ -1,0 +1,17 @@
+# ignore build files
+*.o
+*.so
+*.la
+
+# ignore extension files
+*.shell-extension
+*.shell-extension.zip
+
+# ignore logs files
+*.log
+
+# ignore other files
+CHANGES_AND_LIMITATIONS.md
+
+# ignore test file
+test-menu.py
