@@ -116,6 +116,6 @@ echo
 echo -e "${BOLD}${GREEN}Configuration and Installation Complete!${RESET}"
 echo -e "To make the application menus active in the panel:"
 echo -e "  ${CYAN}1.${RESET} Log out of your current session and log back in."
-echo -e "  ${CYAN}2.${RESET} Make sure the extension is enabled: ${BOLD}gnome-extensions enable fuhglbmenu@katon26.github.io${RESET}"
+echo -e "  ${CYAN}2.${RESET} Make sure the extension is enabled: ${BOLD}gnome-extensions enable fuhgawzglbmenu@katon26.github.io${RESET}"
 echo -e "  ${CYAN}3.${RESET} Start any GTK 3 app (e.g. Firefox) or Qt app and enjoy the global menu!"
 echo
