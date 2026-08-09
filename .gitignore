@@ -15,3 +15,13 @@ CHANGES_AND_LIMITATIONS.md
 
 # ignore test file
 test-menu.py
+
+# ignore SKILL directory and files
+SKILLS
+
+# ignore compiled schema
+schemas/gschema.compiled
+
+# AUDIT files
+AUDIT.md
+AUDIT-1.md
