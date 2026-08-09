@@ -10,5 +10,6 @@
     "50"
   ],
   "uuid": "fuhgawzglbmenu@katon26.github.io",
-  "url": "https://github.com/katon26/fuhgawz-global-menu"
+  "url": "https://github.com/katon26/fuhgawz-global-menu",
+  "settings-schema": "org.gnome.shell.extensions.fuhgawzglbmenu"
 }
