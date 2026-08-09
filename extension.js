@@ -5,7 +5,7 @@ import GObject from 'gi://GObject';
 import Meta from 'gi://Meta';
 import St from 'gi://St';
 import Shell from 'gi://Shell';
-import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
+import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -363,13 +363,12 @@ const AppMenuButton = GObject.registerClass(
 class AppMenuButton extends PanelMenu.Button {
     _init(metaWindow) {
         super._init(0.0, 'FUHGlobeAppMenuButton');
-        this.add_style_class_name('zenith-panel-button');
+        this.add_style_class_name('fuhgawz-panel-button');
 
         this._window = metaWindow;
 
         const box = new St.BoxLayout({
-            style_class: 'panel-status-menu-box',
-            style: 'spacing: 6px;',
+            style_class: 'panel-status-menu-box fuhgawz-menu-box',
         });
 
         const tracker = Shell.WindowTracker.get_default();
@@ -384,16 +383,18 @@ class AppMenuButton extends PanelMenu.Button {
             }
         }
 
-        let appLabel = 'Desktop';
+        let appLabel = _('Desktop');
         if (app) {
-            appLabel = app.get_name() || 'Application';
+            appLabel = app.get_name() || _('Application');
         } else if (metaWindow) {
-            appLabel = metaWindow.get_title() || 'Window';
+            appLabel = metaWindow.get_title() || _('Window');
         }
+
+        this.accessible_name = appLabel || _('Application Menu');
 
         this._label = new St.Label({
             text: appLabel,
-            style: 'font-weight: bold; margin-left: 2px;',
+            style_class: 'fuhgawz-app-title',
             y_align: Clutter.ActorAlign.CENTER,
         });
         box.add_child(this._label);
@@ -404,7 +405,7 @@ class AppMenuButton extends PanelMenu.Button {
 
     _buildMenu(appLabel) {
         if (!this._window) {
-            const itemAbout = new PopupMenu.PopupMenuItem('About GNOME');
+            const itemAbout = new PopupMenu.PopupMenuItem(_('About GNOME…'));
             itemAbout.connect('activate', () => {
                 try {
                     Gio.Subprocess.new(
@@ -419,7 +420,7 @@ class AppMenuButton extends PanelMenu.Button {
 
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-            const itemSettings = new PopupMenu.PopupMenuItem('Settings');
+            const itemSettings = new PopupMenu.PopupMenuItem(_('Preferences…'));
             itemSettings.connect('activate', () => {
                 try {
                     Gio.Subprocess.new(
@@ -435,7 +436,7 @@ class AppMenuButton extends PanelMenu.Button {
         }
 
         // Per-app dropdown
-        const itemAbout = new PopupMenu.PopupMenuItem(`About ${appLabel}`);
+        const itemAbout = new PopupMenu.PopupMenuItem(_('About %s…').replace('%s', appLabel));
         itemAbout.connect('activate', () => {
             try {
                 // Get the window's D-Bus info
@@ -494,7 +495,7 @@ class AppMenuButton extends PanelMenu.Button {
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        const itemHide = new PopupMenu.PopupMenuItem(`Hide ${appLabel}`);
+        const itemHide = new PopupMenu.PopupMenuItem(_('Hide %s').replace('%s', appLabel));
         itemHide.connect('activate', () => {
             try { this._window.minimize(); } catch (e) { /* destroyed */ }
         });
@@ -508,7 +509,7 @@ class AppMenuButton extends PanelMenu.Button {
         } catch (e) { /* ignore */ }
 
         const itemMaximize = new PopupMenu.PopupMenuItem(
-            isMaximized ? 'Restore Window' : 'Maximize Window'
+            isMaximized ? _('Restore window') : _('Maximize window')
         );
         itemMaximize.connect('activate', () => {
             try {
@@ -529,7 +530,7 @@ class AppMenuButton extends PanelMenu.Button {
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        const itemQuit = new PopupMenu.PopupMenuItem(`Quit ${appLabel}`);
+        const itemQuit = new PopupMenu.PopupMenuItem(_('Quit %s').replace('%s', appLabel));
         itemQuit.connect('activate', () => {
             try { this._window.delete(global.get_current_time()); } catch (e) { /* destroyed */ }
         });
@@ -543,7 +544,8 @@ const DBusMenuButton = GObject.registerClass(
 class DBusMenuButton extends PanelMenu.Button {
     _init(label, children, proxy) {
         super._init(0.0, `FUHGlobeDBusMenu-${label}`);
-        this.add_style_class_name('zenith-panel-button');
+        this.add_style_class_name('fuhgawz-panel-button');
+        this.accessible_name = label;
 
         const labelWidget = new St.Label({
             text: _cleanLabel(label),
@@ -613,7 +615,8 @@ const ActionsMenuButton = GObject.registerClass(
 class ActionsMenuButton extends PanelMenu.Button {
     _init(groupLabel, actionItems, busName, appObjectPath, winObjectPath) {
         super._init(0.0, `FUHGlobeActionsMenu-${groupLabel}`);
-        this.add_style_class_name('zenith-panel-button');
+        this.add_style_class_name('fuhgawz-panel-button');
+        this.accessible_name = groupLabel;
 
         const labelWidget = new St.Label({
             text: groupLabel,
@@ -692,7 +695,8 @@ const GtkMenuButton = GObject.registerClass(
 class GtkMenuButton extends PanelMenu.Button {
     _init(label, menuModel, actionDispatcher) {
         super._init(0.0, `FUHGlobeGtkMenu-${label}`);
-        this.add_style_class_name('zenith-panel-button');
+        this.add_style_class_name('fuhgawz-panel-button');
+        this.accessible_name = label;
 
         const labelWidget = new St.Label({
             text: _cleanLabel(label),
@@ -807,7 +811,9 @@ class ActionDispatcher {
 // ── Main Global Menu Manager ─────────────────────────────────────────────────
 
 class FUHGlobeGlobalMenu {
-    constructor() {
+    constructor(settings = null) {
+        this._settings = settings;
+
         // Monotonically increasing counter for unique status area names
         this._nextId = 0;
 
@@ -836,8 +842,14 @@ class FUHGlobeGlobalMenu {
             () => this._scheduleUpdate()
         );
 
-        console.log('FUHGlobe: FUHGlobeGlobalMenu initialized');
+        this._log('FUHGlobeGlobalMenu initialized');
         this._updateMenu();
+    }
+
+    _log(msg) {
+        if (this._settings && this._settings.get_boolean('debug-logging')) {
+            console.log(`FUHGlobe: ${msg}`);
+        }
     }
 
     // Debounce rapid focus changes (e.g. alt-tab, overview)
@@ -898,12 +910,12 @@ class FUHGlobeGlobalMenu {
         const wmClass = win.get_wm_class() || '';
         const busName = win.gtk_unique_bus_name || '';
 
-        console.log(`FUHGlobe: Checking window: title="${title}" app="${appId}" wmclass="${wmClass}" bus="${busName}"`);
+        this._log(`Checking window: title="${title}" app="${appId}" wmclass="${wmClass}" bus="${busName}"`);
 
         // Desktop Icons NG (DING) detection — check title first (most reliable)
         const titleLower = title.toLowerCase();
         if (titleLower.includes('desktop icon') || titleLower.includes('ding')) {
-            console.log(`FUHGlobe: Detected desktop overlay by title`);
+            this._log('Detected desktop overlay by title');
             return true;
         }
 
@@ -911,7 +923,7 @@ class FUHGlobeGlobalMenu {
         const combined = (appId + ' ' + wmClass).toLowerCase();
         if (combined.includes('desktopicon') || combined.includes('ding') ||
             combined.includes('desktop-icons') || combined.includes('rastersoft')) {
-            console.log(`FUHGlobe: Detected desktop overlay by app/wmclass`);
+            this._log('Detected desktop overlay by app/wmclass');
             return true;
         }
 
@@ -919,7 +931,7 @@ class FUHGlobeGlobalMenu {
         try {
             const windowType = win.get_window_type();
             if (windowType === Meta.WindowType.DESKTOP) {
-                console.log(`FUHGlobe: Detected desktop overlay by window type`);
+                this._log('Detected desktop overlay by window type');
                 return true;
             }
         } catch (e) { /* get_window_type may not exist */ }
@@ -937,7 +949,7 @@ class FUHGlobeGlobalMenu {
                     if (frame.x <= 0 && frame.y <= 0 &&
                         frame.width >= monitorGeometry.width - 10 &&
                         frame.height >= monitorGeometry.height - 10) {
-                        console.log(`FUHGlobe: Detected desktop overlay by geometry (no bus/app)`);
+                        this._log('Detected desktop overlay by geometry (no bus/app)');
                         return true;
                     }
                 }
@@ -964,30 +976,30 @@ class FUHGlobeGlobalMenu {
             const appMenuPath = win.gtk_app_menu_object_path || '';
             const winPath = win.gtk_window_object_path || '';
             const appId = win.gtk_application_id || '';
-            console.log(
-                `FUHGlobe: Focus → "${win.get_title()}" pid=${pid} ` +
+            this._log(
+                `Focus → "${win.get_title()}" pid=${pid} ` +
                 `bus=${busName} menubar=${menuBarPath} ` +
                 `appmenu=${appMenuPath} winpath=${winPath} appid=${appId}`
             );
         } else {
-            console.log('FUHGlobe: Focus → Desktop (no window)');
+            this._log('Focus → Desktop (no window)');
         }
 
         // 2. If no focused window (desktop), show nothing
         if (!win) {
-            console.log('FUHGlobe: No focused window — hiding global menu');
+            this._log('No focused window — hiding global menu');
             return;
         }
 
         // 3. Filter out desktop overlay windows (DING, etc.)
         if (this._isDesktopOverlayWindow(win)) {
-            console.log(`FUHGlobe: Skipping desktop overlay window "${win.get_title()}"`);
+            this._log(`Skipping desktop overlay window "${win.get_title()}"`);
             return;
         }
 
         // 3. Add the App Menu Button after the Activities button (position 1)
         const appMenuBtn = new AppMenuButton(win);
-        const appMenuId = `zenith-menu-${this._nextId++}`;
+        const appMenuId = `fuhgawz-menu-${this._nextId++}`;
         this._menuButtons.push(appMenuBtn);
         try {
             Main.panel.addToStatusArea(appMenuId, appMenuBtn, 1, 'left');
@@ -1002,7 +1014,7 @@ class FUHGlobeGlobalMenu {
 
         if (busName && (menuBarPath || appMenuPath)) {
             const menuPath = menuBarPath || appMenuPath;
-            console.log(`FUHGlobe: Trying GTK menu model: bus=${busName} path=${menuPath}`);
+            this._log(`Trying GTK menu model: bus=${busName} path=${menuPath}`);
             this._loadGtkMenu(busName, menuPath, win);
             return;
         }
@@ -1017,7 +1029,7 @@ class FUHGlobeGlobalMenu {
         if (busName && appId) {
             const appObjPath = '/' + appId.replace(/\./g, '/');
             const standardMenubarPath = `${appObjPath}/menus/menubar`;
-            console.log(`FUHGlobe: Probing standard GTK 4 menubar at ${standardMenubarPath}`);
+            this._log(`Probing standard GTK 4 menubar at ${standardMenubarPath}`);
             this._probeMenubarPath(busName, standardMenubarPath, win);
             return;
         }
@@ -1027,11 +1039,12 @@ class FUHGlobeGlobalMenu {
         // For modern libadwaita apps (Ptyxis, Nautilus, etc.) that export
         // actions but no traditional menubar. We call DescribeAll to enumerate
         // all available actions, then group them into File/Edit/View/Go/Help.
-        if (appId || busName) {
+        const enableGtkActions = !this._settings || this._settings.get_boolean('enable-gtk-actions');
+        if (enableGtkActions && (appId || busName)) {
             const effectiveBus = appId || busName;
             const appObjPath = appId ? '/' + appId.replace(/\./g, '/') : '';
             if (appObjPath) {
-                console.log(`FUHGlobe: Trying GTK Actions fallback: bus=${effectiveBus} appObj=${appObjPath}`);
+                this._log(`Trying GTK Actions fallback: bus=${effectiveBus} appObj=${appObjPath}`);
                 this._loadGtkActions(effectiveBus, appObjPath, win);
                 return;
             }
@@ -1045,7 +1058,7 @@ class FUHGlobeGlobalMenu {
         if (pid > 0) {
             entry = this._registrar.getEntryByPid(pid);
             if (entry) {
-                console.log(`FUHGlobe: DBusMenu match by PID=${pid}: service=${entry.service} path=${entry.path}`);
+                this._log(`DBusMenu match by PID=${pid}: service=${entry.service} path=${entry.path}`);
             }
         }
 
@@ -1068,7 +1081,7 @@ class FUHGlobeGlobalMenu {
             if (xid > 0) {
                 entry = this._registrar.getEntryByWindowId(xid);
                 if (entry) {
-                    console.log(`FUHGlobe: DBusMenu match by XID=0x${xid.toString(16)}: service=${entry.service} path=${entry.path}`);
+                    this._log(`DBusMenu match by XID=0x${xid.toString(16)}: service=${entry.service} path=${entry.path}`);
                 }
             }
         }
@@ -1079,7 +1092,7 @@ class FUHGlobeGlobalMenu {
         }
 
         // ── Fallback 4: built-in (app name + basic controls) ────────────
-        console.log('FUHGlobe: Using built-in fallback menu (no GTK model, GTK actions, or DBusMenu found)');
+        this._log('Using built-in fallback menu (no GTK model, GTK actions, or DBusMenu found)');
     }
 
     // ── Probe a standard menubar path for GMenuModel ────────────────────────
@@ -1179,7 +1192,7 @@ class FUHGlobeGlobalMenu {
 
             if (label && submenu) {
                 const btn = new GtkMenuButton(label, submenu, actionDispatcher);
-                const btnId = `zenith-menu-${this._nextId++}`;
+                const btnId = `fuhgawz-menu-${this._nextId++}`;
                 this._menuButtons.push(btn);
                 try {
                     Main.panel.addToStatusArea(btnId, btn, position++, 'left');
@@ -1459,7 +1472,7 @@ class FUHGlobeGlobalMenu {
             const btn = new ActionsMenuButton(
                 groupName, items, busName, appObjectPath, winObjectPath
             );
-            const btnId = `zenith-menu-${this._nextId++}`;
+            const btnId = `fuhgawz-menu-${this._nextId++}`;
             this._menuButtons.push(btn);
             try {
                 Main.panel.addToStatusArea(btnId, btn, position++, 'left');
@@ -1568,7 +1581,7 @@ class FUHGlobeGlobalMenu {
 
                 if (label && topItem.children && topItem.children.length > 0) {
                     const btn = new DBusMenuButton(label, topItem.children, this._activeProxy);
-                    const btnId = `zenith-menu-${this._nextId++}`;
+                    const btnId = `fuhgawz-menu-${this._nextId++}`;
                     this._menuButtons.push(btn);
                     try {
                         Main.panel.addToStatusArea(btnId, btn, position++, 'left');
@@ -1694,7 +1707,8 @@ class FUHGlobeGlobalMenu {
 export default class FUHGlobeGlobalMenuExtension extends Extension {
     enable() {
         console.log('FUHGlobe: Extension enabling');
-        this._menu = new FUHGlobeGlobalMenu();
+        this._settings = this.getSettings();
+        this._menu = new FUHGlobeGlobalMenu(this._settings);
     }
 
     disable() {
@@ -1703,5 +1717,6 @@ export default class FUHGlobeGlobalMenuExtension extends Extension {
             this._menu.destroy();
             this._menu = null;
         }
+        this._settings = null;
     }
 }
