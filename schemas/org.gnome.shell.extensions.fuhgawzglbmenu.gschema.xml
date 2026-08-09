@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.fuhgawzglbmenu" path="/org/gnome/shell/extensions/fuhgawzglbmenu/">
+    <key name="debug-logging" type="b">
+      <default>false</default>
+      <summary>Enable debug logging</summary>
+      <description>Print detailed operational logs to journalctl for troubleshooting.</description>
+    </key>
+    <key name="enable-gtk-actions" type="b">
+      <default>true</default>
+      <summary>Enable GTK 4 Actions probing</summary>
+      <description>Enumerate org.gtk.Actions for modern apps without traditional menubars.</description>
+    </key>
+    <key name="menu-padding" type="i">
+      <default>10</default>
+      <summary>Menu item padding</summary>
+      <description>Horizontal padding in pixels for top bar menu items.</description>
+    </key>
+  </schema>
+</schemalist>
