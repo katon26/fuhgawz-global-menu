@@ -9,6 +9,7 @@ import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import { SystemLogoButton } from './sysmenu/systemLogoButton.js';
 
 // ── D-Bus Interface XML ──────────────────────────────────────────────────────
 
@@ -842,8 +843,31 @@ class FUHGlobeGlobalMenu {
             () => this._scheduleUpdate()
         );
 
+        // System logo menu button
+        this._systemLogoButton = null;
+        this._sysMenuSignalId = 0;
+        if (this._settings) {
+            this._sysMenuSignalId = this._settings.connect(
+                'changed::enable-system-menu',
+                () => this._updateSystemLogoButton()
+            );
+        }
+        this._updateSystemLogoButton();
+
         this._log('FUHGlobeGlobalMenu initialized');
         this._updateMenu();
+    }
+
+    _updateSystemLogoButton() {
+        const enabled = this._settings ? this._settings.get_boolean('enable-system-menu') : true;
+
+        if (enabled && !this._systemLogoButton) {
+            this._systemLogoButton = new SystemLogoButton(this._settings);
+            Main.panel.addToStatusArea('FUHGlobeSystemLogoButton', this._systemLogoButton, 0, 'left');
+        } else if (!enabled && this._systemLogoButton) {
+            this._systemLogoButton.destroy();
+            this._systemLogoButton = null;
+        }
     }
 
     _log(msg) {
@@ -1687,6 +1711,16 @@ class FUHGlobeGlobalMenu {
 
         this._clearButtons();
         this._disconnectSources();
+
+        if (this._systemLogoButton) {
+            this._systemLogoButton.destroy();
+            this._systemLogoButton = null;
+        }
+
+        if (this._settings && this._sysMenuSignalId) {
+            this._settings.disconnect(this._sysMenuSignalId);
+            this._sysMenuSignalId = 0;
+        }
 
         if (this._registrar) {
             this._registrar.destroy();
