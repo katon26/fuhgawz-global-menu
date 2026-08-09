@@ -16,5 +16,30 @@
       <summary>Menu item padding</summary>
       <description>Horizontal padding in pixels for top bar menu items.</description>
     </key>
+    <key name="enable-system-menu" type="b">
+      <default>true</default>
+      <summary>Enable System Logo Menu</summary>
+      <description>Display the top-left system branding menu button on the top bar.</description>
+    </key>
+    <key name="system-menu-icon" type="s">
+      <default>'emblem-system-symbolic'</default>
+      <summary>System menu icon</summary>
+      <description>Icon name to use for the top bar system branding logo button.</description>
+    </key>
+    <key name="show-recent-items" type="b">
+      <default>true</default>
+      <summary>Show Recent Items submenu</summary>
+      <description>Display recent documents and files in the system menu.</description>
+    </key>
+    <key name="show-force-quit" type="b">
+      <default>true</default>
+      <summary>Show Force Quit item</summary>
+      <description>Display force quit application option in the system menu.</description>
+    </key>
+    <key name="app-store-command" type="s">
+      <default>'gnome-software'</default>
+      <summary>App Store command</summary>
+      <description>Command line executable to launch the application software store.</description>
+    </key>
   </schema>
 </schemalist>
