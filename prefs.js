@@ -73,5 +73,65 @@ export default class FUHGlobeExtensionPreferences extends ExtensionPreferences {
             Gio.SettingsBindFlags.DEFAULT
         );
         appearanceGroup.add(paddingRow);
+
+        // ── Group 3: System Logo Menu ────────────────────────────────────────
+        const sysMenuGroup = new Adw.PreferencesGroup({
+            title: _('System Logo Menu'),
+            description: _('Configure top-left system branding menu button'),
+        });
+        page.add(sysMenuGroup);
+
+        // Enable System Menu Switch
+        const sysMenuSwitchRow = new Adw.SwitchRow({
+            title: _('Enable System Logo Menu'),
+            subtitle: _('Display the top-left system branding menu button on the panel'),
+        });
+        settings.bind(
+            'enable-system-menu',
+            sysMenuSwitchRow,
+            'active',
+            Gio.SettingsBindFlags.DEFAULT
+        );
+        sysMenuGroup.add(sysMenuSwitchRow);
+
+        // System Icon Entry Row
+        const iconRow = new Adw.EntryRow({
+            title: _('System Menu Icon Name'),
+            text: settings.get_string('system-menu-icon'),
+        });
+        iconRow.connect('changed', (entry) => {
+            const val = entry.get_text();
+            if (val && val.trim().length > 0) {
+                settings.set_string('system-menu-icon', val.trim());
+            }
+        });
+        sysMenuGroup.add(iconRow);
+
+        // Show Recent Items Switch
+        const recentRow = new Adw.SwitchRow({
+            title: _('Show Recent Items Submenu'),
+            subtitle: _('Display recent documents and files in the system menu'),
+        });
+        settings.bind(
+            'show-recent-items',
+            recentRow,
+            'active',
+            Gio.SettingsBindFlags.DEFAULT
+        );
+        sysMenuGroup.add(recentRow);
+
+        // Show Force Quit Switch
+        const forceQuitRow = new Adw.SwitchRow({
+            title: _('Show Force Quit Item'),
+            subtitle: _('Display force quit application option in the system menu'),
+        });
+        settings.bind(
+            'show-force-quit',
+            forceQuitRow,
+            'active',
+            Gio.SettingsBindFlags.DEFAULT
+        );
+        sysMenuGroup.add(forceQuitRow);
     }
 }
+
