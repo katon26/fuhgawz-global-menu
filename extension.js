@@ -9,7 +9,9 @@ import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-import { SystemLogoButton } from './sysmenu/systemLogoButton.js';
+import { SystemMenu } from './src/systemMenu.js';
+import { UserSwitcherController } from './src/userSwitcher.js';
+import { QuickSettingsActionsController } from './src/quickSettingsHider.js';
 
 // ── D-Bus Interface XML ──────────────────────────────────────────────────────
 
@@ -812,8 +814,10 @@ class ActionDispatcher {
 // ── Main Global Menu Manager ─────────────────────────────────────────────────
 
 class FUHGlobeGlobalMenu {
-    constructor(settings = null) {
+    constructor(settings = null, extensionPath = null, extension = null) {
         this._settings = settings;
+        this._extensionPath = extensionPath;
+        this._extension = extension;
 
         // Monotonically increasing counter for unique status area names
         this._nextId = 0;
@@ -843,30 +847,33 @@ class FUHGlobeGlobalMenu {
             () => this._scheduleUpdate()
         );
 
-        // System logo menu button
-        this._systemLogoButton = null;
+        // System menu (macOS style) + companion controllers
+        this._userSwitcherController = new UserSwitcherController(this._extension);
+        this._quickSettingsController = new QuickSettingsActionsController(this._settings);
+
+        this._systemMenu = null;
         this._sysMenuSignalId = 0;
         if (this._settings) {
             this._sysMenuSignalId = this._settings.connect(
                 'changed::enable-system-menu',
-                () => this._updateSystemLogoButton()
+                () => this._updateSystemMenu()
             );
         }
-        this._updateSystemLogoButton();
+        this._updateSystemMenu();
 
         this._log('FUHGlobeGlobalMenu initialized');
         this._updateMenu();
     }
 
-    _updateSystemLogoButton() {
+    _updateSystemMenu() {
         const enabled = this._settings ? this._settings.get_boolean('enable-system-menu') : true;
 
-        if (enabled && !this._systemLogoButton) {
-            this._systemLogoButton = new SystemLogoButton(this._settings);
-            Main.panel.addToStatusArea('FUHGlobeSystemLogoButton', this._systemLogoButton, 0, 'left');
-        } else if (!enabled && this._systemLogoButton) {
-            this._systemLogoButton.destroy();
-            this._systemLogoButton = null;
+        if (enabled && !this._systemMenu) {
+            this._systemMenu = new SystemMenu(this._settings, this._extensionPath, this._extension);
+            Main.panel.addToStatusArea('FUHGlobeSystemMenuButton', this._systemMenu, 0, 'left');
+        } else if (!enabled && this._systemMenu) {
+            this._systemMenu.destroy();
+            this._systemMenu = null;
         }
     }
 
@@ -1712,9 +1719,19 @@ class FUHGlobeGlobalMenu {
         this._clearButtons();
         this._disconnectSources();
 
-        if (this._systemLogoButton) {
-            this._systemLogoButton.destroy();
-            this._systemLogoButton = null;
+        if (this._userSwitcherController) {
+            this._userSwitcherController.destroy();
+            this._userSwitcherController = null;
+        }
+
+        if (this._quickSettingsController) {
+            this._quickSettingsController.destroy();
+            this._quickSettingsController = null;
+        }
+
+        if (this._systemMenu) {
+            this._systemMenu.destroy();
+            this._systemMenu = null;
         }
 
         if (this._settings && this._sysMenuSignalId) {
@@ -1742,7 +1759,7 @@ export default class FUHGlobeGlobalMenuExtension extends Extension {
     enable() {
         console.log('FUHGlobe: Extension enabling');
         this._settings = this.getSettings();
-        this._menu = new FUHGlobeGlobalMenu(this._settings);
+        this._menu = new FUHGlobeGlobalMenu(this._settings, this.path, this);
     }
 
     disable() {

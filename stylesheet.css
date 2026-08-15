@@ -17,3 +17,123 @@
     spacing: 6px;
 }
 
+/* System Menu & User Switcher Styles */
+.menu-button {
+  width: 16px;
+  height: 16px;
+  margin: 1px;
+  margin-left: 6px;
+  margin-right: 6px;
+}
+
+.fuhgawz-recent-menu {
+  margin-left: 16px;
+  max-width: 350px;
+}
+
+.fuhgawz-main-menu {
+  max-width: 360px;
+  min-width: 270px;
+}
+
+.fuhgawz-main-menu .popup-menu-icon {
+  icon-size: 0.9em;
+  margin-right: 3px;
+}
+
+.fuhgawz-accel-label {
+  font-size: 0.9em;
+  padding-left: 12px;
+}
+
+.popup-section-header-label {
+  font-weight: bold;
+  font-size: 0.9em;
+  color: var(--accent-fg-color);
+  padding-right: 8px;
+}
+
+.fuhgawz-document-tooltip {
+  background-color: -st-accent-color;
+  border-radius: 12px;
+  padding: 6px 10px;
+  margin-bottom: 5px;
+  color: -st-accent-fg-color;
+  text-shadow: none;
+}
+
+.fuhgawz-user-switcher-button {
+  margin-left: 3px;
+  margin-right: 3px;
+}
+
+.fuhgawz-user-switcher-menu {
+  min-width: 400px;
+  padding: 6px 0;
+}
+
+.fuhgawz-user-grid {
+  min-width: 100%;
+  margin: 0 auto;
+}
+
+.fuhgawz-user-item {
+  border-radius: 12px;
+  padding: 12px;
+  margin: 0 12px 0 12px;
+}
+
+.fuhgawz-user-item:hover {
+  background-color: -st-accent-color;
+}
+
+.fuhgawz-user-item-content {
+  align-items: center;
+}
+
+.fuhgawz-user-card-avatar-frame {
+  width: 64px;
+  height: 64px;
+  border-radius: 32px;
+  overflow: hidden;
+  border: 2px solid transparent;
+}
+
+.fuhgawz-user-card-avatar {
+  border-radius: 999px;
+  background-size: cover;
+  background-position: center;
+}
+
+.fuhgawz-user-card-name {
+  font-weight: bold;
+  text-align: center;
+  margin-top: 8px;
+}
+
+.fuhgawz-user-switcher-empty {
+  font-style: italic;
+}
+
+.fuhgawz-user-avatar-container {
+  width: 68px;
+  height: 68px;
+}
+
+.fuhgawz-user-session-badge {
+  background-color: -st-accent-color;
+  border-radius: 99px;
+  padding: 3px;
+  font-weight: bold;
+  color: -st-accent-fg-color;
+  border: 1px solid;
+  border-color: lightgray;
+}
+
+.fuhgawz-user-session-badge.current-user {
+  background-color: darkgoldenrod;
+  color: -st-accent-fg-color;
+  border: 1px solid;
+  border-color: lightgray;
+}
+

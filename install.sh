@@ -22,16 +22,18 @@ EXT_DIR="${HOME}/.local/share/gnome-shell/extensions/${UUID}"
 info "Installing FUHGAWZ Global Menu to ${EXT_DIR}..."
 mkdir -p "${EXT_DIR}"
 cp -f metadata.json extension.js prefs.js stylesheet.css "${EXT_DIR}/"
-if [[ -d sysmenu ]]; then
-    mkdir -p "${EXT_DIR}/sysmenu"
-    cp -rf sysmenu/* "${EXT_DIR}/sysmenu/"
-fi
+for dir in src app icons sysmenu; do
+    if [[ -d "${dir}" ]]; then
+        mkdir -p "${EXT_DIR}/${dir}"
+        cp -rf "${dir}"/* "${EXT_DIR}/${dir}/"
+    fi
+done
 if [[ -d schemas ]]; then
     mkdir -p "${EXT_DIR}/schemas"
     cp -f schemas/* "${EXT_DIR}/schemas/"
     glib-compile-schemas "${EXT_DIR}/schemas"
 fi
-success "Extension files, preferences, sysmenu, and compiled schemas copied."
+success "Extension files, preferences, modules, icons, and compiled schemas copied."
 
 # Configure GTK 3 settings.ini to load appmenu-gtk-module
 GTK3_CONF_DIR="${HOME}/.config/gtk-3.0"

@@ -20,7 +20,7 @@ test-menu.py
 SKILLS
 
 # ignore compiled schema
-schemas/gschema.compiled
+schemas/gschemas.compiled
 
 # AUDIT files
 AUDIT.md

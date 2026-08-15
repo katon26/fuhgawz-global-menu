@@ -41,5 +41,65 @@
       <summary>App Store command</summary>
       <description>Command line executable to launch the application software store.</description>
     </key>
+    <key name="custom-menu-enabled" type="b">
+      <default>false</default>
+      <summary>Enable custom menu item</summary>
+      <description>Enable a user-defined custom command item in the system menu.</description>
+    </key>
+    <key name="custom-menu-label" type="s">
+      <default>''</default>
+      <summary>Custom menu label</summary>
+      <description>Display label for the custom system menu item.</description>
+    </key>
+    <key name="custom-menu-command" type="s">
+      <default>''</default>
+      <summary>Custom menu command</summary>
+      <description>Shell command line to execute when clicking the custom menu item.</description>
+    </key>
+    <key name="custom-menu-icon" type="s">
+      <default>''</default>
+      <summary>Custom menu icon path</summary>
+      <description>Optional path to an icon image file for the custom menu item.</description>
+    </key>
+    <key type="i" name="icon">
+      <default>0</default>
+      <summary>Menu Icon</summary>
+      <description>Change the Menu Button Icon</description>
+    </key>
+    <key type="b" name="activity-menu-visibility">
+      <default>true</default>
+      <summary>Hide Activity Menu</summary>
+      <description>Change Activity Menu Visibility Status</description>
+    </key>
+    <key type="b" name="hide-lock-button">
+      <default>false</default>
+      <summary>Hide Lock Screen quick settings button</summary>
+      <description>Hide the lock screen quick settings action when enabled</description>
+    </key>
+    <key type="b" name="hide-power-button">
+      <default>false</default>
+      <summary>Hide Power quick settings button</summary>
+      <description>Hide the power quick settings action when enabled</description>
+    </key>
+    <key type="b" name="hide-settings-button">
+      <default>false</default>
+      <summary>Hide Settings quick settings button</summary>
+      <description>Hide the settings quick settings action when enabled</description>
+    </key>
+    <key type="as" name="custom-menu-shortcut">
+      <default>[]</default>
+      <summary>Custom menu item shortcut</summary>
+      <description>Keyboard shortcut that runs the custom menu item command</description>
+    </key>
+    <key type="b" name="macos-accelerators">
+      <default>false</default>
+      <summary>macOS style accelerator symbols</summary>
+      <description>Display accelerator hints using macOS symbols</description>
+    </key>
+    <key type="as" name="force-quit-shortcut">
+      <default><![CDATA[['<Alt><Super>Escape']]]></default>
+      <summary>Force Quit shortcut</summary>
+      <description>Keyboard shortcut that opens the Force Quit window</description>
+    </key>
   </schema>
 </schemalist>
