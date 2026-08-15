@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FUHGAWZ Global Menu · every app menu, one bar</title>
+  <meta name="description" content="FUHGAWZ Global Menu is a native global application menu for GNOME Shell. File, Edit, View, and Help from every app, in one top bar. GNOME 45–50." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip" href="#menu">Skip to content</a>
+
+  <!-- Nav — flush hairline bar, working ⌘K palette -->
+  <header class="nav">
+    <div class="nav__inner">
+      <a class="wordmark" href="#top">
+        <svg class="wordmark__mark" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.2" />
+          <ellipse cx="8" cy="8" rx="2.7" ry="6.2" />
+          <path d="M1.8 8h12.4" />
+        </svg>
+        <span>FUHGAWZ Global Menu</span>
+      </a>
+      <ul class="nav__links">
+        <li><a class="nav__link" href="#menu">Menu</a></li>
+        <li><a class="nav__link" href="#fallbacks">Fallbacks</a></li>
+        <li><a class="nav__link" href="#install">Install</a></li>
+      </ul>
+      <div class="nav__actions">
+        <button class="cmdk" id="cmd-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="palette">
+          <span class="cmdk__label">Command</span>
+          <kbd class="cmdk__hint" aria-hidden="true">⌘K</kbd>
+        </button>
+        <a class="btn btn--primary" href="#install">Install</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- Hero — statement left, live terminal right -->
+    <section class="hero">
+      <div data-reveal>
+        <p class="hero__meta">GNOME 45–50 · GPL-3.0-or-later</p>
+        <h1 class="hero__title">Your app menus, back in one bar.</h1>
+        <p class="hero__lede">
+          FUHGAWZ Global Menu moves File, Edit, View, and Help out of every window and into a
+          single native top bar, with a system menu, user switcher, recent items, and force quit
+          on the same key. GTK 3, GTK 4, Qt, and dbusmenu apps, one place.
+        </p>
+        <div class="hero__cta">
+          <a class="btn btn--primary btn--lg" href="#install">Install the extension</a>
+          <a class="btn btn--ghost btn--lg" href="https://github.com/katon26/fuhgawz-global-menu" rel="noopener">View on GitHub</a>
+        </div>
+      </div>
+      <figure class="code-card" data-reveal>
+        <div class="code-card__bar">
+          <div class="code-card__title">
+            <span class="code-card__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="chip chip--ok">extension.js</span>
+          </div>
+          <button class="copy-mini" type="button"
+            data-copy="gnome-extensions enable fuhgawzglbmenu@katon26.github.io">copy</button>
+        </div>
+        <pre class="code" aria-label="What enabling the extension looks like"><code><span class="tok-accent">$</span> gnome-extensions enable fuhgawzglbmenu@katon26.github.io
+<span class="code__result">✓</span> app menus live in the top bar
+<span class="code__result">✓</span> system menu · user switcher · force quit
+<span class="code__result">✓</span> <span class="type-line" data-type="GNOME 45–50 · GPL-3.0-or-later"></span><span class="caret" aria-hidden="true"></span></code></pre>
+      </figure>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- Spec sheet — the menu, section by section -->
+    <section class="spec" id="menu" aria-labelledby="spec-head">
+      <h2 class="spec__head" id="spec-head" data-reveal>One bar. Every menu.</h2>
+      <dl class="spec__rows" data-reveal>
+        <div class="spec-row">
+          <dt>App Menu</dt>
+          <dd>File, Edit, View, and Help from the focused application, rendered in the top bar.</dd>
+          <dd class="spec-row__note">gtk3 · appmenu-gtk-module</dd>
+        </div>
+        <div class="spec-row">
+          <dt>GTK 4 Fallback</dt>
+          <dd>Reads <code>org.gtk.Actions</code> from modern headerbar-driven apps and groups them logically.</dd>
+          <dd class="spec-row__note">gtk4 · org.gtk.Actions</dd>
+        </div>
+        <div class="spec-row">
+          <dt>D-Bus Registrar</dt>
+          <dd>A session-wide registrar for Qt and compatible applications exporting <code>com.canonical.dbusmenu</code>.</dd>
+          <dd class="spec-row__note">qt · com.canonical.dbusmenu</dd>
+        </div>
+        <div class="spec-row">
+          <dt>System Menu</dt>
+          <dd>User switcher, recent items, force quit, and quick-settings hiders on the same key as the app menu.</dd>
+          <dd class="spec-row__note">built-in · src/systemMenu.js</dd>
+        </div>
+        <div class="spec-row">
+          <dt>GNOME Coverage</dt>
+          <dd>Supported on GNOME 45 through 50, with an extension preferences page for layout and shortcuts.</dd>
+          <dd class="spec-row__note">45 · 46 · 47 · 48 · 49 · 50</dd>
+        </div>
+      </dl>
+    </section>
+
+    <!-- Dark graphite band — the one dark beat -->
+    <section class="band" id="fallbacks" aria-labelledby="band-head">
+      <div class="band__inner">
+        <h2 class="band__head" id="band-head" data-reveal>How menus reach the bar</h2>
+        <ol class="tiers" data-reveal>
+          <li>
+            <span class="tiers__num">01</span>
+            <span>
+              <span class="tiers__label">GTK 3 apps</span>
+              <span class="tiers__proto">gtk-modules=appmenu-gtk-module</span>
+            </span>
+            <span class="tiers__desc">Classic D-Bus menu export, restored on modern distros where it is no longer the default.</span>
+          </li>
+          <li>
+            <span class="tiers__num">02</span>
+            <span>
+              <span class="tiers__label">GTK 4 apps</span>
+              <span class="tiers__proto">org.gtk.Actions</span>
+            </span>
+            <span class="tiers__desc">Modern headerbar-driven apps are read directly and grouped into the same menu.</span>
+          </li>
+          <li>
+            <span class="tiers__num">03</span>
+            <span>
+              <span class="tiers__label">Qt &amp; others</span>
+              <span class="tiers__proto">com.canonical.dbusmenu</span>
+            </span>
+            <span class="tiers__desc">A session registrar lets compatible apps export menus without per-app configuration.</span>
+          </li>
+        </ol>
+        <p class="band__note" data-reveal>
+          The extension probes every source and shows the first menu that answers. Apps with no
+          exported menu fall back to the system menu, so the bar never goes empty.
+        </p>
+      </div>
+    </section>
+
+    <!-- Install -->
+    <section class="cta" id="install" aria-labelledby="cta-head">
+      <h2 class="cta__head" id="cta-head" data-reveal>Install in two steps</h2>
+      <p class="cta__text" data-reveal>
+        Clone the repository, run <code>./install.sh</code>, then enable the extension. The script
+        copies the modules, compiles the schema, and configures the GTK 3 and GTK 2 modules for
+        menu export, so no distro packaging is required.
+      </p>
+      <figure class="code-card" data-reveal>
+        <div class="code-card__bar">
+          <div class="code-card__title">
+            <span class="code-card__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="chip chip--ok">install.sh</span>
+          </div>
+          <button class="copy-mini" type="button" data-copy="git clone https://github.com/katon26/fuhgawz-global-menu
+cd fuhgawz-global-menu
+./install.sh
+gnome-extensions enable fuhgawzglbmenu@katon26.github.io">copy</button>
+        </div>
+        <pre class="code" aria-label="Installation commands"><code><span class="tok-accent">$</span> git clone https://github.com/katon26/fuhgawz-global-menu
+<span class="tok-accent">$</span> cd fuhgawz-global-menu
+<span class="tok-accent">$</span> ./install.sh
+<span class="tok-accent">$</span> gnome-extensions enable fuhgawzglbmenu@katon26.github.io</code></pre>
+      </figure>
+    </section>
+  </main>
+
+  <!-- Footer — Ft5 statement -->
+  <footer class="foot">
+    <p class="foot__line">One bar for the whole desktop.</p>
+    <div class="foot__meta">
+      <span class="wordmark">
+        <svg class="wordmark__mark" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.2" />
+          <ellipse cx="8" cy="8" rx="2.7" ry="6.2" />
+          <path d="M1.8 8h12.4" />
+        </svg>
+        <span>FUHGAWZ Global Menu</span>
+      </span>
+      <span class="foot__links">
+        <a class="foot__link" href="https://github.com/katon26/fuhgawz-global-menu" rel="noopener">GitHub</a>
+        <span aria-hidden="true"> · </span>
+        <a class="foot__link" href="https://github.com/katon26/fuhgawz-global-menu/issues" rel="noopener">Issues</a>
+      </span>
+      <span>© 2026 katon26 · GPL-3.0-or-later · GNOME 45–50</span>
+    </div>
+  </footer>
+
+  <!-- Command palette -->
+  <div class="palette" id="palette" role="dialog" aria-modal="true" aria-label="Command palette" hidden>
+    <div class="palette__backdrop"></div>
+    <div class="palette__panel">
+      <div class="palette__input-row">
+        <span class="palette__prefix" aria-hidden="true">&gt;</span>
+        <input class="palette__input" type="text" id="palette-input" placeholder="Type a command…" autocomplete="off" spellcheck="false" aria-label="Filter commands" />
+        <kbd class="palette__esc" aria-hidden="true">esc</kbd>
+      </div>
+      <ul class="palette__list" id="palette-list" role="listbox" aria-label="Commands">
+        <li class="palette__item" role="option" data-action="goto" data-target="install">
+          <span>Install the extension</span><kbd aria-hidden="true">↵</kbd>
+        </li>
+        <li class="palette__item" role="option" data-action="goto" data-target="menu">
+          <span>Menu contents</span><kbd aria-hidden="true">↵</kbd>
+        </li>
+        <li class="palette__item" role="option" data-action="goto" data-target="fallbacks">
+          <span>How menus reach the bar</span><kbd aria-hidden="true">↵</kbd>
+        </li>
+        <li class="palette__item" role="option" data-action="copy" data-copy="git clone https://github.com/katon26/fuhgawz-global-menu
+cd fuhgawz-global-menu
+./install.sh
+gnome-extensions enable fuhgawzglbmenu@katon26.github.io">
+          <span>Copy install command</span><kbd aria-hidden="true">↵</kbd>
+        </li>
+        <li class="palette__item" role="option" data-action="link" data-href="https://github.com/katon26/fuhgawz-global-menu">
+          <span>Open the repository</span><kbd aria-hidden="true">↵</kbd>
+        </li>
+      </ul>
+      <p class="palette__empty" id="palette-empty" hidden>No commands match.</p>
+    </div>
+  </div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
