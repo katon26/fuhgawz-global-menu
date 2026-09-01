@@ -830,7 +830,7 @@ export const RecentItemsSubmenu = GObject.registerClass(
       const displayName = this._formatDocumentTooltip(uri) ?? uri;
       this._notifyLaunchFailure(
         this._gettext('Item unavailable'),
-        this._gettext('Could not open "%s".').format(displayName)
+        this._gettext('Could not open "%s".').replace('%s', displayName)
       );
       logError(error, `Failed to open recent item: ${uri}`);
     } finally {
@@ -859,7 +859,7 @@ export const RecentItemsSubmenu = GObject.registerClass(
         'unknown';
       this._notifyLaunchFailure(
         this._gettext('Application unavailable'),
-        this._gettext('Could not launch "%s".').format(fallbackId)
+        this._gettext('Could not launch "%s".').replace('%s', fallbackId)
       );
       logError(error, `Failed to launch application: ${fallbackId}`);
     } finally {

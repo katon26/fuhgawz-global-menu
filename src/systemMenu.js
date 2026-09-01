@@ -22,7 +22,7 @@ import { createCustomMenuItem, runCustomMenuCommand } from './customMenuItem.js'
 Gio._promisify(Gio.File.prototype, 'load_bytes_async');
 Gio._promisify(Gio.File.prototype, 'load_contents_async');
 
-// Maps action tokens from menulayout.json to SystemActions methods.
+// Maps action tokens to SystemActions method names.
 const SYSTEM_ACTIONS = new Map([
   ['lock-screen', 'activateLockScreen'],
   ['suspend', 'activateSuspend'],
@@ -31,7 +31,89 @@ const SYSTEM_ACTIONS = new Map([
   ['logout', 'activateLogout'],
 ]);
 
+const DEFAULT_LAYOUT = [
+  {
+    type: 'menu',
+    title: 'About This PC…',
+    cmds: ['about-this-pc'],
+    icon: 'dialog-information-symbolic',
+  },
+  {
+    type: 'separator',
+  },
+  {
+    type: 'menu',
+    title: 'System Settings…',
+    cmds: ['gnome-control-center'],
+    icon: 'preferences-system-symbolic',
+    accelKey: 'control-center',
+  },
+  {
+    type: 'menu',
+    title: 'App Store…',
+    cmds: ['gnome-software'],
+    commandSettingKey: 'app-store-command',
+    icon: 'system-software-install-symbolic',
+  },
+  {
+    type: 'separator',
+  },
+  {
+    type: 'recent-items',
+    title: 'Recent Items',
+    icon: 'document-open-recent-symbolic',
+  },
+  {
+    type: 'separator',
+  },
+  {
+    type: 'menu',
+    title: 'Force Quit Applications…',
+    cmds: ['force-quit'],
+    icon: 'process-stop-symbolic',
+  },
+  {
+    type: 'separator',
+  },
+  {
+    type: 'menu',
+    title: 'Sleep',
+    cmds: ['suspend'],
+    icon: 'weather-clear-night-symbolic',
+  },
+  {
+    type: 'menu',
+    title: 'Restart…',
+    cmds: ['restart'],
+    icon: 'system-reboot-symbolic',
+  },
+  {
+    type: 'menu',
+    title: 'Shut Down…',
+    cmds: ['power-off'],
+    icon: 'system-shutdown-symbolic',
+  },
+  {
+    type: 'separator',
+  },
+  {
+    type: 'menu',
+    title: 'Lock Screen',
+    cmds: ['lock-screen'],
+    icon: 'system-lock-screen-symbolic',
+    accelKey: 'screensaver',
+  },
+  {
+    type: 'menu',
+    title: 'Log Out…',
+    cmds: ['logout'],
+    icon: 'system-log-out-symbolic',
+    accelKey: 'logout',
+  },
+];
+
 async function loadJsonFileAsync(basePath, segments, cancellable) {
+  if (!basePath) return [];
   const filePath = GLib.build_filenamev([basePath, ...segments]);
 
   try {
@@ -43,7 +125,6 @@ async function loadJsonFileAsync(basePath, segments, cancellable) {
     if (error instanceof GLib.Error && error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) {
       return [];
     }
-    logError(error, `Failed to load JSON data from ${filePath}`);
     return [];
   }
 }
@@ -52,120 +133,122 @@ export const SystemMenu = GObject.registerClass(
   { GTypeName: 'FUHGlobeSystemMenuButton' },
   class SystemMenu extends PanelMenu.Button {
     _init(settings, extensionPath, extension) {
-      super._init(0.5, 'FUHGlobeSystemMenu');
+      super._init(0.0, 'FUHGlobeSystemMenu');
+      this.add_style_class_name('fuhgawz-panel-button');
+      this.accessible_name = this._gettext('System Menu');
 
-  this._settings = settings;
-  this._extensionPath = extensionPath;
-  this._extension = extension;
-  this._settingsSignalIds = [];
-  this._menuOpenSignalId = 0;
-  this._recentMenuManager = new PopupMenu.PopupMenuManager(this);
-  this._cancellable = new Gio.Cancellable();
-  this._isDestroyed = false;
-  this._forceQuitService = new ForceQuitService();
-  this._systemActions = SystemActions.getDefault();
-  this._mediaKeysSettings = this._createMediaKeysSettings();
+      this._settings = settings;
+      this._extensionPath = extensionPath;
+      this._extension = extension;
+      this._settingsSignalIds = [];
+      this._menuOpenSignalId = 0;
+      this._recentMenuManager = new PopupMenu.PopupMenuManager(this);
+      this._cancellable = new Gio.Cancellable();
+      this._isDestroyed = false;
+      this._forceQuitService = new ForceQuitService();
+      this._systemActions = SystemActions.getDefault();
+      this._mediaKeysSettings = this._createMediaKeysSettings();
 
       this._icons = [];
-      this._layout = [];
-
-      this._loadDataAsync().catch(logError);
+      this._layout = DEFAULT_LAYOUT;
 
       if (this.menu?.actor) {
         this.menu.actor.add_style_class_name('fuhgawz-main-menu');
         if (typeof this.menu.setSourceAlignment === 'function') {
-          this.menu.setSourceAlignment(0.5);
+          this.menu.setSourceAlignment(0.0);
         }
       }
 
       this._icon = new St.Icon({
-        style_class: 'menu-button',
+        icon_name: 'emblem-system-symbolic',
+        style_class: 'system-status-icon',
+        y_align: Clutter.ActorAlign.CENTER,
       });
       this.add_child(this._icon);
 
-      this._settingsSignalIds.push(
-        this._settings.connect('changed::icon', () => this._setIcon())
-      );
-      this._settingsSignalIds.push(
-        this._settings.connect('changed::activity-menu-visibility', () =>
-          this._syncActivitiesVisibility()
-        )
-      );
-      this._settingsSignalIds.push(
-        this._settings.connect('changed::app-store-command', () =>
-          this._renderPopupMenu().catch(logError)
-        )
-      );
-      this._settingsSignalIds.push(
-        this._settings.connect('changed::custom-menu-enabled', () =>
-          this._renderPopupMenu().catch(logError)
-        )
-      );
-      this._settingsSignalIds.push(
-        this._settings.connect('changed::custom-menu-label', () =>
-          this._renderPopupMenu().catch(logError)
-        )
-      );
-      this._settingsSignalIds.push(
-        this._settings.connect('changed::custom-menu-command', () =>
-          this._renderPopupMenu().catch(logError)
-        )
-      );
-      this._settingsSignalIds.push(
-        this._settings.connect('changed::custom-menu-icon', () =>
-          this._renderPopupMenu().catch(logError)
-        )
-      );
-      this._settingsSignalIds.push(
-        this._settings.connect('changed::custom-menu-shortcut', () =>
-          this._renderPopupMenu().catch(logError)
-        )
-      );
+      if (this._settings) {
+        this._settingsSignalIds.push(
+          this._settings.connect('changed::system-menu-icon', () => this._setIcon())
+        );
+        this._settingsSignalIds.push(
+          this._settings.connect('changed::icon', () => this._setIcon())
+        );
+        this._settingsSignalIds.push(
+          this._settings.connect('changed::show-recent-items', () => this._renderPopupMenu())
+        );
+        this._settingsSignalIds.push(
+          this._settings.connect('changed::show-force-quit', () => this._renderPopupMenu())
+        );
+        this._settingsSignalIds.push(
+          this._settings.connect('changed::app-store-command', () => this._renderPopupMenu())
+        );
+        this._settingsSignalIds.push(
+          this._settings.connect('changed::custom-menu-enabled', () => this._renderPopupMenu())
+        );
+        this._settingsSignalIds.push(
+          this._settings.connect('changed::custom-menu-label', () => this._renderPopupMenu())
+        );
+        this._settingsSignalIds.push(
+          this._settings.connect('changed::custom-menu-command', () => this._renderPopupMenu())
+        );
+        this._settingsSignalIds.push(
+          this._settings.connect('changed::custom-menu-icon', () => this._renderPopupMenu())
+        );
+        this._settingsSignalIds.push(
+          this._settings.connect('changed::custom-menu-shortcut', () => this._renderPopupMenu())
+        );
+        this._settingsSignalIds.push(
+          this._settings.connect('changed::macos-accelerators', () => this._renderPopupMenu())
+        );
 
-      this._menuOpenSignalId = this.menu.connect(
-        'open-state-changed',
-        (_, isOpen) => {
-          if (isOpen) {
-            this._renderPopupMenu().catch(logError);
-          }
-        }
-      );
+        Main.wm.addKeybinding(
+          'force-quit-shortcut',
+          this._settings,
+          Meta.KeyBindingFlags.NONE,
+          Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
+          () => this._openForceQuitWindow()
+        );
 
-      Main.wm.addKeybinding(
-        'force-quit-shortcut',
-        this._settings,
-        Meta.KeyBindingFlags.NONE,
-        Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
-        () => this._openForceQuitWindow()
-      );
+        Main.wm.addKeybinding(
+          'custom-menu-shortcut',
+          this._settings,
+          Meta.KeyBindingFlags.NONE,
+          Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
+          () => runCustomMenuCommand(this._settings)
+        );
+      }
 
-      Main.wm.addKeybinding(
-        'custom-menu-shortcut',
-        this._settings,
-        Meta.KeyBindingFlags.NONE,
-        Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
-        () => runCustomMenuCommand(this._settings)
-      );
+      this._setIcon();
+      this._renderPopupMenu();
+
+      this._loadDataAsync().catch((e) => {
+        console.log(`FUHGlobe: Async data load note: ${e}`);
+      });
     }
 
     async _loadDataAsync() {
+      if (!this._extensionPath) return;
+
       try {
         const [icons, layout] = await Promise.all([
           loadJsonFileAsync(this._extensionPath, ['src', 'menu-icons.json'], this._cancellable),
           loadJsonFileAsync(this._extensionPath, ['src', 'menu-layout.json'], this._cancellable),
         ]);
 
-        if (this._isDestroyed || !this._settings) return;
+        if (this._isDestroyed) return;
 
-        this._icons = icons;
-        this._layout = layout;
+        if (icons && icons.length > 0) {
+          this._icons = icons;
+        }
+        if (layout && layout.length > 0) {
+          this._layout = layout;
+        }
 
         this._setIcon();
-        this._syncActivitiesVisibility();
-        await this._renderPopupMenu();
+        this._renderPopupMenu();
       } catch (error) {
         if (this._isDestroyed) return;
-        logError(error, 'Failed to load initial system menu data');
+        console.log(`FUHGlobe: Non-fatal error loading system menu JSON: ${error}`);
       }
     }
 
@@ -177,18 +260,17 @@ export const SystemMenu = GObject.registerClass(
         this._cancellable = null;
       }
 
-      this._settingsSignalIds.forEach((id) => this._settings.disconnect(id));
-      this._settingsSignalIds = [];
-
-      Main.wm.removeKeybinding('force-quit-shortcut');
-      Main.wm.removeKeybinding('custom-menu-shortcut');
+      if (this._settings) {
+        this._settingsSignalIds.forEach((id) => this._settings.disconnect(id));
+        this._settingsSignalIds = [];
+        Main.wm.removeKeybinding('force-quit-shortcut');
+        Main.wm.removeKeybinding('custom-menu-shortcut');
+      }
 
       if (this._menuOpenSignalId !== 0) {
         this.menu.disconnect(this._menuOpenSignalId);
         this._menuOpenSignalId = 0;
       }
-
-      this._showActivitiesButton();
 
       if (this._forceQuitService) {
         this._forceQuitService.destroy();
@@ -203,31 +285,42 @@ export const SystemMenu = GObject.registerClass(
     }
 
     _setIcon() {
-      if (!this._icons || this._icons.length === 0) {
-        return;
+      let iconName = '';
+      if (this._settings) {
+        try {
+          iconName = this._settings.get_string('system-menu-icon');
+        } catch (_e) { /* ignore */ }
       }
 
-      const iconIndex = this._settings.get_int('icon');
-      const iconInfo = this._icons[iconIndex] ?? this._icons[0];
-      if (!iconInfo) {
-        return;
+      if (!iconName || !iconName.trim() || iconName === 'emblem-system-symbolic') {
+        let iconIndex = 0;
+        if (this._settings) {
+          try {
+            iconIndex = this._settings.get_int('icon');
+          } catch (_e) { /* ignore */ }
+        }
+        const iconInfo = (this._icons && this._icons.length > 0)
+          ? (this._icons[iconIndex] ?? this._icons[0])
+          : null;
+
+        if (iconInfo && iconInfo.path && this._extensionPath) {
+          const iconPath = `${this._extensionPath}${iconInfo.path}`;
+          try {
+            this._icon.gicon = Gio.icon_new_for_string(iconPath);
+            return;
+          } catch (_e) { /* fallback */ }
+        }
       }
-      const iconPath = `${this._extensionPath}${iconInfo.path}`;
 
-      this._icon.gicon = Gio.icon_new_for_string(iconPath);
-    }
-
-    _syncActivitiesVisibility() {
-      const container = this._getActivitiesContainer();
-      if (!container) {
-        return;
-      }
-
-      const shouldShow = this._settings.get_boolean('activity-menu-visibility');
-      if (shouldShow) {
-        container.show();
+      const effectiveIcon = (iconName && iconName.trim()) ? iconName.trim() : 'emblem-system-symbolic';
+      if (effectiveIcon.startsWith('/') || effectiveIcon.startsWith('.')) {
+        try {
+          this._icon.gicon = Gio.icon_new_for_string(effectiveIcon);
+        } catch (_e) {
+          this._icon.icon_name = 'emblem-system-symbolic';
+        }
       } else {
-        container.hide();
+        this._icon.icon_name = effectiveIcon;
       }
     }
 
@@ -235,35 +328,10 @@ export const SystemMenu = GObject.registerClass(
       return this._extension?.gettext(text) ?? text;
     }
 
-    _showActivitiesButton() {
-      const container = this._getActivitiesContainer();
-      if (container) {
-        container.show();
-      }
-    }
-
-    _getActivitiesContainer() {
-      const statusArea = Main.panel?.statusArea;
-      if (!statusArea) {
-        return null;
-      }
-
-      const activitiesEntry =
-        statusArea.activities ??
-        statusArea.activitiesButton ??
-        statusArea['activities'];
-
-      if (!activitiesEntry) {
-        return null;
-      }
-
-      return activitiesEntry.container ?? activitiesEntry;
-    }
-
-    async _renderPopupMenu() {
+    _renderPopupMenu() {
       this.menu.removeAll();
 
-      const layout = await this._generateLayout();
+      const layout = this._generateLayout();
       if (this._isDestroyed) return;
 
       let customMenuAdded = false;
@@ -271,23 +339,32 @@ export const SystemMenu = GObject.registerClass(
       layout.forEach((item) => {
         switch (item.type) {
           case 'menu':
+            // Check show-force-quit setting
+            if (item.cmds?.includes('force-quit') && this._settings && !this._settings.get_boolean('show-force-quit')) {
+              break;
+            }
+
             this._makeMenu(item.title, item.cmds, item.icon, item.accel);
-            
-            // Add custom menu item right after App Store entry
+
+            // Add custom menu item right after App Store entry if enabled
             if (!customMenuAdded && item.commandSettingKey === 'app-store-command') {
-              const customItem = createCustomMenuItem(this._settings, this._gettext.bind(this));
-              if (customItem) {
-                const bindings = this._settings.get_strv('custom-menu-shortcut');
-                if (bindings.length > 0) {
-                  this._attachAccelLabel(customItem, this._shortcutToLabel(bindings[0]));
+              if (this._settings) {
+                const customItem = createCustomMenuItem(this._settings, this._gettext.bind(this));
+                if (customItem) {
+                  const bindings = this._settings.get_strv('custom-menu-shortcut');
+                  if (bindings.length > 0) {
+                    this._attachAccelLabel(customItem, this._shortcutToLabel(bindings[0]));
+                  }
+                  this.menu.addMenuItem(customItem);
                 }
-                this.menu.addMenuItem(customItem);
               }
               customMenuAdded = true;
             }
             break;
           case 'recent-items':
-            this._makeRecentItemsMenu(item.title, item.icon);
+            if (!this._settings || this._settings.get_boolean('show-recent-items')) {
+              this._makeRecentItemsMenu(item.title, item.icon);
+            }
             break;
           case 'separator':
             this._makeSeparator();
@@ -296,13 +373,9 @@ export const SystemMenu = GObject.registerClass(
       });
     }
 
-    async _generateLayout() {
+    _generateLayout() {
       const fullName = GLib.get_real_name() || GLib.get_user_name() || '';
-
-      const layoutSource = this._layout ?? [];
-      const hasMultipleUsers = await this._hasMultipleLoginUsers();
-      if (this._isDestroyed) return [];
-
+      const layoutSource = (this._layout && this._layout.length > 0) ? this._layout : DEFAULT_LAYOUT;
       const items = [];
 
       for (const item of layoutSource) {
@@ -316,7 +389,7 @@ export const SystemMenu = GObject.registerClass(
         let title = translatedTitle;
         if (item.type === 'menu' && cmds?.includes('logout')) {
           title = fullName
-            ? this._gettext('Log Out %s...').format(fullName)
+            ? this._gettext('Log Out %s…').replace('%s', fullName)
             : translatedTitle;
         }
 
@@ -327,16 +400,12 @@ export const SystemMenu = GObject.registerClass(
         };
 
         if (item.type === 'menu' && cmds?.includes('force-quit')) {
-          const bindings = this._settings.get_strv('force-quit-shortcut');
+          const bindings = this._settings ? this._settings.get_strv('force-quit-shortcut') : [];
           outputItem.accel = bindings.length > 0
             ? this._shortcutToLabel(bindings[0])
             : undefined;
         } else if (item.type === 'menu' && item.accelKey) {
           outputItem.accel = this._resolveSystemAccel(item.accelKey);
-        }
-
-        if (outputItem.requiresMultipleUsers && !hasMultipleUsers) {
-          continue;
         }
 
         items.push(outputItem);
@@ -345,96 +414,72 @@ export const SystemMenu = GObject.registerClass(
       return items;
     }
 
-    async _hasMultipleLoginUsers() {
-      try {
-        const file = Gio.File.new_for_path('/etc/passwd');
-        const [contents] = await file.load_contents_async(this._cancellable);
-        if (this._isDestroyed || !contents) {
-          return false;
-        }
-
-        const data = new TextDecoder().decode(contents);
-
-        let count = 0;
-        for (const line of data.split('\n')) {
-          if (!line || line.startsWith('#')) {
-            continue;
-          }
-
-          const parts = line.split(':');
-          if (parts.length < 7) {
-            continue;
-          }
-
-          const uid = Number.parseInt(parts[2], 10);
-          const shell = parts[6]?.trim();
-
-          if (!Number.isInteger(uid)) {
-            continue;
-          }
-
-          if (
-            uid >= 1000 &&
-            shell &&
-            shell !== '/usr/sbin/nologin' &&
-            shell !== '/usr/bin/nologin' &&
-            shell !== '/bin/false'
-          ) {
-            count += 1;
-            if (count > 1) {
-              return true;
-            }
-          }
-        }
-
-        return false;
-      } catch (error) {
-        if (error instanceof GLib.Error && error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) {
-          return false;
-        }
-        logError(error, 'Failed to determine available login users');
-        return false;
-      }
-    }
-
     _makeMenu(title, cmds, iconName, accel) {
-      const menuItem = iconName
-        ? new PopupMenu.PopupImageMenuItem(title, iconName)
-        : new PopupMenu.PopupMenuItem(title);
+      const menuItem = new PopupMenu.PopupMenuItem(title);
+      if (iconName) {
+        try {
+          const icon = new St.Icon({
+            icon_name: iconName,
+            style_class: 'popup-menu-icon',
+            y_align: Clutter.ActorAlign.CENTER,
+          });
+          menuItem.insert_child_at_index(icon, 0);
+        } catch (_e) { /* ignore */ }
+      }
+
       const singleCmd = Array.isArray(cmds) && cmds.length === 1 ? cmds[0] : null;
       const isForceQuit = singleCmd === 'force-quit';
       const isAboutThisPc = singleCmd === 'about-this-pc';
       const systemAction = SYSTEM_ACTIONS.get(singleCmd);
 
       menuItem.connect('activate', () => {
+        this.menu.close(true);
+
         if (isForceQuit) {
-          this.menu.close(true);
           this._openForceQuitWindow();
           return;
         }
 
         if (isAboutThisPc) {
-          this.menu.close(true);
           this._openAboutWindow();
           return;
         }
 
         if (systemAction) {
-          this.menu.close(true);
-          this._systemActions[systemAction]();
+          try {
+            if (this._systemActions && typeof this._systemActions[systemAction] === 'function') {
+              this._systemActions[systemAction]();
+            } else {
+              const sa = SystemActions.getDefault();
+              if (sa && typeof sa[systemAction] === 'function') {
+                sa[systemAction]();
+              }
+            }
+          } catch (e) {
+            console.error(`FUHGlobe: Failed to trigger system action ${systemAction}: ${e}`);
+          }
           return;
         }
 
-        Util.spawn(cmds);
+        if (Array.isArray(cmds) && cmds.length > 0) {
+          try {
+            Gio.Subprocess.new(cmds, Gio.SubprocessFlags.NONE);
+          } catch (_e) {
+            try {
+              Util.spawn(cmds);
+            } catch (err) {
+              console.error(`FUHGlobe: Failed to execute [${cmds.join(' ')}]: ${err}`);
+            }
+          }
+        }
       });
 
       this._attachAccelLabel(menuItem, accel);
-
       this.menu.addMenuItem(menuItem);
     }
 
     _attachAccelLabel(menuItem, accel) {
-      if (!accel) {
+      if (!accel || !menuItem.label) {
         return;
       }
 
@@ -455,12 +500,10 @@ export const SystemMenu = GObject.registerClass(
           schema_id: 'org.gnome.settings-daemon.plugins.media-keys',
         });
       } catch (error) {
-        logError(error, 'Failed to access system media-keys settings');
         return null;
       }
     }
 
-    // Reads the current system shortcut for a media-key so labels track user rebinds.
     _resolveSystemAccel(mediaKey) {
       if (!this._mediaKeysSettings) {
         return undefined;
@@ -470,7 +513,6 @@ export const SystemMenu = GObject.registerClass(
       try {
         bindings = this._mediaKeysSettings.get_strv(mediaKey);
       } catch (error) {
-        logError(error, `Failed to read system shortcut '${mediaKey}'`);
         return undefined;
       }
 
@@ -491,7 +533,7 @@ export const SystemMenu = GObject.registerClass(
 
     _styleAccel(accel) {
       const upper = accel.replace(/\b[a-z]\b/g, (c) => c.toUpperCase());
-      if (!this._settings.get_boolean('macos-accelerators')) {
+      if (!this._settings || !this._settings.get_boolean('macos-accelerators')) {
         return upper;
       }
       return upper
@@ -514,20 +556,56 @@ export const SystemMenu = GObject.registerClass(
     }
 
     _openForceQuitWindow() {
-      const script = GLib.build_filenamev([this._extensionPath, 'app', 'forceQuitWindow.js']);
-      try {
-        Util.spawn(['gjs', '-m', script]);
-      } catch (error) {
-        logError(error, 'Failed to launch Force Quit window');
+      const script = this._extensionPath
+        ? GLib.build_filenamev([this._extensionPath, 'app', 'forceQuitWindow.js'])
+        : null;
+
+      let launched = false;
+      if (script && GLib.file_test(script, GLib.FileTest.EXISTS)) {
+        try {
+          Util.spawn(['gjs', '-m', script]);
+          launched = true;
+        } catch (error) {
+          console.error(`FUHGlobe: Failed to launch Force Quit helper: ${error}`);
+        }
+      }
+
+      if (!launched) {
+        try {
+          Util.spawn(['xkill']);
+        } catch (_e) { /* ignore */ }
       }
     }
 
     _openAboutWindow() {
-      const script = GLib.build_filenamev([this._extensionPath, 'app', 'aboutWindow.js']);
-      try {
-        Util.spawn(['gjs', '-m', script]);
-      } catch (error) {
-        logError(error, 'Failed to launch About This PC window');
+      const script = this._extensionPath
+        ? GLib.build_filenamev([this._extensionPath, 'app', 'aboutWindow.js'])
+        : null;
+
+      let launched = false;
+      if (script && GLib.file_test(script, GLib.FileTest.EXISTS)) {
+        try {
+          Util.spawn(['gjs', '-m', script]);
+          launched = true;
+        } catch (error) {
+          console.error(`FUHGlobe: Failed to launch About This PC helper: ${error}`);
+        }
+      }
+
+      if (!launched) {
+        try {
+          Gio.Subprocess.new(['gnome-control-center', 'system', 'about'], Gio.SubprocessFlags.NONE);
+        } catch (_e1) {
+          try {
+            Gio.Subprocess.new(['gnome-control-center', 'info-overview'], Gio.SubprocessFlags.NONE);
+          } catch (_e2) {
+            try {
+              Gio.Subprocess.new(['gnome-control-center'], Gio.SubprocessFlags.NONE);
+            } catch (e3) {
+              console.error(`FUHGlobe: Failed to launch GNOME Settings About panel: ${e3}`);
+            }
+          }
+        }
       }
     }
 
@@ -536,15 +614,14 @@ export const SystemMenu = GObject.registerClass(
         return fallback;
       }
 
-      let commandString;
+      let commandString = '';
       try {
         commandString = this._settings.get_string(settingKey);
       } catch (error) {
-        logError(error, `Failed to read command setting '${settingKey}'`);
         return fallback;
       }
 
-      const trimmed = commandString.trim();
+      const trimmed = commandString ? commandString.trim() : '';
       if (trimmed.length === 0) {
         return fallback;
       }
@@ -555,10 +632,11 @@ export const SystemMenu = GObject.registerClass(
           return argv;
         }
       } catch (error) {
-        logError(error, `Failed to parse command '${trimmed}' for setting '${settingKey}'`);
+        console.log(`FUHGlobe: Could not parse argv for setting ${settingKey}: ${trimmed}`);
       }
 
       return fallback;
     }
   }
 );
+

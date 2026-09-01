@@ -1,4 +1,4 @@
-#!@GJS@ -m
+#!/usr/bin/env -S gjs -m
 /*
  * SPDX-License-Identifier: GPL-3.0-or-later
  * aboutWindow.js - Standalone GTK4 "About This PC" window. Launched by
@@ -212,9 +212,17 @@ function buildWindow(application) {
   moreInfoButton.add_css_class('fuhgawz-about-button');
   moreInfoButton.connect('clicked', () => {
     try {
-      Gio.Subprocess.new(['gnome-control-center', 'about'], Gio.SubprocessFlags.NONE);
-    } catch (error) {
-      logError(error, 'Failed to open GNOME Settings about panel');
+      Gio.Subprocess.new(['gnome-control-center', 'system', 'about'], Gio.SubprocessFlags.NONE);
+    } catch (_e1) {
+      try {
+        Gio.Subprocess.new(['gnome-control-center', 'info-overview'], Gio.SubprocessFlags.NONE);
+      } catch (_e2) {
+        try {
+          Gio.Subprocess.new(['gnome-control-center'], Gio.SubprocessFlags.NONE);
+        } catch (error) {
+          logError(error, 'Failed to open GNOME Settings about panel');
+        }
+      }
     }
   });
 

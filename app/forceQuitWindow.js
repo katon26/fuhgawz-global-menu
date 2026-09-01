@@ -1,4 +1,4 @@
-#!@GJS@ -m
+#!/usr/bin/env -S gjs -m
 /*
  * SPDX-License-Identifier: GPL-3.0-or-later
  * forceQuitWindow.js - Standalone GTK4 "Force Quit Applications" window.
