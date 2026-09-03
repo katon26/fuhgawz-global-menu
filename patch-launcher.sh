@@ -64,14 +64,39 @@ if [[ "${DESKTOP_FILE}" != "${USER_DESKTOP_FILE}" ]]; then
     cp -f "${DESKTOP_FILE}" "${USER_DESKTOP_FILE}"
 fi
 
-# 2. Modify Exec lines to prepend GDK_BACKEND=x11 (and MOZ_ENABLE_WAYLAND=0 for Firefox)
-# First, clean up any existing GDK_BACKEND or MOZ_ENABLE_WAYLAND variables to avoid duplication
+# 2. Modify Exec lines to prepend GDK_BACKEND=x11 (and MOZ_ENABLE_WAYLAND=0 for Firefox, ELECTRON_OZONE_PLATFORM_HINT for Electron)
+# First, clean up any existing flags to avoid duplication
 sed -i 's/GDK_BACKEND=[a-zA-Z0-9-]* //g' "${USER_DESKTOP_FILE}"
 sed -i 's/MOZ_ENABLE_WAYLAND=[01] //g' "${USER_DESKTOP_FILE}"
+sed -i 's/ELECTRON_OZONE_PLATFORM_HINT=[a-zA-Z0-9-]* //g' "${USER_DESKTOP_FILE}"
 sed -i 's/^Exec=\(env \)\?/Exec=env /g' "${USER_DESKTOP_FILE}"
 
 if [[ "${FILE_NAME}" == *firefox* ]]; then
     sed -i 's/^Exec=env /Exec=env GDK_BACKEND=x11 MOZ_ENABLE_WAYLAND=0 /g' "${USER_DESKTOP_FILE}"
+elif [[ "${FILE_NAME}" == *code* || "${FILE_NAME}" == *vscodium* || "${FILE_NAME}" == *electron* ]]; then
+    sed -i 's/^Exec=env /Exec=env GDK_BACKEND=x11 ELECTRON_OZONE_PLATFORM_HINT=x11 /g' "${USER_DESKTOP_FILE}"
+
+    # Verify and configure VS Code native titlebar in settings.json
+    for conf_dir in "${HOME}/.config/Code/User" "${HOME}/.config/VSCodium/User" "${HOME}/.config/Code - OSS/User"; do
+        if [[ -d "${conf_dir}" ]]; then
+            SETTINGS_FILE="${conf_dir}/settings.json"
+            if [[ -f "${SETTINGS_FILE}" ]]; then
+                if grep -q '"window.titleBarStyle"' "${SETTINGS_FILE}"; then
+                    if grep -q '"window.titleBarStyle"[[:space:]]*:[[:space:]]*"custom"' "${SETTINGS_FILE}"; then
+                        info "Updating window.titleBarStyle to 'native' in ${SETTINGS_FILE}..."
+                        sed -i 's/"window.titleBarStyle"[[:space:]]*:[[:space:]]*"custom"/"window.titleBarStyle": "native"/g' "${SETTINGS_FILE}"
+                        success "Set 'window.titleBarStyle': 'native' in ${SETTINGS_FILE}"
+                    else
+                        success "Verified 'window.titleBarStyle' is already set in ${SETTINGS_FILE}"
+                    fi
+                else
+                    info "Adding 'window.titleBarStyle': 'native' to ${SETTINGS_FILE}..."
+                    python3 -c "import json; p='${SETTINGS_FILE}'; f=open(p,'r'); d=json.load(f); f.close(); d['window.titleBarStyle']='native'; f=open(p,'w'); json.dump(d,f,indent=4); f.close()" 2>/dev/null || true
+                    success "Added 'window.titleBarStyle': 'native' to ${SETTINGS_FILE}"
+                fi
+            fi
+        fi
+    done
 else
     sed -i 's/^Exec=env /Exec=env GDK_BACKEND=x11 /g' "${USER_DESKTOP_FILE}"
 fi
@@ -82,3 +107,4 @@ if command -v update-desktop-database &>/dev/null; then
 fi
 
 success "Successfully patched '${FILE_NAME}'! Next time you launch it from your desktop panel or dock, it will run under XWayland and export its menu."
+
