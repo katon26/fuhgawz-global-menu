@@ -12,6 +12,9 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { SystemMenu } from './src/systemMenu.js';
 import { UserSwitcherController } from './src/userSwitcher.js';
 import { QuickSettingsActionsController } from './src/quickSettingsHider.js';
+import { VirtualKeyboardDispatcher } from './src/virtualKeyboard.js';
+import { ProfileManager } from './src/profileManager.js';
+import { AtspiScanner } from './src/atspiScanner.js';
 
 // ── D-Bus Interface XML ──────────────────────────────────────────────────────
 
@@ -364,11 +367,13 @@ function _cleanLabel(raw) {
 
 const AppMenuButton = GObject.registerClass(
 class AppMenuButton extends PanelMenu.Button {
-    _init(metaWindow) {
+    _init(metaWindow, profile = null, dispatcher = null) {
         super._init(0.0, 'FUHGlobeAppMenuButton');
         this.add_style_class_name('fuhgawz-panel-button');
 
         this._window = metaWindow;
+        this._profile = profile;
+        this._dispatcher = dispatcher;
 
         const box = new St.BoxLayout({
             style_class: 'panel-status-menu-box fuhgawz-menu-box',
@@ -387,7 +392,9 @@ class AppMenuButton extends PanelMenu.Button {
         }
 
         let appLabel = _('Desktop');
-        if (app) {
+        if (profile && profile.app_menu && profile.app_menu.label) {
+            appLabel = profile.app_menu.label;
+        } else if (app) {
             appLabel = app.get_name() || _('Application');
         } else if (metaWindow) {
             appLabel = metaWindow.get_title() || _('Window');
@@ -404,6 +411,47 @@ class AppMenuButton extends PanelMenu.Button {
         this.add_child(box);
 
         this._buildMenu(appLabel);
+    }
+
+    _triggerAboutAction(appLabel) {
+        try {
+            const busName = this._window.gtk_unique_bus_name || '';
+            const appId = this._window.gtk_application_id || '';
+            const winPath = this._window.gtk_window_object_path || '';
+            const appObjPath = appId ? '/' + appId.replace(/\./g, '/') : '';
+
+            if (!busName) return;
+
+            const tryPaths = [appObjPath, winPath].filter(p => p);
+            let tried = 0;
+
+            const tryNext = () => {
+                if (tried >= tryPaths.length) return;
+                const objPath = tryPaths[tried++];
+                Gio.DBus.session.call(
+                    busName,
+                    objPath,
+                    'org.gtk.Actions',
+                    'Activate',
+                    GLib.Variant.new('(sava{sv})', ['about', [], {}]),
+                    null,
+                    Gio.DBusCallFlags.NONE,
+                    -1,
+                    null,
+                    (_conn, res) => {
+                        try {
+                            Gio.DBus.session.call_finish(res);
+                        } catch (e) {
+                            tryNext();
+                        }
+                    }
+                );
+            };
+
+            tryNext();
+        } catch (e) {
+            console.error(`FUHGlobe: Failed to show about dialog: ${e}`);
+        }
     }
 
     _buildMenu(appLabel) {
@@ -438,62 +486,42 @@ class AppMenuButton extends PanelMenu.Button {
             return;
         }
 
-        // Per-app dropdown
-        const itemAbout = new PopupMenu.PopupMenuItem(_('About %s…').replace('%s', appLabel));
-        itemAbout.connect('activate', () => {
-            try {
-                // Get the window's D-Bus info
-                const busName = this._window.gtk_unique_bus_name || '';
-                const appId = this._window.gtk_application_id || '';
-                const winPath = this._window.gtk_window_object_path || '';
-                const appObjPath = appId ? '/' + appId.replace(/\./g, '/') : '';
-
-                console.log(`FUHGlobe: About dialog — bus=${busName} app=${appId} appPath=${appObjPath} winPath=${winPath}`);
-
-                if (!busName) {
-                    console.log('FUHGlobe: No bus name available for about action');
-                    return;
+        // Check if profile defines an app_menu
+        if (this._profile && this._profile.app_menu && Array.isArray(this._profile.app_menu.items)) {
+            for (const item of this._profile.app_menu.items) {
+                if (item.type === 'separator') {
+                    this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+                    continue;
                 }
 
-                // Try app object path first, then window path
-                const tryPaths = [appObjPath, winPath].filter(p => p);
-                let tried = 0;
+                const menuItem = new PopupMenu.PopupMenuItem(item.label || '');
 
-                const tryNext = () => {
-                    if (tried >= tryPaths.length) {
-                        console.log('FUHGlobe: All about action paths failed');
-                        return;
-                    }
-                    const objPath = tryPaths[tried++];
-                    console.log(`FUHGlobe: Trying about action on ${objPath}`);
+                if (item.shortcut) {
+                    const shortcutLabel = new St.Label({
+                        text: item.shortcut,
+                        style_class: 'popup-inactive-menu-item',
+                        x_align: Clutter.ActorAlign.END,
+                        x_expand: true,
+                    });
+                    menuItem.add_child(shortcutLabel);
 
-                    Gio.DBus.session.call(
-                        busName,
-                        objPath,
-                        'org.gtk.Actions',
-                        'Activate',
-                        GLib.Variant.new('(sava{sv})', ['about', [], {}]),
-                        null,
-                        Gio.DBusCallFlags.NONE,
-                        -1,
-                        null,
-                        (_conn, res) => {
-                            try {
-                                Gio.DBus.session.call_finish(res);
-                                console.log(`FUHGlobe: About action succeeded on ${objPath}`);
-                            } catch (e) {
-                                console.log(`FUHGlobe: About action failed on ${objPath}: ${e}`);
-                                tryNext();
-                            }
+                    menuItem.connect('activate', () => {
+                        if (this._dispatcher && this._window) {
+                            this._dispatcher.dispatchAccelerator(this._window, item.shortcut);
                         }
-                    );
-                };
+                    });
+                } else if (item.label && item.label.toLowerCase().startsWith('about')) {
+                    menuItem.connect('activate', () => this._triggerAboutAction(appLabel));
+                }
 
-                tryNext();
-            } catch (e) {
-                console.error(`FUHGlobe: Failed to show about dialog: ${e}`);
+                this.menu.addMenuItem(menuItem);
             }
-        });
+            return;
+        }
+
+        // Per-app dropdown
+        const itemAbout = new PopupMenu.PopupMenuItem(_('About %s…').replace('%s', appLabel));
+        itemAbout.connect('activate', () => this._triggerAboutAction(appLabel));
         this.menu.addMenuItem(itemAbout);
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -616,7 +644,7 @@ class DBusMenuButton extends PanelMenu.Button {
 
 const ActionsMenuButton = GObject.registerClass(
 class ActionsMenuButton extends PanelMenu.Button {
-    _init(groupLabel, actionItems, busName, appObjectPath, winObjectPath) {
+    _init(groupLabel, actionItems, busName, appObjectPath, winObjectPath, metaWindow = null, dispatcher = null) {
         super._init(0.0, `FUHGlobeActionsMenu-${groupLabel}`);
         this.add_style_class_name('fuhgawz-panel-button');
         this.accessible_name = groupLabel;
@@ -630,11 +658,33 @@ class ActionsMenuButton extends PanelMenu.Button {
         this._busName = busName;
         this._appObjectPath = appObjectPath;
         this._winObjectPath = winObjectPath;
+        this._metaWindow = metaWindow;
+        this._dispatcher = dispatcher;
 
         this._buildItems(actionItems);
     }
 
     _buildItems(actionItems) {
+        const standardShortcuts = {
+            'save': 'Ctrl+S',
+            'save-as': 'Ctrl+Shift+S',
+            'new': 'Ctrl+N',
+            'open': 'Ctrl+O',
+            'open-file': 'Ctrl+O',
+            'undo': 'Ctrl+Z',
+            'redo': 'Ctrl+Shift+Z',
+            'cut': 'Ctrl+X',
+            'copy': 'Ctrl+C',
+            'paste': 'Ctrl+V',
+            'select-all': 'Ctrl+A',
+            'find': 'Ctrl+F',
+            'zoom-in': 'Ctrl++',
+            'zoom-out': 'Ctrl+-',
+            'zoom-default': 'Ctrl+0',
+            'zoom-normal': 'Ctrl+0',
+            'fullscreen': 'F11',
+        };
+
         for (const item of actionItems) {
             const menuItem = new PopupMenu.PopupMenuItem(item.label);
 
@@ -650,12 +700,19 @@ class ActionsMenuButton extends PanelMenu.Button {
             }
 
             menuItem.connect('activate', () => {
+                const fallbackShortcut = standardShortcuts[item.actionName];
+
                 try {
                     // Determine which D-Bus path to call Activate on
                     const objPath = item.isWinAction
                         ? this._winObjectPath
                         : this._appObjectPath;
                     if (!objPath) {
+                        if (fallbackShortcut && this._dispatcher && this._metaWindow) {
+                            console.log(`FUHGlobe: No object path for action ${item.actionName}, falling back to virtual shortcut ${fallbackShortcut}`);
+                            this._dispatcher.dispatchAccelerator(this._metaWindow, fallbackShortcut);
+                            return;
+                        }
                         console.log(`FUHGlobe: No object path for action ${item.actionName}`);
                         return;
                     }
@@ -680,13 +737,77 @@ class ActionsMenuButton extends PanelMenu.Button {
                                 Gio.DBus.session.call_finish(res);
                             } catch (e) {
                                 console.error(`FUHGlobe: Activate error for ${item.actionName}: ${e}`);
+                                if (fallbackShortcut && this._dispatcher && this._metaWindow) {
+                                    console.log(`FUHGlobe: D-Bus action activation failed, using virtual shortcut ${fallbackShortcut}`);
+                                    this._dispatcher.dispatchAccelerator(this._metaWindow, fallbackShortcut);
+                                }
                             }
                         }
                     );
                 } catch (e) {
                     console.error(`FUHGlobe: Failed to activate action ${item.actionName}: ${e}`);
+                    if (fallbackShortcut && this._dispatcher && this._metaWindow) {
+                        this._dispatcher.dispatchAccelerator(this._metaWindow, fallbackShortcut);
+                    }
                 }
             });
+            this.menu.addMenuItem(menuItem);
+        }
+    }
+});
+
+// ── Declarative Menu Button (JSON Profile backed) ───────────────────────────
+
+const DeclarativeMenuButton = GObject.registerClass(
+class DeclarativeMenuButton extends PanelMenu.Button {
+    _init(groupLabel, items, metaWindow, dispatcher) {
+        super._init(0.0, `FUHGlobeDeclarativeMenu-${groupLabel}`);
+        this.add_style_class_name('fuhgawz-panel-button');
+        this.accessible_name = groupLabel;
+
+        const labelWidget = new St.Label({
+            text: groupLabel,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this.add_child(labelWidget);
+
+        this._metaWindow = metaWindow;
+        this._dispatcher = dispatcher;
+
+        this._buildItems(items);
+    }
+
+    _buildItems(items) {
+        if (!Array.isArray(items)) return;
+
+        for (const item of items) {
+            if (item.type === 'separator') {
+                this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+                continue;
+            }
+
+            const menuItem = new PopupMenu.PopupMenuItem(item.label || '');
+
+            if (item.shortcut) {
+                const shortcutLabel = new St.Label({
+                    text: item.shortcut,
+                    style_class: 'popup-inactive-menu-item',
+                    x_align: Clutter.ActorAlign.END,
+                    x_expand: true,
+                });
+                menuItem.add_child(shortcutLabel);
+
+                menuItem.connect('activate', () => {
+                    if (this._dispatcher && this._metaWindow) {
+                        this._dispatcher.dispatchAccelerator(this._metaWindow, item.shortcut);
+                    }
+                });
+            } else {
+                menuItem.connect('activate', () => {
+                    console.log(`FUHGlobe: Declarative profile item activated: ${item.label}`);
+                });
+            }
+
             this.menu.addMenuItem(menuItem);
         }
     }
@@ -859,6 +980,11 @@ class FUHGlobeGlobalMenu {
                 () => this._updateSystemMenu()
             );
         }
+        // Fallback chain helpers
+        this._virtualKeyboard = new VirtualKeyboardDispatcher();
+        this._profileManager = new ProfileManager(this._extensionPath);
+        this._profileManager.loadProfiles();
+        this._atspiScanner = new AtspiScanner();
         this._updateSystemMenu();
 
         this._log('FUHGlobeGlobalMenu initialized');
@@ -1028,8 +1154,14 @@ class FUHGlobeGlobalMenu {
             return;
         }
 
-        // 3. Add the App Menu Button after the Activities button (position 1)
-        const appMenuBtn = new AppMenuButton(win);
+        // 3. Match declarative profile if available
+        const profile = this._profileManager ? this._profileManager.getProfileForWindow(win) : null;
+        if (profile) {
+            this._log(`Matched Declarative Profile "${profile.id}" for window "${win.get_title()}"`);
+        }
+
+        // 4. Add the App Menu Button after the Activities button (position 1)
+        const appMenuBtn = new AppMenuButton(win, profile, this._virtualKeyboard);
         const appMenuId = `fuhgawz-menu-${this._nextId++}`;
         this._menuButtons.push(appMenuBtn);
         try {
@@ -1051,11 +1183,6 @@ class FUHGlobeGlobalMenu {
         }
 
         // ── Fallback 1b: Probe standard GTK 4 menubar path ─────────────
-        //
-        // GTK 4 apps that call gtk_application_set_menubar() export the
-        // menubar at <app_object_path>/menus/menubar. The window property
-        // gtk_menubar_object_path may not always be set, so we probe the
-        // standard path as a fallback.
         const appId = win.gtk_application_id || '';
         if (busName && appId) {
             const appObjPath = '/' + appId.replace(/\./g, '/');
@@ -1065,26 +1192,10 @@ class FUHGlobeGlobalMenu {
             return;
         }
 
-        // ── Fallback 2: GTK Actions (org.gtk.Actions.DescribeAll) ───────
-        //
-        // For modern libadwaita apps (Ptyxis, Nautilus, etc.) that export
-        // actions but no traditional menubar. We call DescribeAll to enumerate
-        // all available actions, then group them into File/Edit/View/Go/Help.
-        const enableGtkActions = !this._settings || this._settings.get_boolean('enable-gtk-actions');
-        if (enableGtkActions && (appId || busName)) {
-            const effectiveBus = appId || busName;
-            const appObjPath = appId ? '/' + appId.replace(/\./g, '/') : '';
-            if (appObjPath) {
-                this._log(`Trying GTK Actions fallback: bus=${effectiveBus} appObj=${appObjPath}`);
-                this._loadGtkActions(effectiveBus, appObjPath, win);
-                return;
-            }
-        }
-
-        // ── Fallback 3: DBusMenu (com.canonical.dbusmenu) ───────────────
+        // ── Fallback 2: DBusMenu (com.canonical.dbusmenu) ───────────────
         let entry = null;
 
-        // 3a. Match by PID
+        // 2a. Match by PID (Wayland native, Qt 5/6, Zed PR #51321)
         const pid = win.get_pid();
         if (pid > 0) {
             entry = this._registrar.getEntryByPid(pid);
@@ -1093,7 +1204,7 @@ class FUHGlobeGlobalMenu {
             }
         }
 
-        // 3b. Match by X11 window ID (XWayland apps)
+        // 2b. Match by X11 window ID (XWayland apps, patched VS Code)
         if (!entry) {
             let xid = 0;
             try {
@@ -1122,8 +1233,68 @@ class FUHGlobeGlobalMenu {
             return;
         }
 
-        // ── Fallback 4: built-in (app name + basic controls) ────────────
-        this._log('Using built-in fallback menu (no GTK model, GTK actions, or DBusMenu found)');
+        // ── Fallback 3: Declarative Application Profiles (JSON) ─────────
+        if (profile) {
+            this._log(`Rendering Declarative Profile: ${profile.id} for "${win.get_title()}"`);
+            if (this._loadDeclarativeProfile(profile, win)) {
+                return;
+            }
+        }
+
+        // ── Fallback 4: GTK Actions (org.gtk.Actions.DescribeAll) ───────
+        // For modern libadwaita apps that export actions without traditional menubar
+        const enableGtkActions = !this._settings || this._settings.get_boolean('enable-gtk-actions');
+        if (enableGtkActions && (appId || busName)) {
+            const effectiveBus = appId || busName;
+            const appObjPath = appId ? '/' + appId.replace(/\./g, '/') : '';
+            if (appObjPath) {
+                this._log(`Trying GTK Actions fallback: bus=${effectiveBus} appObj=${appObjPath}`);
+                this._loadGtkActions(effectiveBus, appObjPath, win);
+                return;
+            }
+        }
+
+        // ── Fallback 5: Restricted AT-SPI Accessibility Scanner ─────────
+        if (this._atspiScanner && !this._atspiScanner.isBlacklisted(win)) {
+            this._log(`Attempting restricted AT-SPI query for "${win.get_title()}"`);
+            this._atspiScanner.getMenuBar(win).then(atspiBar => {
+                if (atspiBar && this._menuButtons.length <= 1) {
+                    this._log('Found legacy AT-SPI menu bar');
+                }
+            }).catch(() => {});
+        }
+
+        // ── Fallback 6: built-in (app name + basic controls) ────────────
+        this._log('Using built-in fallback menu (no GTK model, DBusMenu, profile, or GTK actions found)');
+    }
+
+    // ── Load Declarative Menu Profile ──────────────────────────────────────────
+
+    _loadDeclarativeProfile(profile, win) {
+        if (!profile || !Array.isArray(profile.menus)) return false;
+
+        let addedAny = false;
+        let position = 2; // after Activities(0) and AppMenu(1)
+        for (const menuDef of profile.menus) {
+            if (!menuDef.label || !Array.isArray(menuDef.items) || menuDef.items.length === 0) {
+                continue;
+            }
+            const btn = new DeclarativeMenuButton(
+                menuDef.label,
+                menuDef.items,
+                win,
+                this._virtualKeyboard
+            );
+            const btnId = `fuhgawz-decl-menu-${this._nextId++}`;
+            this._menuButtons.push(btn);
+            try {
+                Main.panel.addToStatusArea(btnId, btn, position++, 'left');
+                addedAny = true;
+            } catch (e) {
+                console.error(`FUHGlobe: Failed to add DeclarativeMenuButton "${menuDef.label}": ${e}`);
+            }
+        }
+        return addedAny;
     }
 
     // ── Probe a standard menubar path for GMenuModel ────────────────────────
@@ -1288,7 +1459,7 @@ class FUHGlobeGlobalMenu {
                             } catch (e) {
                                 console.log(`FUHGlobe: DescribeAll on win path failed: ${e}`);
                             }
-                            this._buildActionsMenu(appActions, winActions, busName, appObjectPath, winObjectPath);
+                            this._buildActionsMenu(appActions, winActions, busName, appObjectPath, winObjectPath, win);
                         }
                     );
                 } else {
@@ -1314,11 +1485,13 @@ class FUHGlobeGlobalMenu {
                                     } catch (e) {
                                         console.log(`FUHGlobe: DescribeAll on discovered win path failed: ${e}`);
                                     }
-                                    this._buildActionsMenu(appActions, winActions, busName, appObjectPath, discoveredWinPath);
+                                    this._buildActionsMenu(appActions, winActions, busName, appObjectPath, discoveredWinPath, win);
                                 }
                             );
                         } else {
-                            this._buildActionsMenu(appActions, {}, busName, appObjectPath, '');
+                            // No window path found — build with app actions only
+                            console.log('FUHGlobe: No window path found, using app actions only');
+                            this._buildActionsMenu(appActions, {}, busName, appObjectPath, '', win);
                         }
                     });
                 }
@@ -1393,7 +1566,7 @@ class FUHGlobeGlobalMenu {
         );
     }
 
-    _buildActionsMenu(appActions, winActions, busName, appObjectPath, winObjectPath) {
+    _buildActionsMenu(appActions, winActions, busName, appObjectPath, winObjectPath, win = null) {
         console.log(`FUHGlobe: Building actions menu — app actions: ${Object.keys(appActions).length}, win actions: ${Object.keys(winActions).length}`);
 
         // Merge all actions with metadata
@@ -1501,7 +1674,7 @@ class FUHGlobeGlobalMenu {
             if (!items || items.length === 0) continue;
 
             const btn = new ActionsMenuButton(
-                groupName, items, busName, appObjectPath, winObjectPath
+                groupName, items, busName, appObjectPath, winObjectPath, win, this._virtualKeyboard
             );
             const btnId = `fuhgawz-menu-${this._nextId++}`;
             this._menuButtons.push(btn);
@@ -1747,6 +1920,21 @@ class FUHGlobeGlobalMenu {
         if (this._focusWindowId) {
             global.display.disconnect(this._focusWindowId);
             this._focusWindowId = 0;
+        }
+
+        if (this._virtualKeyboard) {
+            this._virtualKeyboard.destroy();
+            this._virtualKeyboard = null;
+        }
+
+        if (this._profileManager) {
+            this._profileManager.destroy();
+            this._profileManager = null;
+        }
+
+        if (this._atspiScanner) {
+            this._atspiScanner.destroy();
+            this._atspiScanner = null;
         }
 
         console.log('FUHGlobe: FUHGlobeGlobalMenu destroyed');
