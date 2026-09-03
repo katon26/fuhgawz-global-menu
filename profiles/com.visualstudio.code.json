@@ -1,0 +1,91 @@
+{
+  "id": "com.visualstudio.code",
+  "match": {
+    "wm_class": ["code", "Code", "com.visualstudio.code", "vscodium", "VSCodium", "code-oss"],
+    "app_id": ["code.desktop", "com.visualstudio.code.desktop", "vscodium.desktop", "code-oss.desktop"]
+  },
+  "app_menu": {
+    "label": "Code",
+    "items": [
+      { "label": "About Visual Studio Code", "shortcut": "" },
+      { "label": "Preferences: Settings", "shortcut": "Ctrl+," },
+      { "label": "Keyboard Shortcuts", "shortcut": "Ctrl+K" },
+      { "type": "separator" },
+      { "label": "Hide Code", "shortcut": "Super+H" },
+      { "type": "separator" },
+      { "label": "Quit Code", "shortcut": "Ctrl+Q" }
+    ]
+  },
+  "menus": [
+    {
+      "label": "File",
+      "items": [
+        { "label": "New Text File", "shortcut": "Ctrl+N" },
+        { "label": "New Window", "shortcut": "Ctrl+Shift+N" },
+        { "type": "separator" },
+        { "label": "Open File...", "shortcut": "Ctrl+O" },
+        { "type": "separator" },
+        { "label": "Save", "shortcut": "Ctrl+S" },
+        { "label": "Save As...", "shortcut": "Ctrl+Shift+S" },
+        { "type": "separator" },
+        { "label": "Close Editor", "shortcut": "Ctrl+W" },
+        { "label": "Close Window", "shortcut": "Ctrl+Shift+W" }
+      ]
+    },
+    {
+      "label": "Edit",
+      "items": [
+        { "label": "Undo", "shortcut": "Ctrl+Z" },
+        { "label": "Redo", "shortcut": "Ctrl+Y" },
+        { "type": "separator" },
+        { "label": "Cut", "shortcut": "Ctrl+X" },
+        { "label": "Copy", "shortcut": "Ctrl+C" },
+        { "label": "Paste", "shortcut": "Ctrl+V" },
+        { "type": "separator" },
+        { "label": "Find", "shortcut": "Ctrl+F" },
+        { "label": "Replace", "shortcut": "Ctrl+H" }
+      ]
+    },
+    {
+      "label": "Selection",
+      "items": [
+        { "label": "Select All", "shortcut": "Ctrl+A" },
+        { "label": "Expand Selection", "shortcut": "Alt+Shift+Right" },
+        { "label": "Shrink Selection", "shortcut": "Alt+Shift+Left" }
+      ]
+    },
+    {
+      "label": "View",
+      "items": [
+        { "label": "Command Palette...", "shortcut": "Ctrl+Shift+P" },
+        { "label": "Open View...", "shortcut": "Ctrl+Q" },
+        { "type": "separator" },
+        { "label": "Terminal", "shortcut": "Ctrl+`" },
+        { "type": "separator" },
+        { "label": "Zoom In", "shortcut": "Ctrl++" },
+        { "label": "Zoom Out", "shortcut": "Ctrl+-" },
+        { "label": "Reset Zoom", "shortcut": "Ctrl+0" },
+        { "label": "Toggle Full Screen", "shortcut": "F11" }
+      ]
+    },
+    {
+      "label": "Go",
+      "items": [
+        { "label": "Go to File...", "shortcut": "Ctrl+P" },
+        { "label": "Go to Symbol in Workspace...", "shortcut": "Ctrl+T" }
+      ]
+    },
+    {
+      "label": "Terminal",
+      "items": [
+        { "label": "New Terminal", "shortcut": "Ctrl+Shift+`" }
+      ]
+    },
+    {
+      "label": "Help",
+      "items": [
+        { "label": "About", "shortcut": "" }
+      ]
+    }
+  ]
+}
