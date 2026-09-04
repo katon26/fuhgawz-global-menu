@@ -1,0 +1,91 @@
+{
+  "id": "dev.zed.Zed",
+  "match": {
+    "wm_class": ["dev.zed.Zed", "zed", "Zed"],
+    "app_id": ["dev.zed.Zed.desktop", "zed.desktop"]
+  },
+  "app_menu": {
+    "label": "Zed",
+    "items": [
+      { "label": "About Zed", "action": "about", "shortcut": "" },
+      { "label": "Settings", "shortcut": "Ctrl+," },
+      { "label": "Extensions", "shortcut": "" },
+      { "type": "separator" },
+      { "label": "Hide Zed", "action": "hide" },
+      { "type": "separator" },
+      { "label": "Quit Zed", "shortcut": "Ctrl+Q" }
+    ]
+  },
+  "menus": [
+    {
+      "label": "File",
+      "items": [
+        { "label": "New File", "shortcut": "Ctrl+N" },
+        { "label": "New Window", "shortcut": "Ctrl+Shift+N" },
+        { "type": "separator" },
+        { "label": "Open File...", "shortcut": "Ctrl+O" },
+        { "label": "Open Folder...", "shortcut": "Ctrl+Shift+O" },
+        { "type": "separator" },
+        { "label": "Save", "shortcut": "Ctrl+S" },
+        { "label": "Save As...", "shortcut": "Ctrl+Shift+S" },
+        { "label": "Save All" },
+        { "type": "separator" },
+        { "label": "Close Editor", "shortcut": "Ctrl+W" },
+        { "label": "Close Window", "shortcut": "Ctrl+Shift+W" }
+      ]
+    },
+    {
+      "label": "Edit",
+      "items": [
+        { "label": "Undo", "shortcut": "Ctrl+Z" },
+        { "label": "Redo", "shortcut": "Ctrl+Shift+Z" },
+        { "type": "separator" },
+        { "label": "Cut", "shortcut": "Ctrl+X" },
+        { "label": "Copy", "shortcut": "Ctrl+C" },
+        { "label": "Paste", "shortcut": "Ctrl+V" },
+        { "type": "separator" },
+        { "label": "Find", "shortcut": "Ctrl+F" },
+        { "label": "Replace", "shortcut": "Ctrl+H" },
+        { "label": "Find in Project", "shortcut": "Ctrl+Shift+F" }
+      ]
+    },
+    {
+      "label": "Selection",
+      "items": [
+        { "label": "Select All", "shortcut": "Ctrl+A" },
+        { "label": "Expand Selection", "shortcut": "Alt+Shift+Right" },
+        { "label": "Shrink Selection", "shortcut": "Alt+Shift+Left" },
+        { "label": "Add Cursor Above", "shortcut": "Ctrl+Alt+Up" },
+        { "label": "Add Cursor Below", "shortcut": "Ctrl+Alt+Down" }
+      ]
+    },
+    {
+      "label": "View",
+      "items": [
+        { "label": "Command Palette...", "shortcut": "Ctrl+Shift+P" },
+        { "type": "separator" },
+        { "label": "Zoom In", "shortcut": "Ctrl++" },
+        { "label": "Zoom Out", "shortcut": "Ctrl+-" },
+        { "label": "Reset Zoom", "shortcut": "Ctrl+0" },
+        { "type": "separator" },
+        { "label": "Toggle Full Screen", "shortcut": "F11" },
+        { "label": "Toggle Terminal", "shortcut": "Ctrl+`" },
+        { "label": "Toggle Project Panel", "shortcut": "Ctrl+B" }
+      ]
+    },
+    {
+      "label": "Go",
+      "items": [
+        { "label": "Go to File...", "shortcut": "Ctrl+P" },
+        { "label": "Go to Symbol in Project...", "shortcut": "Ctrl+T" },
+        { "label": "Go to Line...", "shortcut": "Ctrl+G" }
+      ]
+    },
+    {
+      "label": "Help",
+      "items": [
+        { "label": "About Zed", "action": "about", "shortcut": "" }
+      ]
+    }
+  ]
+}

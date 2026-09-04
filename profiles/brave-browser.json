@@ -1,0 +1,85 @@
+{
+  "id": "brave-browser",
+  "match": {
+    "wm_class": ["brave-browser", "Brave-browser", "brave"],
+    "app_id": ["brave-browser.desktop", "brave.desktop"]
+  },
+  "app_menu": {
+    "label": "Brave",
+    "items": [
+      { "label": "About Brave", "action": "about", "shortcut": "" },
+      { "label": "Settings...", "shortcut": "Ctrl+," },
+      { "label": "Delete Browsing Data...", "shortcut": "Ctrl+Shift+Delete" },
+      { "type": "separator" },
+      { "label": "Hide Brave", "action": "hide" },
+      { "type": "separator" },
+      { "label": "Quit Brave", "shortcut": "Ctrl+Shift+Q" }
+    ]
+  },
+  "menus": [
+    {
+      "label": "File",
+      "items": [
+        { "label": "New Tab", "shortcut": "Ctrl+T" },
+        { "label": "New Window", "shortcut": "Ctrl+N" },
+        { "label": "New Private Window", "shortcut": "Ctrl+Shift+N" },
+        { "type": "separator" },
+        { "label": "Open File...", "shortcut": "Ctrl+O" },
+        { "label": "Open Location...", "shortcut": "Ctrl+L" },
+        { "type": "separator" },
+        { "label": "Close Tab", "shortcut": "Ctrl+W" },
+        { "label": "Close Window", "shortcut": "Ctrl+Shift+W" },
+        { "label": "Save Page As...", "shortcut": "Ctrl+S" },
+        { "label": "Print...", "shortcut": "Ctrl+P" }
+      ]
+    },
+    {
+      "label": "Edit",
+      "items": [
+        { "label": "Undo", "shortcut": "Ctrl+Z" },
+        { "label": "Redo", "shortcut": "Ctrl+Y" },
+        { "type": "separator" },
+        { "label": "Cut", "shortcut": "Ctrl+X" },
+        { "label": "Copy", "shortcut": "Ctrl+C" },
+        { "label": "Paste", "shortcut": "Ctrl+V" },
+        { "type": "separator" },
+        { "label": "Select All", "shortcut": "Ctrl+A" },
+        { "label": "Find...", "shortcut": "Ctrl+F" }
+      ]
+    },
+    {
+      "label": "View",
+      "items": [
+        { "label": "Reload", "shortcut": "Ctrl+R" },
+        { "label": "Force Reload", "shortcut": "Ctrl+Shift+R" },
+        { "type": "separator" },
+        { "label": "Zoom In", "shortcut": "Ctrl++" },
+        { "label": "Zoom Out", "shortcut": "Ctrl+-" },
+        { "label": "Actual Size", "shortcut": "Ctrl+0" },
+        { "type": "separator" },
+        { "label": "Toggle Fullscreen", "shortcut": "F11" },
+        { "label": "Developer Tools", "shortcut": "Ctrl+Shift+I" }
+      ]
+    },
+    {
+      "label": "History",
+      "items": [
+        { "label": "Show Full History", "shortcut": "Ctrl+H" }
+      ]
+    },
+    {
+      "label": "Bookmarks",
+      "items": [
+        { "label": "Bookmark This Tab...", "shortcut": "Ctrl+D" },
+        { "label": "Bookmark All Tabs...", "shortcut": "Ctrl+Shift+D" },
+        { "label": "Bookmark Manager", "shortcut": "Ctrl+Shift+O" }
+      ]
+    },
+    {
+      "label": "Help",
+      "items": [
+        { "label": "About Brave", "shortcut": "" }
+      ]
+    }
+  ]
+}

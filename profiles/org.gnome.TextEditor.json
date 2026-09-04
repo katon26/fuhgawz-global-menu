@@ -1,0 +1,61 @@
+{
+  "id": "org.gnome.TextEditor",
+  "match": {
+    "wm_class": ["org.gnome.TextEditor", "gnome-text-editor"],
+    "app_id": ["org.gnome.TextEditor.desktop", "gnome-text-editor.desktop"]
+  },
+  "app_menu": {
+    "label": "Text Editor",
+    "items": [
+      { "label": "About Text Editor", "shortcut": "" },
+      { "label": "Preferences", "shortcut": "Ctrl+," },
+      { "label": "Keyboard Shortcuts", "shortcut": "Ctrl+?" },
+      { "type": "separator" },
+      { "label": "Quit", "shortcut": "Ctrl+Q" }
+    ]
+  },
+  "menus": [
+    {
+      "label": "File",
+      "items": [
+        { "label": "New Document", "shortcut": "Ctrl+N" },
+        { "label": "Open...", "shortcut": "Ctrl+O" },
+        { "type": "separator" },
+        { "label": "Save", "shortcut": "Ctrl+S" },
+        { "label": "Save As...", "shortcut": "Ctrl+Shift+S" },
+        { "type": "separator" },
+        { "label": "Close Document", "shortcut": "Ctrl+W" },
+        { "label": "Close All", "shortcut": "Ctrl+Shift+W" }
+      ]
+    },
+    {
+      "label": "Edit",
+      "items": [
+        { "label": "Undo", "shortcut": "Ctrl+Z" },
+        { "label": "Redo", "shortcut": "Ctrl+Shift+Z" },
+        { "type": "separator" },
+        { "label": "Cut", "shortcut": "Ctrl+X" },
+        { "label": "Copy", "shortcut": "Ctrl+C" },
+        { "label": "Paste", "shortcut": "Ctrl+V" },
+        { "type": "separator" },
+        { "label": "Select All", "shortcut": "Ctrl+A" },
+        { "label": "Find...", "shortcut": "Ctrl+F" },
+        { "label": "Find and Replace...", "shortcut": "Ctrl+H" }
+      ]
+    },
+    {
+      "label": "View",
+      "items": [
+        { "label": "Zoom In", "shortcut": "Ctrl++" },
+        { "label": "Zoom Out", "shortcut": "Ctrl+-" },
+        { "label": "Reset Zoom", "shortcut": "Ctrl+0" }
+      ]
+    },
+    {
+      "label": "Help",
+      "items": [
+        { "label": "About Text Editor", "shortcut": "" }
+      ]
+    }
+  ]
+}
