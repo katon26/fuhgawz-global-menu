@@ -1,0 +1,95 @@
+{
+  "id": "firefox",
+  "match": {
+    "wm_class": ["firefox", "Firefox", "firefox-esr", "Firefox-esr", "org.mozilla.firefox"],
+    "app_id": ["firefox.desktop", "firefox-esr.desktop", "org.mozilla.firefox.desktop"]
+  },
+  "app_menu": {
+    "label": "Firefox",
+    "items": [
+      { "label": "About Firefox", "action": "about", "shortcut": "" },
+      { "label": "Settings", "shortcut": "Ctrl+," },
+      { "type": "separator" },
+      { "label": "Hide Firefox", "action": "hide" },
+      { "type": "separator" },
+      { "label": "Quit Firefox", "shortcut": "Ctrl+Q" }
+    ]
+  },
+  "menus": [
+    {
+      "label": "File",
+      "items": [
+        { "label": "New Tab", "shortcut": "Ctrl+T" },
+        { "label": "New Window", "shortcut": "Ctrl+N" },
+        { "label": "New Private Window", "shortcut": "Ctrl+Shift+P" },
+        { "type": "separator" },
+        { "label": "Open File...", "shortcut": "Ctrl+O" },
+        { "label": "Open Location...", "shortcut": "Ctrl+L" },
+        { "type": "separator" },
+        { "label": "Close Tab", "shortcut": "Ctrl+W" },
+        { "label": "Close Window", "shortcut": "Ctrl+Shift+W" },
+        { "label": "Save Page As...", "shortcut": "Ctrl+S" },
+        { "label": "Print...", "shortcut": "Ctrl+P" }
+      ]
+    },
+    {
+      "label": "Edit",
+      "items": [
+        { "label": "Undo", "shortcut": "Ctrl+Z" },
+        { "label": "Redo", "shortcut": "Ctrl+Shift+Z" },
+        { "type": "separator" },
+        { "label": "Cut", "shortcut": "Ctrl+X" },
+        { "label": "Copy", "shortcut": "Ctrl+C" },
+        { "label": "Paste", "shortcut": "Ctrl+V" },
+        { "type": "separator" },
+        { "label": "Select All", "shortcut": "Ctrl+A" },
+        { "label": "Find in This Page...", "shortcut": "Ctrl+F" }
+      ]
+    },
+    {
+      "label": "View",
+      "items": [
+        { "label": "Zoom In", "shortcut": "Ctrl++" },
+        { "label": "Zoom Out", "shortcut": "Ctrl+-" },
+        { "label": "Reset Zoom", "shortcut": "Ctrl+0" },
+        { "type": "separator" },
+        { "label": "Full Screen", "shortcut": "F11" },
+        { "type": "separator" },
+        { "label": "Developer Tools", "shortcut": "Ctrl+Shift+I" },
+        { "label": "Page Source", "shortcut": "Ctrl+U" }
+      ]
+    },
+    {
+      "label": "History",
+      "items": [
+        { "label": "Show All History", "shortcut": "Ctrl+H" },
+        { "type": "separator" },
+        { "label": "Clear Recent History...", "shortcut": "Ctrl+Shift+Delete" },
+        { "label": "Restore Previous Session" }
+      ]
+    },
+    {
+      "label": "Bookmarks",
+      "items": [
+        { "label": "Bookmark Current Tab", "shortcut": "Ctrl+D" },
+        { "label": "Bookmark All Tabs...", "shortcut": "Ctrl+Shift+D" },
+        { "label": "Manage Bookmarks", "shortcut": "Ctrl+Shift+O" }
+      ]
+    },
+    {
+      "label": "Tools",
+      "items": [
+        { "label": "Downloads", "shortcut": "Ctrl+Shift+Y" },
+        { "label": "Add-ons and Themes", "shortcut": "Ctrl+Shift+A" },
+        { "label": "Settings", "shortcut": "Ctrl+," },
+        { "label": "Page Info", "shortcut": "Ctrl+I" }
+      ]
+    },
+    {
+      "label": "Help",
+      "items": [
+        { "label": "About Firefox", "action": "about", "shortcut": "" }
+      ]
+    }
+  ]
+}

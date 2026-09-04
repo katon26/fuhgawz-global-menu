@@ -9,6 +9,7 @@ import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import * as BoxPointer from 'resource:///org/gnome/shell/ui/boxpointer.js';
 import { SystemMenu } from './src/systemMenu.js';
 import { UserSwitcherController } from './src/userSwitcher.js';
 import { QuickSettingsActionsController } from './src/quickSettingsHider.js';
@@ -392,7 +393,11 @@ class AppMenuButton extends PanelMenu.Button {
         }
 
         let appLabel = _('Desktop');
-        if (profile && profile.app_menu && profile.app_menu.label) {
+        const wmClass = metaWindow && metaWindow.get_wm_class ? (metaWindow.get_wm_class() || '') : '';
+        const wmInstance = metaWindow && metaWindow.get_wm_class_instance ? (metaWindow.get_wm_class_instance() || '') : '';
+        if (wmClass.toLowerCase().includes('antigravity') || wmInstance.toLowerCase().includes('antigravity')) {
+            appLabel = 'Antigravity';
+        } else if (profile && profile.app_menu && profile.app_menu.label) {
             appLabel = profile.app_menu.label;
         } else if (app) {
             appLabel = app.get_name() || _('Application');
@@ -414,50 +419,14 @@ class AppMenuButton extends PanelMenu.Button {
     }
 
     _triggerAboutAction(appLabel) {
-        try {
-            const busName = this._window.gtk_unique_bus_name || '';
-            const appId = this._window.gtk_application_id || '';
-            const winPath = this._window.gtk_window_object_path || '';
-            const appObjPath = appId ? '/' + appId.replace(/\./g, '/') : '';
-
-            if (!busName) return;
-
-            const tryPaths = [appObjPath, winPath].filter(p => p);
-            let tried = 0;
-
-            const tryNext = () => {
-                if (tried >= tryPaths.length) return;
-                const objPath = tryPaths[tried++];
-                Gio.DBus.session.call(
-                    busName,
-                    objPath,
-                    'org.gtk.Actions',
-                    'Activate',
-                    GLib.Variant.new('(sava{sv})', ['about', [], {}]),
-                    null,
-                    Gio.DBusCallFlags.NONE,
-                    -1,
-                    null,
-                    (_conn, res) => {
-                        try {
-                            Gio.DBus.session.call_finish(res);
-                        } catch (e) {
-                            tryNext();
-                        }
-                    }
-                );
-            };
-
-            tryNext();
-        } catch (e) {
-            console.error(`FUHGlobe: Failed to show about dialog: ${e}`);
-        }
+        _triggerAboutAction(this._window, this._dispatcher, appLabel);
     }
 
     _buildMenu(appLabel) {
         if (!this._window) {
             const itemAbout = new PopupMenu.PopupMenuItem(_('About GNOME…'));
             itemAbout.connect('activate', () => {
+                this.menu.close(BoxPointer.PopupAnimation.NONE);
                 try {
                     Gio.Subprocess.new(
                         ['gnome-control-center', 'info-overview'],
@@ -473,6 +442,7 @@ class AppMenuButton extends PanelMenu.Button {
 
             const itemSettings = new PopupMenu.PopupMenuItem(_('Preferences…'));
             itemSettings.connect('activate', () => {
+                this.menu.close(BoxPointer.PopupAnimation.NONE);
                 try {
                     Gio.Subprocess.new(
                         ['gnome-control-center'],
@@ -504,14 +474,36 @@ class AppMenuButton extends PanelMenu.Button {
                         x_expand: true,
                     });
                     menuItem.add_child(shortcutLabel);
+                }
 
+                if (item.action === 'hide' || (item.label && item.label.toLowerCase().startsWith('hide'))) {
                     menuItem.connect('activate', () => {
+                        this.menu.close(BoxPointer.PopupAnimation.NONE);
+                        try {
+                            if (this._window && typeof this._window.minimize === 'function') {
+                                this._window.minimize();
+                            }
+                        } catch (e) {
+                            console.warn(`FUHGlobe: Failed to minimize window: ${e}`);
+                        }
+                    });
+                } else if (item.action === 'about' || (item.label && item.label.toLowerCase().startsWith('about'))) {
+                    menuItem.connect('activate', () => {
+                        this.menu.close(BoxPointer.PopupAnimation.NONE);
+                        this._triggerAboutAction(appLabel);
+                    });
+                } else if (item.shortcut) {
+                    menuItem.connect('activate', () => {
+                        this.menu.close(BoxPointer.PopupAnimation.NONE);
                         if (this._dispatcher && this._window) {
                             this._dispatcher.dispatchAccelerator(this._window, item.shortcut);
                         }
                     });
-                } else if (item.label && item.label.toLowerCase().startsWith('about')) {
-                    menuItem.connect('activate', () => this._triggerAboutAction(appLabel));
+                } else {
+                    menuItem.connect('activate', () => {
+                        this.menu.close(BoxPointer.PopupAnimation.NONE);
+                        console.log(`FUHGlobe: App menu item activated: ${item.label}`);
+                    });
                 }
 
                 this.menu.addMenuItem(menuItem);
@@ -521,13 +513,17 @@ class AppMenuButton extends PanelMenu.Button {
 
         // Per-app dropdown
         const itemAbout = new PopupMenu.PopupMenuItem(_('About %s…').replace('%s', appLabel));
-        itemAbout.connect('activate', () => this._triggerAboutAction(appLabel));
+        itemAbout.connect('activate', () => {
+            this.menu.close(BoxPointer.PopupAnimation.NONE);
+            this._triggerAboutAction(appLabel);
+        });
         this.menu.addMenuItem(itemAbout);
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         const itemHide = new PopupMenu.PopupMenuItem(_('Hide %s').replace('%s', appLabel));
         itemHide.connect('activate', () => {
+            this.menu.close(BoxPointer.PopupAnimation.NONE);
             try { this._window.minimize(); } catch (e) { /* destroyed */ }
         });
         this.menu.addMenuItem(itemHide);
@@ -543,6 +539,7 @@ class AppMenuButton extends PanelMenu.Button {
             isMaximized ? _('Restore window') : _('Maximize window')
         );
         itemMaximize.connect('activate', () => {
+            this.menu.close(BoxPointer.PopupAnimation.NONE);
             try {
                 if (isMaximized) {
                     if (typeof this._window.is_maximized === 'function')
@@ -563,11 +560,158 @@ class AppMenuButton extends PanelMenu.Button {
 
         const itemQuit = new PopupMenu.PopupMenuItem(_('Quit %s').replace('%s', appLabel));
         itemQuit.connect('activate', () => {
+            this.menu.close(BoxPointer.PopupAnimation.NONE);
             try { this._window.delete(global.get_current_time()); } catch (e) { /* destroyed */ }
         });
         this.menu.addMenuItem(itemQuit);
     }
 });
+
+function _fallbackAboutAction(win, dispatcher, appLabel) {
+    if (!win) return;
+
+    const wmClass = (win.get_wm_class ? win.get_wm_class() : '') || '';
+    const wmInstance = (win.get_wm_class_instance ? win.get_wm_class_instance() : '') || '';
+    const wmClassLower = wmClass.toLowerCase();
+    const wmInstanceLower = wmInstance.toLowerCase();
+
+    const tracker = Shell.WindowTracker.get_default();
+    const app = tracker ? tracker.get_window_app(win) : null;
+    const appInfo = app ? app.get_app_info() : null;
+
+    // 1. Brave Browser: open brave://settings/help
+    if (wmClassLower.includes('brave') || wmInstanceLower.includes('brave')) {
+        if (appInfo && typeof appInfo.launch_uris === 'function') {
+            try {
+                appInfo.launch_uris(['brave://settings/help'], null);
+                return;
+            } catch (e) {}
+        }
+        for (const cmd of ['brave-browser', 'brave-browser-stable', 'brave']) {
+            try {
+                Gio.Subprocess.new([cmd, 'brave://settings/help'], Gio.SubprocessFlags.NONE);
+                return;
+            } catch (e) {}
+        }
+    }
+
+    // 2. Google Chrome / Chromium: open chrome://settings/help
+    if (wmClassLower.includes('chrome') || wmInstanceLower.includes('chrome') ||
+        wmClassLower.includes('chromium') || wmInstanceLower.includes('chromium')) {
+        if (appInfo && typeof appInfo.launch_uris === 'function') {
+            try {
+                appInfo.launch_uris(['chrome://settings/help'], null);
+                return;
+            } catch (e) {}
+        }
+        for (const cmd of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
+            try {
+                Gio.Subprocess.new([cmd, 'chrome://settings/help'], Gio.SubprocessFlags.NONE);
+                return;
+            } catch (e) {}
+        }
+    }
+
+    // 3. Editors / Apps with command palette (VS Code, Antigravity, Zed): dispatch F1
+    if (wmClassLower.includes('code') || wmClassLower.includes('antigravity') ||
+        wmClassLower.includes('zed') || wmInstanceLower.includes('code') ||
+        wmInstanceLower.includes('antigravity') || wmInstanceLower.includes('zed')) {
+        if (dispatcher && typeof dispatcher.dispatchAccelerator === 'function') {
+            dispatcher.dispatchAccelerator(win, 'F1');
+            return;
+        }
+    }
+
+    // 4. Other apps: show desktop app info or notify banner
+    let cleanLabel = (appLabel || '').replace(/^about\s+/i, '').replace(/…|\.\.\.$/, '').trim();
+    if (!cleanLabel && appInfo && typeof appInfo.get_name === 'function') {
+        cleanLabel = appInfo.get_name();
+    }
+    if (!cleanLabel && wmClass) {
+        cleanLabel = wmClass;
+    }
+    const infoTitle = cleanLabel ? _('About %s').replace('%s', cleanLabel) : _('About Application');
+    let infoText = '';
+
+    if (appInfo) {
+        const name = appInfo.get_name() || cleanLabel || 'Application';
+        const desc = appInfo.get_description() || appInfo.get_display_name() || '';
+        const exec = appInfo.get_executable() || '';
+        infoText = desc ? `${name}\n${desc}` : (exec ? `${name} (${exec})` : name);
+    } else {
+        const appId = (win.get_gtk_application_id ? win.get_gtk_application_id() : win.gtk_application_id) || '';
+        let desktopInfo = null;
+        if (appId) {
+            try {
+                const DesktopAppInfo = imports.gi?.GioUnix?.DesktopAppInfo || Gio.DesktopAppInfo;
+                desktopInfo = DesktopAppInfo.new(appId.endsWith('.desktop') ? appId : `${appId}.desktop`);
+            } catch (e) {}
+        }
+        if (desktopInfo) {
+            const name = desktopInfo.get_name() || cleanLabel || 'Application';
+            const desc = desktopInfo.get_description() || '';
+            infoText = desc ? `${name}\n${desc}` : name;
+        } else {
+            infoText = cleanLabel || wmClass || 'Application';
+        }
+    }
+
+    if (typeof Main.notify === 'function') {
+        Main.notify(infoTitle, infoText);
+    } else {
+        console.log(`FUHGlobe: ${infoTitle}: ${infoText}`);
+    }
+}
+
+function _triggerAboutAction(win, dispatcher, appLabel) {
+    if (!win) return;
+
+    try {
+        const busName = win.gtk_unique_bus_name || '';
+        const appId = win.gtk_application_id || '';
+        const winPath = win.gtk_window_object_path || '';
+        const appObjPath = appId ? '/' + appId.replace(/\./g, '/') : '';
+
+        if (busName) {
+            const tryPaths = [appObjPath, winPath].filter(p => p);
+            let tried = 0;
+
+            const tryNext = () => {
+                if (tried >= tryPaths.length) {
+                    _fallbackAboutAction(win, dispatcher, appLabel);
+                    return;
+                }
+                const objPath = tryPaths[tried++];
+                Gio.DBus.session.call(
+                    busName,
+                    objPath,
+                    'org.gtk.Actions',
+                    'Activate',
+                    GLib.Variant.new('(sava{sv})', ['about', [], {}]),
+                    null,
+                    Gio.DBusCallFlags.NONE,
+                    -1,
+                    null,
+                    (_conn, res) => {
+                        try {
+                            Gio.DBus.session.call_finish(res);
+                        } catch (e) {
+                            tryNext();
+                        }
+                    }
+                );
+            };
+
+            tryNext();
+            return;
+        }
+
+        _fallbackAboutAction(win, dispatcher, appLabel);
+    } catch (e) {
+        console.error(`FUHGlobe: Failed to show about dialog: ${e}`);
+        _fallbackAboutAction(win, dispatcher, appLabel);
+    }
+}
 
 // ── DBusMenu Button (com.canonical.dbusmenu menus) ──────────────────────────
 
@@ -777,12 +921,20 @@ class DeclarativeMenuButton extends PanelMenu.Button {
         this._buildItems(items);
     }
 
-    _buildItems(items) {
+    _buildItems(items, targetMenu = this.menu) {
         if (!Array.isArray(items)) return;
 
         for (const item of items) {
             if (item.type === 'separator') {
-                this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+                targetMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+                continue;
+            }
+
+            const subItems = item.items || item.submenu || item.children;
+            if (Array.isArray(subItems) && subItems.length > 0) {
+                const subMenu = new PopupMenu.PopupSubMenuMenuItem(item.label || '');
+                this._buildItems(subItems, subMenu.menu);
+                targetMenu.addMenuItem(subMenu);
                 continue;
             }
 
@@ -796,19 +948,39 @@ class DeclarativeMenuButton extends PanelMenu.Button {
                     x_expand: true,
                 });
                 menuItem.add_child(shortcutLabel);
+            }
 
+            if (item.action === 'hide' || (item.label && item.label.toLowerCase().startsWith('hide'))) {
                 menuItem.connect('activate', () => {
+                    this.menu.close(BoxPointer.PopupAnimation.NONE);
+                    try {
+                        if (this._metaWindow && typeof this._metaWindow.minimize === 'function') {
+                            this._metaWindow.minimize();
+                        }
+                    } catch (e) {
+                        console.warn(`FUHGlobe: Failed to minimize window: ${e}`);
+                    }
+                });
+            } else if (item.action === 'about' || (item.label && item.label.toLowerCase().startsWith('about'))) {
+                menuItem.connect('activate', () => {
+                    this.menu.close(BoxPointer.PopupAnimation.NONE);
+                    _triggerAboutAction(this._metaWindow, this._dispatcher, item.label || 'Application');
+                });
+            } else if (item.shortcut) {
+                menuItem.connect('activate', () => {
+                    this.menu.close(BoxPointer.PopupAnimation.NONE);
                     if (this._dispatcher && this._metaWindow) {
                         this._dispatcher.dispatchAccelerator(this._metaWindow, item.shortcut);
                     }
                 });
             } else {
                 menuItem.connect('activate', () => {
+                    this.menu.close(BoxPointer.PopupAnimation.NONE);
                     console.log(`FUHGlobe: Declarative profile item activated: ${item.label}`);
                 });
             }
 
-            this.menu.addMenuItem(menuItem);
+            targetMenu.addMenuItem(menuItem);
         }
     }
 });

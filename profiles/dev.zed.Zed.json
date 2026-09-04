@@ -1,32 +1,34 @@
 {
-  "id": "com.visualstudio.code",
+  "id": "dev.zed.Zed",
   "match": {
-    "wm_class": ["code", "Code", "com.visualstudio.code", "vscodium", "VSCodium", "code-oss", "Antigravity", "antigravity"],
-    "app_id": ["code.desktop", "com.visualstudio.code.desktop", "vscodium.desktop", "code-oss.desktop", "antigravity.desktop", "Antigravity.desktop"]
+    "wm_class": ["dev.zed.Zed", "zed", "Zed"],
+    "app_id": ["dev.zed.Zed.desktop", "zed.desktop"]
   },
   "app_menu": {
-    "label": "Code",
+    "label": "Zed",
     "items": [
-      { "label": "About Visual Studio Code", "action": "about", "shortcut": "" },
-      { "label": "Preferences: Settings", "shortcut": "Ctrl+," },
-      { "label": "Keyboard Shortcuts", "shortcut": "Ctrl+K Ctrl+S" },
+      { "label": "About Zed", "action": "about", "shortcut": "" },
+      { "label": "Settings", "shortcut": "Ctrl+," },
+      { "label": "Extensions", "shortcut": "" },
       { "type": "separator" },
-      { "label": "Hide Code", "action": "hide" },
+      { "label": "Hide Zed", "action": "hide" },
       { "type": "separator" },
-      { "label": "Quit Code", "shortcut": "Ctrl+Q" }
+      { "label": "Quit Zed", "shortcut": "Ctrl+Q" }
     ]
   },
   "menus": [
     {
       "label": "File",
       "items": [
-        { "label": "New Text File", "shortcut": "Ctrl+N" },
+        { "label": "New File", "shortcut": "Ctrl+N" },
         { "label": "New Window", "shortcut": "Ctrl+Shift+N" },
         { "type": "separator" },
         { "label": "Open File...", "shortcut": "Ctrl+O" },
+        { "label": "Open Folder...", "shortcut": "Ctrl+Shift+O" },
         { "type": "separator" },
         { "label": "Save", "shortcut": "Ctrl+S" },
         { "label": "Save As...", "shortcut": "Ctrl+Shift+S" },
+        { "label": "Save All" },
         { "type": "separator" },
         { "label": "Close Editor", "shortcut": "Ctrl+W" },
         { "label": "Close Window", "shortcut": "Ctrl+Shift+W" }
@@ -36,14 +38,15 @@
       "label": "Edit",
       "items": [
         { "label": "Undo", "shortcut": "Ctrl+Z" },
-        { "label": "Redo", "shortcut": "Ctrl+Y" },
+        { "label": "Redo", "shortcut": "Ctrl+Shift+Z" },
         { "type": "separator" },
         { "label": "Cut", "shortcut": "Ctrl+X" },
         { "label": "Copy", "shortcut": "Ctrl+C" },
         { "label": "Paste", "shortcut": "Ctrl+V" },
         { "type": "separator" },
         { "label": "Find", "shortcut": "Ctrl+F" },
-        { "label": "Replace", "shortcut": "Ctrl+H" }
+        { "label": "Replace", "shortcut": "Ctrl+H" },
+        { "label": "Find in Project", "shortcut": "Ctrl+Shift+F" }
       ]
     },
     {
@@ -51,40 +54,37 @@
       "items": [
         { "label": "Select All", "shortcut": "Ctrl+A" },
         { "label": "Expand Selection", "shortcut": "Alt+Shift+Right" },
-        { "label": "Shrink Selection", "shortcut": "Alt+Shift+Left" }
+        { "label": "Shrink Selection", "shortcut": "Alt+Shift+Left" },
+        { "label": "Add Cursor Above", "shortcut": "Ctrl+Alt+Up" },
+        { "label": "Add Cursor Below", "shortcut": "Ctrl+Alt+Down" }
       ]
     },
     {
       "label": "View",
       "items": [
         { "label": "Command Palette...", "shortcut": "Ctrl+Shift+P" },
-        { "label": "Open View...", "shortcut": "Ctrl+Q" },
-        { "type": "separator" },
-        { "label": "Terminal", "shortcut": "Ctrl+`" },
         { "type": "separator" },
         { "label": "Zoom In", "shortcut": "Ctrl++" },
         { "label": "Zoom Out", "shortcut": "Ctrl+-" },
         { "label": "Reset Zoom", "shortcut": "Ctrl+0" },
-        { "label": "Toggle Full Screen", "shortcut": "F11" }
+        { "type": "separator" },
+        { "label": "Toggle Full Screen", "shortcut": "F11" },
+        { "label": "Toggle Terminal", "shortcut": "Ctrl+`" },
+        { "label": "Toggle Project Panel", "shortcut": "Ctrl+B" }
       ]
     },
     {
       "label": "Go",
       "items": [
         { "label": "Go to File...", "shortcut": "Ctrl+P" },
-        { "label": "Go to Symbol in Workspace...", "shortcut": "Ctrl+T" }
-      ]
-    },
-    {
-      "label": "Terminal",
-      "items": [
-        { "label": "New Terminal", "shortcut": "Ctrl+Shift+`" }
+        { "label": "Go to Symbol in Project...", "shortcut": "Ctrl+T" },
+        { "label": "Go to Line...", "shortcut": "Ctrl+G" }
       ]
     },
     {
       "label": "Help",
       "items": [
-        { "label": "About", "action": "about", "shortcut": "" }
+        { "label": "About Zed", "action": "about", "shortcut": "" }
       ]
     }
   ]

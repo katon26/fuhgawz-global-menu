@@ -7,13 +7,13 @@
   "app_menu": {
     "label": "Brave",
     "items": [
-      { "label": "About Brave", "shortcut": "" },
+      { "label": "About Brave", "action": "about", "shortcut": "" },
       { "label": "Settings...", "shortcut": "Ctrl+," },
       { "label": "Delete Browsing Data...", "shortcut": "Ctrl+Shift+Delete" },
       { "type": "separator" },
-      { "label": "Hide Brave", "shortcut": "Super+H" },
+      { "label": "Hide Brave", "action": "hide" },
       { "type": "separator" },
-      { "label": "Quit Brave", "shortcut": "Ctrl+Q" }
+      { "label": "Quit Brave", "shortcut": "Ctrl+Shift+Q" }
     ]
   },
   "menus": [

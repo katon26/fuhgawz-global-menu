@@ -16,6 +16,7 @@ export const ATSPI_BLACKLIST = new Set([
     'code',
     'com.visualstudio.code',
     'vscodium',
+    'antigravity',
     'slack',
     'discord',
     'spotify',

@@ -39,6 +39,13 @@ const mockDiscord = {
 };
 assert(scanner.isBlacklisted(mockDiscord) === true, 'Discord is blacklisted');
 
+const mockAntigravity = {
+    get_wm_class: () => 'Antigravity',
+    get_wm_class_instance: () => 'antigravity',
+    get_gtk_application_id: () => 'antigravity.desktop',
+};
+assert(scanner.isBlacklisted(mockAntigravity) === true, 'Antigravity is blacklisted');
+
 // 2. Non-blacklisted applications (e.g. GIMP, LibreOffice, Gedit)
 const mockGimp = {
     get_wm_class: () => 'Gimp-2.10',

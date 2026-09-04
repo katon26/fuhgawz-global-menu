@@ -7,11 +7,11 @@
   "app_menu": {
     "label": "Chrome",
     "items": [
-      { "label": "About Chrome", "shortcut": "" },
+      { "label": "About Chrome", "action": "about", "shortcut": "" },
       { "label": "Settings...", "shortcut": "Ctrl+," },
       { "label": "Clear Browsing Data...", "shortcut": "Ctrl+Shift+Delete" },
       { "type": "separator" },
-      { "label": "Hide Chrome", "shortcut": "Super+H" },
+      { "label": "Hide Chrome", "action": "hide" },
       { "type": "separator" },
       { "label": "Quit Chrome", "shortcut": "Ctrl+Q" }
     ]
@@ -78,7 +78,7 @@
     {
       "label": "Help",
       "items": [
-        { "label": "About Chrome", "shortcut": "" }
+        { "label": "About Chrome", "action": "about", "shortcut": "" }
       ]
     }
   ]

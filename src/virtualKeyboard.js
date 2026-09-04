@@ -52,15 +52,56 @@ export const KEY_MAP = {
     '-': Clutter.KEY_minus,
     '=': Clutter.KEY_equal,
     '+': Clutter.KEY_plus,
+    'plus': Clutter.KEY_plus,
     '`': Clutter.KEY_grave,
     'backspace': Clutter.KEY_BackSpace,
+    'BackSpace': Clutter.KEY_BackSpace,
+    'bksp': Clutter.KEY_BackSpace,
     'delete': Clutter.KEY_Delete,
+    'Delete': Clutter.KEY_Delete,
+    'del': Clutter.KEY_Delete,
+    'Del': Clutter.KEY_Delete,
     'enter': Clutter.KEY_Return,
+    'Enter': Clutter.KEY_Return,
     'return': Clutter.KEY_Return,
+    'Return': Clutter.KEY_Return,
     'tab': Clutter.KEY_Tab,
+    'Tab': Clutter.KEY_Tab,
     'space': Clutter.KEY_space,
+    'Space': Clutter.KEY_space,
     'escape': Clutter.KEY_Escape,
+    'Escape': Clutter.KEY_Escape,
     'esc': Clutter.KEY_Escape,
+    'Esc': Clutter.KEY_Escape,
+    'right': Clutter.KEY_Right,
+    'Right': Clutter.KEY_Right,
+    'left': Clutter.KEY_Left,
+    'Left': Clutter.KEY_Left,
+    'up': Clutter.KEY_Up,
+    'Up': Clutter.KEY_Up,
+    'down': Clutter.KEY_Down,
+    'Down': Clutter.KEY_Down,
+    'home': Clutter.KEY_Home,
+    'Home': Clutter.KEY_Home,
+    'end': Clutter.KEY_End,
+    'End': Clutter.KEY_End,
+    'page_up': Clutter.KEY_Page_Up,
+    'Page_Up': Clutter.KEY_Page_Up,
+    'pageup': Clutter.KEY_Page_Up,
+    'PageUp': Clutter.KEY_Page_Up,
+    'page-up': Clutter.KEY_Page_Up,
+    'Page-Up': Clutter.KEY_Page_Up,
+    'prior': Clutter.KEY_Page_Up,
+    'page_down': Clutter.KEY_Page_Down,
+    'Page_Down': Clutter.KEY_Page_Down,
+    'pagedown': Clutter.KEY_Page_Down,
+    'PageDown': Clutter.KEY_Page_Down,
+    'page-down': Clutter.KEY_Page_Down,
+    'Page-Down': Clutter.KEY_Page_Down,
+    'next': Clutter.KEY_Page_Down,
+    'insert': Clutter.KEY_Insert,
+    'Insert': Clutter.KEY_Insert,
+    'ins': Clutter.KEY_Insert,
     'f1': Clutter.KEY_F1,
     'f2': Clutter.KEY_F2,
     'f3': Clutter.KEY_F3,
@@ -91,7 +132,7 @@ export const MODIFIER_MAP = {
 };
 
 /**
- * Parses a string accelerator representation (e.g. "Ctrl+Shift+N" or "Ctrl+,")
+ * Parses a string accelerator representation (e.g. "Ctrl+Shift+N", "Ctrl++", or "Ctrl+,")
  * into a primary keyval and modifier keyval array.
  *
  * @param {string} accelStr - Accelerator string.
@@ -100,7 +141,21 @@ export const MODIFIER_MAP = {
 export function parseAccelerator(accelStr) {
     if (!accelStr || typeof accelStr !== 'string') return null;
 
-    const parts = accelStr.split('+').map(p => p.trim()).filter(Boolean);
+    let str = accelStr.trim();
+    if (!str) return null;
+
+    let hasTrailingPlus = false;
+    // Check if the accelerator ends with '+' as the key (e.g. 'Ctrl++', 'Ctrl+Shift++', '+', 'Ctrl + +')
+    if (str === '+' || str.endsWith('++') || /\+\s*\+$/.test(str)) {
+        hasTrailingPlus = true;
+        str = str.replace(/\+\s*$/, '');
+    }
+
+    const parts = str.split('+').map(p => p.trim()).filter(Boolean);
+    if (hasTrailingPlus) {
+        parts.push('+');
+    }
+
     if (parts.length === 0) return null;
 
     const modifiers = [];
@@ -110,18 +165,27 @@ export function parseAccelerator(accelStr) {
         const part = parts[i];
         const lower = part.toLowerCase();
 
-        if (i < parts.length - 1 || MODIFIER_MAP[lower]) {
+        if (i < parts.length - 1) {
             if (MODIFIER_MAP[lower]) {
                 modifiers.push(MODIFIER_MAP[lower]);
                 continue;
             }
+            return null;
         }
 
-        // Primary key
-        if (KEY_MAP[lower] !== undefined) {
+        // Primary key (last part)
+        if (MODIFIER_MAP[lower]) {
+            return null;
+        }
+
+        if (KEY_MAP[part] !== undefined) {
+            primaryKeyval = KEY_MAP[part];
+        } else if (KEY_MAP[lower] !== undefined) {
             primaryKeyval = KEY_MAP[lower];
         } else if (part.length === 1) {
             primaryKeyval = Clutter.unicode_to_keyval ? Clutter.unicode_to_keyval(part.charCodeAt(0)) : part.charCodeAt(0);
+        } else {
+            return null;
         }
     }
 
@@ -201,17 +265,42 @@ export class VirtualKeyboardDispatcher {
                     this._virtualDevice.notify_keyval(now, modifiers[i], Clutter.KeyState.PRESSED);
                 }
 
-                // Press and release primary key
+                // Press primary key
                 this._virtualDevice.notify_keyval(now, keyval, Clutter.KeyState.PRESSED);
-                this._virtualDevice.notify_keyval(now, keyval, Clutter.KeyState.RELEASED);
-
-                // Release modifiers in reverse order
-                for (let i = modifiers.length - 1; i >= 0; i--) {
-                    this._virtualDevice.notify_keyval(now, modifiers[i], Clutter.KeyState.RELEASED);
-                }
             } catch (err) {
-                console.warn(`[FUHGAWZ] Error injecting virtual keyval: ${err.message}`);
+                console.warn(`[FUHGAWZ] Error injecting virtual keyval press: ${err.message}`);
+                return GLib.SOURCE_REMOVE;
             }
+
+            // 20ms release delay and timestamp delta so Wayland client surfaces reliably capture key transition
+            const releaseSourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 20, () => {
+                this._pendingSources.delete(releaseSourceId);
+
+                if (!this._virtualDevice) return GLib.SOURCE_REMOVE;
+
+                const releaseNow = Math.max(
+                    ((typeof Clutter.get_current_event_time === 'function')
+                        ? Clutter.get_current_event_time()
+                        : Date.now()) * 1000,
+                    now + 20000
+                );
+
+                try {
+                    // Release primary key
+                    this._virtualDevice.notify_keyval(releaseNow, keyval, Clutter.KeyState.RELEASED);
+
+                    // Release modifiers in reverse order
+                    for (let i = modifiers.length - 1; i >= 0; i--) {
+                        this._virtualDevice.notify_keyval(releaseNow, modifiers[i], Clutter.KeyState.RELEASED);
+                    }
+                } catch (err) {
+                    console.warn(`[FUHGAWZ] Error injecting virtual keyval release: ${err.message}`);
+                }
+
+                return GLib.SOURCE_REMOVE;
+            });
+
+            this._pendingSources.add(releaseSourceId);
 
             return GLib.SOURCE_REMOVE;
         });
@@ -220,7 +309,7 @@ export class VirtualKeyboardDispatcher {
     }
 
     /**
-     * Convenience method to dispatch a string accelerator (e.g. "Ctrl+S").
+     * Convenience method to dispatch a string accelerator (e.g. "Ctrl+S" or "Ctrl+K Ctrl+S").
      *
      * @param {Meta.Window} metaWindow
      * @param {string} accelStr
@@ -228,10 +317,35 @@ export class VirtualKeyboardDispatcher {
      * @returns {boolean} True if successfully queued
      */
     dispatchAccelerator(metaWindow, accelStr, delayMs = 50) {
-        const parsed = parseAccelerator(accelStr);
-        if (!parsed) return false;
-        this.dispatchShortcut(metaWindow, parsed.keyval, parsed.modifiers, delayMs);
-        return true;
+        if (!metaWindow || !accelStr || typeof accelStr !== 'string') return false;
+
+        // 1. Prioritize parsing as a single accelerator (e.g. "Ctrl+S", "Ctrl++", "Ctrl + +", "F11")
+        const singleParsed = parseAccelerator(accelStr);
+        if (singleParsed) {
+            this.dispatchShortcut(metaWindow, singleParsed.keyval, singleParsed.modifiers, delayMs);
+            return true;
+        }
+
+        // 2. Otherwise test for chord sequences (e.g. "Ctrl+K Ctrl+S" or "Ctrl+K, Ctrl+S")
+        const normalized = accelStr.replace(/\s*\+\s*/g, '+');
+        const chords = normalized.trim().split(/[\s,]+/).filter(Boolean);
+        if (chords.length > 1) {
+            const parsedChords = [];
+            for (const chord of chords) {
+                const parsed = parseAccelerator(chord);
+                if (!parsed) return false;
+                parsedChords.push(parsed);
+            }
+
+            let currentDelay = delayMs;
+            for (const parsed of parsedChords) {
+                this.dispatchShortcut(metaWindow, parsed.keyval, parsed.modifiers, currentDelay);
+                currentDelay += 80; // 50ms Shell grab + 20ms release + 10ms gap
+            }
+            return true;
+        }
+
+        return false;
     }
 
     /**
