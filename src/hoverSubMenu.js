@@ -85,7 +85,7 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this.add_child(this._arrowIcon);
 
             // Submenu flyout container (opens to the right)
-            this.menu = new PopupMenu.PopupMenu(this.actor, 0.0, St.Side.RIGHT);
+            this.menu = new PopupMenu.PopupMenu(this.actor, 0.0, St.Side.LEFT);
             this.menu._ownerSubMenu = this;
             this.menu.actor.add_style_class_name('fuhgawz-hover-menu');
             this.menu.actor.track_hover = true;
@@ -154,6 +154,12 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             }
         }
 
+        activate(_event) {
+            this._cancelClose();
+            this._cancelOpenDelay();
+            this.open();
+        }
+
         _connectEvents() {
             this.actor.connect('enter-event', () => {
                 this._cancelClose();
@@ -217,8 +223,11 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
                 this._flyoutSignalIds.push({ target: this.menu.actor, id: keyPressId });
             }
 
-            // Close flyout and top menu when any child item inside this submenu is activated
-            this.menu.connect('activate', (_menu, _childItem) => {
+            // Close flyout and top menu when any leaf item inside this submenu is activated
+            this.menu.connect('activate', (_menu, childItem) => {
+                if (childItem instanceof HoverSubMenuMenuItem || childItem?._ownerSubMenu) {
+                    return;
+                }
                 this.close();
                 this._closeEntireMenuChain();
             });
@@ -452,15 +461,18 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             }
 
             let topMenu = this._parentMenu;
-            while (topMenu && topMenu._parent) {
-                topMenu = topMenu._parent;
+            if (topMenu && typeof topMenu._getTopMenu === 'function') {
+                topMenu = topMenu._getTopMenu();
+            } else {
+                while (topMenu && topMenu._parent) {
+                    topMenu = topMenu._parent;
+                }
             }
             if (topMenu) {
-                if (typeof topMenu.close === 'function') {
-                    topMenu.close(BoxPointer.PopupAnimation.FULL);
-                }
                 if (typeof topMenu.itemActivated === 'function') {
                     topMenu.itemActivated(BoxPointer.PopupAnimation.FULL);
+                } else if (typeof topMenu.close === 'function') {
+                    topMenu.close(BoxPointer.PopupAnimation.FULL);
                 }
             }
         }
@@ -478,7 +490,7 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
                 }
             }
 
-            const triggerBounds = this._getActorBounds(this.actor);
+            const triggerBounds = this._getActorBounds(this.actor ?? this);
             const flyoutBounds = this._getActorBounds(this.menu?.actor) ?? this._getActorBounds(this._flyoutHoverActor);
 
             const pointWithin = (bounds, tolerance = 0) =>
@@ -522,7 +534,13 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
                 }
             }
 
-            if (!triggerBounds || !flyoutBounds) {
+            // If the flyout is open but its actor has not yet received its first layout allocation,
+            // remain open so it does not collapse prematurely.
+            if (!flyoutBounds) {
+                return PointerState.INSIDE_SUBMENU;
+            }
+
+            if (!triggerBounds) {
                 return PointerState.OUTSIDE;
             }
 
@@ -573,13 +591,14 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._setSubmenuHover(true);
 
             // Close any sibling submenus that are currently open in the same parent menu
-            if (this._parentHoverSubmenu) {
+            if (this._parentHoverSubmenu && this._parentHoverSubmenu._childSubmenus) {
                 for (const sibling of this._parentHoverSubmenu._childSubmenus) {
                     if (sibling !== this && sibling.isOpen) {
                         sibling.close();
                     }
                 }
-            } else if (this._parentMenu && typeof this._parentMenu._getMenuItems === 'function') {
+            }
+            if (this._parentMenu && typeof this._parentMenu._getMenuItems === 'function') {
                 for (const item of this._parentMenu._getMenuItems()) {
                     if (item instanceof HoverSubMenuMenuItem && item !== this && item.isOpen) {
                         item.close();
@@ -643,6 +662,7 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
         }
 
         destroy() {
+            if (this._isDestroyed) return;
             this._isDestroyed = true;
             this._cancelClose();
             this._cancelOpenDelay();
