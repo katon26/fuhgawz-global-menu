@@ -8,7 +8,7 @@
     "label": "Brave",
     "items": [
       { "label": "About Brave", "action": "about", "shortcut": "" },
-      { "label": "Settings...", "shortcut": "Ctrl+," },
+      { "label": "Settings...", "action": "settings", "shortcut": "" },
       { "label": "Delete Browsing Data...", "shortcut": "Ctrl+Shift+Delete" },
       { "type": "separator" },
       { "label": "Hide Brave", "action": "hide" },
@@ -64,7 +64,23 @@
     {
       "label": "History",
       "items": [
-        { "label": "Show Full History", "shortcut": "Ctrl+H" }
+        { "label": "Show Full History", "shortcut": "Ctrl+H" },
+        { "type": "separator" },
+        {
+          "label": "Recently Closed",
+          "items": [
+            { "label": "Reopen Closed Tab", "shortcut": "Ctrl+Shift+T" },
+            { "label": "Reopen Closed Window", "shortcut": "Ctrl+Shift+N" }
+          ]
+        },
+        {
+          "label": "Recent Tabs",
+          "items": [
+            { "label": "Restore Last Session" }
+          ]
+        },
+        { "type": "separator" },
+        { "label": "Clear Browsing Data...", "shortcut": "Ctrl+Shift+Delete" }
       ]
     },
     {
@@ -72,13 +88,22 @@
       "items": [
         { "label": "Bookmark This Tab...", "shortcut": "Ctrl+D" },
         { "label": "Bookmark All Tabs...", "shortcut": "Ctrl+Shift+D" },
-        { "label": "Bookmark Manager", "shortcut": "Ctrl+Shift+O" }
+        { "label": "Bookmark Manager", "shortcut": "Ctrl+Shift+O" },
+        { "label": "Show Bookmarks Bar", "shortcut": "Ctrl+Shift+B" },
+        { "type": "separator" },
+        {
+          "label": "Bookmarks Bar",
+          "items": [
+            { "label": "Bookmarks Bar is Empty" }
+          ]
+        }
       ]
     },
     {
       "label": "Help",
       "items": [
-        { "label": "About Brave", "shortcut": "" }
+        { "label": "Brave Help", "shortcut": "F1" },
+        { "label": "Report an Issue..." }
       ]
     }
   ]

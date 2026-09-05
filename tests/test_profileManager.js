@@ -1,4 +1,4 @@
-import { ProfileManager } from '../src/profileManager.js';
+import { ProfileManager, applyProfileTemplate } from '../src/profileManager.js';
 import GLib from 'gi://GLib';
 
 function assert(condition, message) {
@@ -74,8 +74,11 @@ const mockAntigravityWindow = {
     get_gtk_application_id: () => null,
 };
 const matchedAntigravity = manager.getProfileForWindow(mockAntigravityWindow);
-assert(matchedAntigravity !== null, 'Matched Antigravity window to VS Code profile');
-assert(matchedAntigravity.id === 'com.visualstudio.code', 'Profile ID is com.visualstudio.code');
+assert(matchedAntigravity !== null, 'Matched Antigravity window to Antigravity profile');
+assert(matchedAntigravity.id === 'antigravity', 'Profile ID is antigravity');
+assert(matchedAntigravity.app_menu.label === 'Antigravity', 'Antigravity app menu label is Antigravity');
+const antigravityAbout = matchedAntigravity.app_menu.items.find(i => i.label === 'About Antigravity');
+assert(antigravityAbout && antigravityAbout.action === 'about', 'Antigravity About action is about');
 
 // 5. Test matching Firefox
 const mockFirefoxWindow = {
@@ -98,6 +101,27 @@ const matchedZed = manager.getProfileForWindow(mockZedWindow);
 assert(matchedZed !== null, 'Matched Zed window');
 assert(matchedZed.id === 'dev.zed.Zed', 'Profile ID is dev.zed.Zed');
 assert(matchedZed.menus.length === 6, `Zed has 6 standard menus (got ${matchedZed.menus.length})`);
+
+// 6b. Test matching Zed by app_id without .desktop
+const mockZedNoDesktop = {
+    get_wm_class: () => null,
+    get_wm_class_instance: () => null,
+    get_gtk_application_id: () => 'dev.zed.Zed',
+};
+const matchedZedNoDesktop = manager.getProfileForWindow(mockZedNoDesktop);
+assert(matchedZedNoDesktop !== null, 'Matched Zed window by app_id without .desktop');
+assert(matchedZedNoDesktop.id === 'dev.zed.Zed', 'Profile ID is dev.zed.Zed');
+
+// 6c. Test matching window via WindowTracker get_window_app
+const mockTrackerWindow = {
+    get_wm_class: () => null,
+    get_wm_class_instance: () => null,
+    get_gtk_application_id: () => null,
+    get_window_app: () => ({ get_id: () => 'dev.zed.Zed.desktop' }),
+};
+const matchedTracker = manager.getProfileForWindow(mockTrackerWindow);
+assert(matchedTracker !== null, 'Matched window via window tracker');
+assert(matchedTracker.id === 'dev.zed.Zed', 'Tracker profile ID is dev.zed.Zed');
 
 // 7. Test matching Warp Terminal
 const mockWarpWindow = {
@@ -128,7 +152,54 @@ const mockUnknownWindow = {
 };
 assert(manager.getProfileForWindow(mockUnknownWindow) === null, 'Unknown window returns null');
 
-// 10. Cleanup
+// 10. Test {{appName}} templating
+const rawProfile = {
+    app_menu: {
+        label: '{{appName}}',
+        items: [
+            { label: 'About {{appName}}', action: 'about' },
+            { label: 'Hide {{appName}}', action: 'hide' }
+        ]
+    },
+    menus: [
+        {
+            label: 'File',
+            items: [
+                {
+                    label: 'New {{appName}} Window',
+                    submenu: [
+                        { label: 'Open in {{appName}} Worktree' }
+                    ]
+                }
+            ]
+        }
+    ]
+};
+const templated = applyProfileTemplate(rawProfile, 'CustomFork');
+assert(templated.app_menu.label === 'CustomFork', 'app_menu label templated');
+assert(templated.app_menu.items[0].label === 'About CustomFork', 'About item templated');
+assert(templated.app_menu.items[1].label === 'Hide CustomFork', 'Hide item templated');
+assert(templated.menus[0].items[0].label === 'New CustomFork Window', 'Menu item templated');
+assert(templated.menus[0].items[0].submenu[0].label === 'Open in CustomFork Worktree', 'Nested submenu templated');
+
+// 10b. Test WindowTracker app.get_name() resolution for appName templating
+const mockTrackerWithName = {
+    get_window_app: (_win) => ({
+        get_id: () => 'dev.zed.Zed.desktop',
+        get_name: () => 'Zed Nightly',
+    }),
+};
+const mockWindowForTrackerName = {
+    get_wm_class: () => 'zed',
+    get_wm_class_instance: () => 'zed',
+    get_gtk_application_id: () => null,
+};
+const matchedWithTrackerName = manager.getProfileForWindow(mockWindowForTrackerName, null, mockTrackerWithName);
+assert(matchedWithTrackerName !== null, 'Matched window with custom tracker');
+assert(matchedWithTrackerName.id === 'dev.zed.Zed', 'Profile ID is dev.zed.Zed');
+assert(matchedWithTrackerName.app_menu.label === 'Zed', 'Zed app menu label preserved');
+
+// 11. Cleanup
 manager.destroy();
 assert(manager._profiles.size === 0, 'Profiles cleared on destroy');
 

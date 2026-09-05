@@ -47,7 +47,40 @@ export default class FUHGlobeExtensionPreferences extends ExtensionPreferences {
         );
         generalGroup.add(debugRow);
 
-        // ── Group 2: Appearance ──────────────────────────────────────────────
+        // ── Group 2: Application Fallbacks & Submenus ─────────────────────────
+        const fallbacksGroup = new Adw.PreferencesGroup({
+            title: _('Application Fallbacks & Submenus'),
+            description: _('Configure Wayland compatibility profiles and flyout submenus'),
+        });
+        page.add(fallbacksGroup);
+
+        // Declarative Profiles Switch
+        const profilesRow = new Adw.SwitchRow({
+            title: _('Enable Wayland Fallback Menus'),
+            subtitle: _('Provide top-bar menus for apps like Brave, Firefox, Zed, and Antigravity'),
+        });
+        settings.bind(
+            'enable-declarative-profiles',
+            profilesRow,
+            'active',
+            Gio.SettingsBindFlags.DEFAULT
+        );
+        fallbacksGroup.add(profilesRow);
+
+        // Hover Submenus Switch
+        const hoverSubmenusRow = new Adw.SwitchRow({
+            title: _('Enable Hover Flyout Submenus'),
+            subtitle: _('Display nested submenus as macOS-style horizontal flyouts'),
+        });
+        settings.bind(
+            'enable-hover-submenus',
+            hoverSubmenusRow,
+            'active',
+            Gio.SettingsBindFlags.DEFAULT
+        );
+        fallbacksGroup.add(hoverSubmenusRow);
+
+        // ── Group 3: Appearance ──────────────────────────────────────────────
         const appearanceGroup = new Adw.PreferencesGroup({
             title: _('Appearance'),
             description: _('Customize panel menu button styling'),
@@ -74,7 +107,7 @@ export default class FUHGlobeExtensionPreferences extends ExtensionPreferences {
         );
         appearanceGroup.add(paddingRow);
 
-        // ── Group 3: System Logo Menu ────────────────────────────────────────
+        // ── Group 4: System Logo Menu ────────────────────────────────────────
         const sysMenuGroup = new Adw.PreferencesGroup({
             title: _('System Logo Menu'),
             description: _('Configure top-left system branding menu button'),
