@@ -42,6 +42,14 @@ assert(braveQuit && braveQuit.shortcut === 'Ctrl+Shift+Q', 'Brave Quit shortcut 
 const braveHide = matchedBrave.app_menu.items.find(i => i.label === 'Hide Brave');
 assert(braveHide && braveHide.action === 'hide', 'Brave Hide action is hide');
 
+const braveHistory = matchedBrave.menus.find(m => m.label === 'History');
+assert(braveHistory, 'Brave has History menu');
+const recentTabs = braveHistory.items.find(i => i.label === 'Recent Tabs');
+assert(recentTabs && Array.isArray(recentTabs.items), 'Recent Tabs has nested items (level 2)');
+const tabGroup = recentTabs.items.find(i => i.label && i.label.includes('GitHub'));
+assert(tabGroup && Array.isArray(tabGroup.items), 'GitHub tab group has nested items (level 3)');
+assert(tabGroup.items.length >= 3, 'GitHub tab group has tabs');
+
 // 3. Test matching Chrome by WM_CLASS
 const mockChromeWindow = {
     get_wm_class: () => 'google-chrome',

@@ -41,6 +41,8 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this.add_style_class_name('fuhgawz-hover-submenu-item');
 
             this._parentMenu = parentMenu;
+            this._parentHoverSubmenu = parentMenu?._ownerSubMenu ?? null;
+            this._childSubmenus = [];
             this._hoverCloseTimeoutId = 0;
             this._openDelayTimeoutId = 0;
             this._globalHoverMonitorId = 0;
@@ -84,9 +86,11 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
 
             // Submenu flyout container (opens to the right)
             this.menu = new PopupMenu.PopupMenu(this.actor, 0.0, St.Side.RIGHT);
+            this.menu._ownerSubMenu = this;
             this.menu.actor.add_style_class_name('fuhgawz-hover-menu');
             this.menu.actor.track_hover = true;
             this.menu.actor.reactive = true;
+            this.menu.actor.hide();
 
             this._flyoutHoverActor = this.menu.box ?? this.menu.actor;
             if (this._flyoutHoverActor) {
@@ -94,11 +98,18 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
                 this._flyoutHoverActor.reactive = true;
             }
 
-            try {
-                Main.layoutManager.addTopChrome(this.menu.actor);
-                this._chromeAdded = true;
-            } catch (e) {
-                // In testing environments without layoutManager chrome
+            // Wrap addMenuItem to automatically register child HoverSubMenuMenuItems
+            const origAddMenuItem = this.menu.addMenuItem.bind(this.menu);
+            this.menu.addMenuItem = (menuItem, position) => {
+                origAddMenuItem(menuItem, position);
+                if (menuItem instanceof HoverSubMenuMenuItem) {
+                    this._registerChildSubmenu(menuItem);
+                }
+            };
+
+            // Register with parent HoverSubMenuMenuItem if nested
+            if (this._parentHoverSubmenu) {
+                this._parentHoverSubmenu._registerChildSubmenu(this);
             }
 
             this._connectEvents();
@@ -114,11 +125,29 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             return !!(this.menu && this.menu.isOpen);
         }
 
+        _registerChildSubmenu(child) {
+            if (!this._childSubmenus.includes(child)) {
+                this._childSubmenus.push(child);
+                child._parentHoverSubmenu = this;
+            }
+        }
+
+        _unregisterChildSubmenu(child) {
+            const idx = this._childSubmenus.indexOf(child);
+            if (idx >= 0) {
+                this._childSubmenus.splice(idx, 1);
+            }
+        }
+
         _setParent(parent) {
             super._setParent(parent);
             if (!this._parentMenu && parent) {
                 this._parentMenu = parent;
                 this._connectParentSignals();
+            }
+            if (!this._parentHoverSubmenu && parent?._ownerSubMenu) {
+                this._parentHoverSubmenu = parent._ownerSubMenu;
+                this._parentHoverSubmenu._registerChildSubmenu(this);
             }
             if (this.menu && parent) {
                 this.menu._setParent(parent);
@@ -191,16 +220,7 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             // Close flyout and top menu when any child item inside this submenu is activated
             this.menu.connect('activate', (_menu, _childItem) => {
                 this.close();
-                const topMenu = typeof this._getTopMenu === 'function' ? this._getTopMenu() : null;
-                if (topMenu && typeof topMenu.close === 'function') {
-                    topMenu.close(BoxPointer.PopupAnimation.FULL);
-                } else if (this._parentMenu) {
-                    if (typeof this._parentMenu.itemActivated === 'function') {
-                        this._parentMenu.itemActivated(BoxPointer.PopupAnimation.FULL);
-                    } else if (typeof this._parentMenu.close === 'function') {
-                        this._parentMenu.close(BoxPointer.PopupAnimation.FULL);
-                    }
-                }
+                this._closeEntireMenuChain();
             });
 
             this.menu.connect('open-state-changed', (_menu, open) => {
@@ -210,6 +230,9 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
                 } else {
                     this._stopGlobalHoverMonitor();
                     this._setSubmenuHover(false);
+                    if (this.menu?.actor) {
+                        this.menu.actor.hide();
+                    }
                 }
             });
         }
@@ -413,21 +436,50 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             }
         }
 
-        _getPointerState() {
+        _closeEntireMenuChain() {
+            if (this._childSubmenus) {
+                for (const child of this._childSubmenus) {
+                    if (child.isOpen) {
+                        child.close();
+                    }
+                }
+            }
+
+            let ancestor = this._parentHoverSubmenu;
+            while (ancestor) {
+                ancestor.close();
+                ancestor = ancestor._parentHoverSubmenu;
+            }
+
+            let topMenu = this._parentMenu;
+            while (topMenu && topMenu._parent) {
+                topMenu = topMenu._parent;
+            }
+            if (topMenu) {
+                if (typeof topMenu.close === 'function') {
+                    topMenu.close(BoxPointer.PopupAnimation.FULL);
+                }
+                if (typeof topMenu.itemActivated === 'function') {
+                    topMenu.itemActivated(BoxPointer.PopupAnimation.FULL);
+                }
+            }
+        }
+
+        _getPointerState(pointerX = undefined, pointerY = undefined) {
             if (!this.isOpen) {
                 return PointerState.OUTSIDE;
             }
 
-            let pointerX = 0;
-            let pointerY = 0;
-            try {
-                [pointerX, pointerY] = global.get_pointer();
-            } catch (e) {
-                return PointerState.INSIDE_SUBMENU;
+            if (pointerX === undefined || pointerY === undefined) {
+                try {
+                    [pointerX, pointerY] = global.get_pointer();
+                } catch (e) {
+                    return PointerState.INSIDE_SUBMENU;
+                }
             }
 
             const triggerBounds = this._getActorBounds(this.actor);
-            const flyoutBounds = this._getActorBounds(this._flyoutHoverActor ?? this.menu.actor);
+            const flyoutBounds = this._getActorBounds(this.menu?.actor) ?? this._getActorBounds(this._flyoutHoverActor);
 
             const pointWithin = (bounds, tolerance = 0) =>
                 bounds &&
@@ -446,11 +498,23 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
                 return PointerState.INSIDE_SUBMENU;
             }
 
-            // 3. Inside any child hover submenu that is currently open
+            // 3. Inside any child hover submenu that is currently open or pointer in descendant actor
+            if (this._childSubmenus && this._childSubmenus.length > 0) {
+                for (const child of this._childSubmenus) {
+                    if (child && child.isOpen) {
+                        const childState = child._getPointerState(pointerX, pointerY);
+                        if (childState !== PointerState.OUTSIDE) {
+                            return PointerState.INSIDE_SUBMENU;
+                        }
+                    }
+                }
+            }
+
+            // Dynamic fallback for child HoverSubMenuMenuItems
             if (typeof this.menu._getMenuItems === 'function') {
                 for (const item of this.menu._getMenuItems()) {
-                    if (item instanceof HoverSubMenuMenuItem && item.isOpen) {
-                        const childState = item._getPointerState();
+                    if (item instanceof HoverSubMenuMenuItem && item !== this && item.isOpen) {
+                        const childState = item._getPointerState(pointerX, pointerY);
                         if (childState !== PointerState.OUTSIDE) {
                             return PointerState.INSIDE_SUBMENU;
                         }
@@ -507,6 +571,35 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._cancelClose();
             this._connectSiblingSignals();
             this._setSubmenuHover(true);
+
+            // Close any sibling submenus that are currently open in the same parent menu
+            if (this._parentHoverSubmenu) {
+                for (const sibling of this._parentHoverSubmenu._childSubmenus) {
+                    if (sibling !== this && sibling.isOpen) {
+                        sibling.close();
+                    }
+                }
+            } else if (this._parentMenu && typeof this._parentMenu._getMenuItems === 'function') {
+                for (const item of this._parentMenu._getMenuItems()) {
+                    if (item instanceof HoverSubMenuMenuItem && item !== this && item.isOpen) {
+                        item.close();
+                    }
+                }
+            }
+
+            // Lazily add to top chrome when opened
+            if (!this._chromeAdded) {
+                try {
+                    Main.layoutManager.addTopChrome(this.menu.actor);
+                    this._chromeAdded = true;
+                } catch (e) {
+                    // In testing environments without layoutManager chrome
+                }
+            }
+
+            if (this.menu.actor) {
+                this.menu.actor.show();
+            }
             this.menu.open(BoxPointer.PopupAnimation.FULL);
             this._startGlobalHoverMonitor();
         }
@@ -517,8 +610,19 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._stopGlobalHoverMonitor();
             this._disconnectSiblingSignals();
 
+            if (this._childSubmenus) {
+                for (const child of this._childSubmenus) {
+                    if (child.isOpen) {
+                        child.close();
+                    }
+                }
+            }
+
             if (this.menu && this.menu.isOpen) {
                 this.menu.close(BoxPointer.PopupAnimation.FULL);
+            }
+            if (this.menu?.actor) {
+                this.menu.actor.hide();
             }
             this._setSubmenuHover(false);
         }
@@ -546,6 +650,20 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._disconnectParentSignals();
             this._disconnectSiblingSignals();
 
+            if (this._parentHoverSubmenu) {
+                this._parentHoverSubmenu._unregisterChildSubmenu(this);
+                this._parentHoverSubmenu = null;
+            }
+
+            if (this._childSubmenus) {
+                for (const child of this._childSubmenus.slice()) {
+                    if (child && !child._isDestroyed) {
+                        child.destroy();
+                    }
+                }
+                this._childSubmenus = [];
+            }
+
             for (const { target, id } of this._flyoutSignalIds) {
                 if (target && id) {
                     try {
@@ -556,6 +674,9 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._flyoutSignalIds = [];
 
             if (this.menu) {
+                if (this.menu.actor) {
+                    this.menu.actor.hide();
+                }
                 if (this._chromeAdded) {
                     try {
                         Main.layoutManager.removeChrome(this.menu.actor);

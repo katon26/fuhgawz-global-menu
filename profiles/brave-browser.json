@@ -76,7 +76,17 @@
         {
           "label": "Recent Tabs",
           "items": [
-            { "label": "Restore Last Session" }
+            { "label": "Restore Last Session" },
+            { "type": "separator" },
+            {
+              "label": "GitHub - 2 tabs",
+              "items": [
+                { "label": "Restore 2 tabs" },
+                { "type": "separator" },
+                { "label": "Pull Requests · my-repo" },
+                { "label": "Issues · my-repo" }
+              ]
+            }
           ]
         },
         { "type": "separator" },

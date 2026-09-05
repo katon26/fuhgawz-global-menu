@@ -80,6 +80,13 @@ export default class FUHGlobeExtensionPreferences extends ExtensionPreferences {
         );
         fallbacksGroup.add(hoverSubmenusRow);
 
+        // Live Dynamic Menus (XWayland Mode) Info Row
+        const xwaylandRow = new Adw.ActionRow({
+            title: _('Live Dynamic Menus (XWayland Mode)'),
+            subtitle: _('For native dynamic menus in Brave, Firefox, or VS Code, run ./patch-launcher.sh <app> or start the app in XWayland mode (GDK_BACKEND=x11)'),
+        });
+        fallbacksGroup.add(xwaylandRow);
+
         // ── Group 3: Appearance ──────────────────────────────────────────────
         const appearanceGroup = new Adw.PreferencesGroup({
             title: _('Appearance'),
