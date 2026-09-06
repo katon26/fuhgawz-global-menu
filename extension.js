@@ -16,7 +16,7 @@ import { SystemMenu } from './src/systemMenu.js';
 import { UserSwitcherController } from './src/userSwitcher.js';
 import { QuickSettingsActionsController } from './src/quickSettingsHider.js';
 import { VirtualKeyboardDispatcher } from './src/virtualKeyboard.js';
-import { ProfileManager, expandDynamicProfileItems } from './src/profileManager.js';
+import { ProfileManager, expandDynamicProfileItems, getBookmarksCacheMtime, loadBrowserBookmarksAsync } from './src/profileManager.js';
 import { AtspiScanner } from './src/atspiScanner.js';
 import { HoverSubMenuMenuItem } from './src/hoverSubMenu.js';
 
@@ -643,7 +643,10 @@ function _navigateBrowserUrl(win, dispatcher, url, openNewTab = true) {
             }
             if (typeof global !== 'undefined' && global.display) {
                 focusId = global.display.connect('notify::focus-window', () => {
-                    if (global.display.focus_window !== win) {
+                    const currentFocus = typeof global.display.get_focus_window === 'function'
+                        ? global.display.get_focus_window()
+                        : global.display.focus_window;
+                    if (currentFocus !== win) {
                         cleanup();
                     }
                 });
@@ -1202,23 +1205,48 @@ class DeclarativeMenuButton extends PanelMenu.Button {
         this._profile = profile;
         this._rawItems = items;
         this._itemsBuilt = false;
+        this._lastMtime = 0;
 
         this.menu.connect('open-state-changed', (_menu, isOpen) => {
-            if (isOpen && !this._itemsBuilt) {
+            if (!isOpen) return;
+
+            const isDynamic = this._profile && (
+                this.accessible_name === 'Bookmarks' ||
+                this._rawItems.some(i => i.dynamic || (Array.isArray(i.items) && i.items.some(si => si.dynamic)))
+            );
+
+            if (!this._itemsBuilt) {
                 this._itemsBuilt = true;
-                let itemsToBuild = this._rawItems;
-                if (this._profile && typeof expandDynamicProfileItems === 'function') {
-                    const expanded = expandDynamicProfileItems({
-                        id: this._profile.id,
-                        menus: [{ label: this.accessible_name, items: this._rawItems }],
-                    });
-                    if (expanded && Array.isArray(expanded.menus) && expanded.menus[0]?.items) {
-                        itemsToBuild = expanded.menus[0].items;
-                    }
+                this._buildCurrentItems();
+            } else if (isDynamic) {
+                const currentMtime = typeof getBookmarksCacheMtime === 'function'
+                    ? getBookmarksCacheMtime(this._profile.id)
+                    : 0;
+                if (currentMtime && currentMtime !== this._lastMtime) {
+                    this._buildCurrentItems();
                 }
-                this._buildItems(itemsToBuild);
             }
         });
+    }
+
+    _buildCurrentItems() {
+        if (typeof this.menu.removeAll === 'function') {
+            this.menu.removeAll();
+        }
+        let itemsToBuild = this._rawItems;
+        if (this._profile && typeof expandDynamicProfileItems === 'function') {
+            const expanded = expandDynamicProfileItems({
+                id: this._profile.id,
+                menus: [{ label: this.accessible_name, items: this._rawItems }],
+            });
+            if (expanded && Array.isArray(expanded.menus) && expanded.menus[0]?.items) {
+                itemsToBuild = expanded.menus[0].items;
+            }
+            if (typeof getBookmarksCacheMtime === 'function') {
+                this._lastMtime = getBookmarksCacheMtime(this._profile.id);
+            }
+        }
+        this._buildItems(itemsToBuild);
     }
 
     _buildItems(items, targetMenu = this.menu) {
@@ -1538,6 +1566,7 @@ class FUHGlobeGlobalMenu {
             }
         }
         this._menuButtons = [];
+        this._nextId = 0;
     }
 
     _disconnectSources() {
@@ -1665,7 +1694,7 @@ class FUHGlobeGlobalMenu {
 
         // 4. Add the App Menu Button after the Activities button (position 1)
         const appMenuBtn = new AppMenuButton(win, profile, this._virtualKeyboard);
-        const appMenuId = `fuhgawz-menu-${this._nextId++}`;
+        const appMenuId = 'fuhgawz-app-menu';
         this._menuButtons.push(appMenuBtn);
         try {
             Main.panel.addToStatusArea(appMenuId, appMenuBtn, 1, 'left');
@@ -1778,6 +1807,14 @@ class FUHGlobeGlobalMenu {
     _loadDeclarativeProfile(profile, win) {
         if (!profile || !Array.isArray(profile.menus)) return false;
 
+        // Pre-warm bookmarks cache asynchronously in background for browser profiles
+        if (profile.id) {
+            const pid = profile.id.toLowerCase();
+            if (pid.includes('brave') || pid.includes('chrome') || pid.includes('chromium')) {
+                loadBrowserBookmarksAsync(pid).catch(() => {});
+            }
+        }
+
         const useHover = !this._settings || this._settings.get_boolean('enable-hover-submenus');
         let addedAny = false;
         let position = 2; // after Activities(0) and AppMenu(1)
@@ -1793,7 +1830,7 @@ class FUHGlobeGlobalMenu {
                 useHover,
                 profile
             );
-            const btnId = `fuhgawz-decl-menu-${this._nextId++}`;
+            const btnId = `fuhgawz-menu-slot-${this._nextId++}`;
             this._menuButtons.push(btn);
             try {
                 Main.panel.addToStatusArea(btnId, btn, position++, 'left');
@@ -1893,7 +1930,7 @@ class FUHGlobeGlobalMenu {
             if (label && submenu) {
                 const useHover = !this._settings || this._settings.get_boolean('enable-hover-submenus');
                 const btn = new GtkMenuButton(label, submenu, actionDispatcher, useHover);
-                const btnId = `fuhgawz-menu-${this._nextId++}`;
+                const btnId = `fuhgawz-menu-slot-${this._nextId++}`;
                 this._menuButtons.push(btn);
                 try {
                     Main.panel.addToStatusArea(btnId, btn, position++, 'left');
@@ -2175,7 +2212,7 @@ class FUHGlobeGlobalMenu {
             const btn = new ActionsMenuButton(
                 groupName, items, busName, appObjectPath, winObjectPath, win, this._virtualKeyboard
             );
-            const btnId = `fuhgawz-menu-${this._nextId++}`;
+            const btnId = `fuhgawz-menu-slot-${this._nextId++}`;
             this._menuButtons.push(btn);
             try {
                 Main.panel.addToStatusArea(btnId, btn, position++, 'left');
@@ -2292,7 +2329,7 @@ class FUHGlobeGlobalMenu {
                 if (label && topItem.children && topItem.children.length > 0) {
                     const useHover = !this._settings || this._settings.get_boolean('enable-hover-submenus');
                     const btn = new DBusMenuButton(label, topItem.children, this._activeProxy, useHover);
-                    const btnId = `fuhgawz-menu-${this._nextId++}`;
+                    const btnId = `fuhgawz-menu-slot-${this._nextId++}`;
                     this._menuButtons.push(btn);
                     try {
                         Main.panel.addToStatusArea(btnId, btn, position++, 'left');

@@ -144,16 +144,16 @@ class MockHoverSubMenu {
     }
 
     close() {
-        if (this._grab) {
-            this._grab.dismiss();
-            this._grab = null;
-        }
         if (this._childSubmenus) {
             for (const child of this._childSubmenus) {
                 if (child.isOpen) {
                     child.close();
                 }
             }
+        }
+        if (this._grab) {
+            this._grab.dismiss();
+            this._grab = null;
         }
         this.isOpen = false;
         this.menu.close();
@@ -597,5 +597,33 @@ assert(lazyParent._isPopulated, "Marked populated after open");
 lazyParent.close();
 lazyParent.open();
 assert(childItemsCreated === 5, "Child items not duplicated on subsequent open");
+
+// ── Test 14: Verify LIFO Grab Dismissal Order in Nested Hierarchy ────────────
+console.log("14. Verifying LIFO grab dismissal order in nested submenus...");
+const dismissalOrder = [];
+const parentLvl = new MockHoverSubMenu("Parent Level", rootTopMenu);
+const childLvl = new MockHoverSubMenu("Child Level", parentLvl.menu);
+
+parentLvl.open();
+parentLvl._grab.dismiss = () => dismissalOrder.push("parent");
+
+childLvl.open();
+childLvl._grab.dismiss = () => dismissalOrder.push("child");
+
+// Closing parent must dismiss child grab BEFORE parent grab
+parentLvl.close();
+assert(dismissalOrder.length === 2, `Expected 2 dismissals, got ${dismissalOrder.length}`);
+assert(dismissalOrder[0] === "child" && dismissalOrder[1] === "parent", `Expected ['child', 'parent'], got ${JSON.stringify(dismissalOrder)}`);
+
+// ── Test 15: Verify Google Chrome profile structure ──────────────────────────
+console.log("15. Verifying profiles/google-chrome.json structure...");
+const chromeFile = Gio.File.new_for_path(GLib.build_filenamev([GLib.get_current_dir(), "profiles", "google-chrome.json"]));
+const [okChrome, bytesChrome] = chromeFile.load_contents(null);
+assert(okChrome && bytesChrome, "Loaded google-chrome.json");
+const chromeJson = JSON.parse(new TextDecoder("utf-8").decode(bytesChrome));
+const chromeBmMenu = chromeJson.menus.find(m => m.label === "Bookmarks");
+assert(chromeBmMenu, "Bookmarks menu exists in google-chrome.json");
+const chromeBmBar = chromeBmMenu.items.find(i => i.label === "Bookmarks Bar");
+assert(chromeBmBar && chromeBmBar.dynamic === "bookmarks-bar", "Bookmarks Bar marked with dynamic: bookmarks-bar in google-chrome.json");
 
 console.log("All Multi-level Submenu and Hover tests passed successfully!");

@@ -400,24 +400,27 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
         }
 
         _scheduleClose() {
-            this._cancelClose();
+            if (this._hoverCloseTimeoutId !== 0) {
+                return;
+            }
+
             this._hoverCloseTimeoutId = GLib.timeout_add(
                 GLib.PRIORITY_DEFAULT,
                 HOVER_CLOSE_DELAY_MS,
                 () => {
+                    this._hoverCloseTimeoutId = 0;
                     const pointerState = this._getPointerState();
                     if (pointerState === PointerState.INSIDE_TRIGGER || pointerState === PointerState.INSIDE_SUBMENU) {
                         this._setSubmenuHover(true);
-                        this._hoverCloseTimeoutId = 0;
                         return GLib.SOURCE_REMOVE;
                     }
 
                     if (pointerState === PointerState.BRIDGE) {
                         this._setSubmenuHover(true);
-                        return GLib.SOURCE_CONTINUE;
+                        this._scheduleClose();
+                        return GLib.SOURCE_REMOVE;
                     }
 
-                    this._hoverCloseTimeoutId = 0;
                     this.close();
                     this._setSubmenuHover(false);
                     return GLib.SOURCE_REMOVE;
@@ -727,6 +730,14 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._stopGlobalHoverMonitor();
             this._disconnectSiblingSignals();
 
+            if (this._childSubmenus) {
+                for (const child of this._childSubmenus) {
+                    if (child.isOpen) {
+                        child.close();
+                    }
+                }
+            }
+
             if (this._grab) {
                 try {
                     if (typeof this._grab.dismiss === 'function') {
@@ -734,14 +745,6 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
                     }
                 } catch (e) {}
                 this._grab = null;
-            }
-
-            if (this._childSubmenus) {
-                for (const child of this._childSubmenus) {
-                    if (child.isOpen) {
-                        child.close();
-                    }
-                }
             }
 
             if (this.menu && this.menu.isOpen) {
@@ -777,15 +780,6 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._disconnectParentSignals();
             this._disconnectSiblingSignals();
 
-            if (this._grab) {
-                try {
-                    if (typeof this._grab.dismiss === 'function') {
-                        this._grab.dismiss();
-                    }
-                } catch (e) {}
-                this._grab = null;
-            }
-
             if (this._parentHoverSubmenu) {
                 this._parentHoverSubmenu._unregisterChildSubmenu(this);
                 this._parentHoverSubmenu = null;
@@ -798,6 +792,15 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
                     }
                 }
                 this._childSubmenus = [];
+            }
+
+            if (this._grab) {
+                try {
+                    if (typeof this._grab.dismiss === 'function') {
+                        this._grab.dismiss();
+                    }
+                } catch (e) {}
+                this._grab = null;
             }
 
             for (const { target, id } of this._flyoutSignalIds) {

@@ -72,7 +72,15 @@
       "items": [
         { "label": "Bookmark This Tab...", "shortcut": "Ctrl+D" },
         { "label": "Bookmark All Tabs...", "shortcut": "Ctrl+Shift+D" },
-        { "label": "Bookmark Manager", "shortcut": "Ctrl+Shift+O" }
+        { "label": "Bookmark Manager", "shortcut": "Ctrl+Shift+O" },
+        { "type": "separator" },
+        {
+          "label": "Bookmarks Bar",
+          "dynamic": "bookmarks-bar",
+          "items": [
+            { "label": "Bookmarks Bar is Empty" }
+          ]
+        }
       ]
     },
     {

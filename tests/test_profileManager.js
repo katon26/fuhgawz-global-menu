@@ -1,4 +1,4 @@
-import { ProfileManager, applyProfileTemplate, getBrowserBookmarks, expandDynamicProfileItems, loadBrowserBookmarksAsync, _bookmarksCache, clearBookmarksCache, MAX_DYNAMIC_ITEMS } from '../src/profileManager.js';
+import { ProfileManager, applyProfileTemplate, getBrowserBookmarks, expandDynamicProfileItems, loadBrowserBookmarksAsync, getBookmarksCacheMtime, _bookmarksCache, clearBookmarksCache, MAX_DYNAMIC_ITEMS } from '../src/profileManager.js';
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 
@@ -373,6 +373,24 @@ assert(matchedBmMenu, 'Bookmarks menu exists');
 const matchedBmBar = matchedBmMenu.items.find(i => i.label === 'Bookmarks Bar');
 assert(matchedBmBar && matchedBmBar.dynamic === 'bookmarks-bar', 'Bookmarks Bar retains dynamic token without premature expansion');
 assert(matchedBmBar.items.length <= 1, 'Bookmarks Bar items not yet expanded');
+
+// 10k. Test getBookmarksCacheMtime
+console.log('10k. Verifying getBookmarksCacheMtime...');
+const mtimeTestFile = Gio.File.new_for_path(GLib.build_filenamev([GLib.get_tmp_dir(), `test-mtime-bm-${Date.now()}.json`]));
+mtimeTestFile.replace_contents(
+    new TextEncoder().encode(JSON.stringify(mockBookmarksData)),
+    null,
+    false,
+    Gio.FileCreateFlags.REPLACE_DESTINATION,
+    null
+);
+const initialMtime = getBookmarksCacheMtime('brave-browser', mtimeTestFile.get_path());
+assert(initialMtime === 0, 'Uncached path has mtime 0');
+
+getBrowserBookmarks('brave-browser', mtimeTestFile.get_path());
+const cachedMtime = getBookmarksCacheMtime('brave-browser', mtimeTestFile.get_path());
+assert(cachedMtime > 0, `Cached mtime is > 0 (got ${cachedMtime})`);
+try { mtimeTestFile.delete(null); } catch (e) {}
 
 // 11. Cleanup and cache clearing on destroy
 console.log('11. Verifying cleanup and bookmarks cache clearing on destroy...');

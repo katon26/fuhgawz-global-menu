@@ -35,6 +35,23 @@ export function clearBookmarksCache() {
     _bookmarksCache.clear();
 }
 
+/**
+ * Returns the cached modification time (mtime) for a browser's bookmarks, or 0 if uncached.
+ *
+ * @param {string} browserType - 'brave-browser' | 'google-chrome' | 'chromium'
+ * @param {string} [customPath] - Optional custom path for testing
+ * @returns {number}
+ */
+export function getBookmarksCacheMtime(browserType = 'brave-browser', customPath = null) {
+    const candidatePaths = _resolveBookmarkPaths(browserType, customPath);
+    for (const path of candidatePaths) {
+        if (_bookmarksCache.has(path)) {
+            return _bookmarksCache.get(path).mtime || 0;
+        }
+    }
+    return 0;
+}
+
 function _resolveBookmarkPaths(browserType = 'brave-browser', customPath = null) {
     if (customPath) return [customPath];
 
@@ -52,7 +69,8 @@ function _resolveBookmarkPaths(browserType = 'brave-browser', customPath = null)
         candidatePaths.push(
             GLib.build_filenamev([homeDir, '.config', 'google-chrome', 'Default', 'Bookmarks']),
             GLib.build_filenamev([homeDir, '.config', 'chromium', 'Default', 'Bookmarks']),
-            GLib.build_filenamev([homeDir, '.var', 'app', 'com.google.Chrome', 'config', 'google-chrome', 'Default', 'Bookmarks'])
+            GLib.build_filenamev([homeDir, '.var', 'app', 'com.google.Chrome', 'config', 'google-chrome', 'Default', 'Bookmarks']),
+            GLib.build_filenamev([homeDir, '.var', 'app', 'org.chromium.Chromium', 'config', 'chromium', 'Default', 'Bookmarks'])
         );
     }
     return candidatePaths;
