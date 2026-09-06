@@ -1031,11 +1031,32 @@ class DBusMenuButton extends PanelMenu.Button {
             if (props.type === 'separator') {
                 popupMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
             } else if (item.children && item.children.length > 0) {
-                const subItem = this._useHoverSubmenus
-                    ? new HoverSubMenuMenuItem(label, popupMenu)
-                    : new PopupMenu.PopupSubMenuMenuItem(label);
-                this._buildSubmenu(subItem.menu, item.children, proxy);
-                popupMenu.addMenuItem(subItem);
+                if (this._useHoverSubmenus) {
+                    const subItem = new HoverSubMenuMenuItem(label, popupMenu);
+                    subItem.setLazyPopulate(childMenu => {
+                        this._buildSubmenu(childMenu, item.children, proxy);
+                    });
+                    popupMenu.addMenuItem(subItem);
+                } else {
+                    const subItem = new PopupMenu.PopupSubMenuMenuItem(label);
+                    let subBuilt = false;
+                    subItem.menu.isEmpty = () => false;
+                    const origSubOpen = subItem.menu.open.bind(subItem.menu);
+                    subItem.menu.open = (animate) => {
+                        if (!subBuilt) {
+                            subBuilt = true;
+                            this._buildSubmenu(subItem.menu, item.children, proxy);
+                        }
+                        return origSubOpen(animate);
+                    };
+                    subItem.menu.connect('open-state-changed', (_menu, isOpen) => {
+                        if (isOpen && !subBuilt) {
+                            subBuilt = true;
+                            this._buildSubmenu(subItem.menu, item.children, proxy);
+                        }
+                    });
+                    popupMenu.addMenuItem(subItem);
+                }
             } else {
                 const menuItem = new PopupMenu.PopupMenuItem(label);
 
@@ -1214,49 +1235,67 @@ class DeclarativeMenuButton extends PanelMenu.Button {
         this._dispatcher = dispatcher;
         this._profile = profile;
         this._rawItems = items;
-        this._itemsBuilt = true;
+        this._itemsBuilt = false;
         this._lastMtime = 0;
 
-        // Build top-level menu items immediately on init so menu is never empty and opens on click
-        this._buildCurrentItems();
+        // Override isEmpty so GNOME Shell PanelMenu.Button does not abort menu.toggle()
+        if (this.menu) {
+            this.menu.isEmpty = () => false;
+
+            const origOpen = this.menu.open.bind(this.menu);
+            this.menu.open = (animate) => {
+                if (!this._itemsBuilt) {
+                    this._itemsBuilt = true;
+                    this._buildCurrentItems();
+                }
+                return origOpen(animate);
+            };
+        }
 
         this.menu.connect('open-state-changed', (_menu, isOpen) => {
             if (!isOpen) return;
 
-            const isDynamic = this._profile && (
-                this.accessible_name === 'Bookmarks' ||
-                this._rawItems.some(i => i.dynamic || (Array.isArray(i.items) && i.items.some(si => si.dynamic)))
-            );
+            if (!this._itemsBuilt) {
+                this._itemsBuilt = true;
+                this._buildCurrentItems();
+            } else {
+                const isDynamic = this._profile && (
+                    this.accessible_name === 'Bookmarks' ||
+                    this._rawItems.some(i => i.dynamic || (Array.isArray(i.items) && i.items.some(si => si.dynamic)))
+                );
 
-            if (isDynamic) {
-                const currentMtime = typeof getBookmarksCacheMtime === 'function'
-                    ? getBookmarksCacheMtime(this._profile.id)
-                    : 0;
-                if (currentMtime && currentMtime !== this._lastMtime) {
-                    this._buildCurrentItems();
+                if (isDynamic) {
+                    const currentMtime = typeof getBookmarksCacheMtime === 'function'
+                        ? getBookmarksCacheMtime(this._profile.id)
+                        : 0;
+                    if (currentMtime && currentMtime !== this._lastMtime) {
+                        this._lastMtime = currentMtime;
+                        this._buildCurrentItems();
+                    }
                 }
             }
         });
+    }
+
+    vfunc_event(event) {
+        const eventType = event ? (typeof event.type === 'function' ? event.type() : event.type) : null;
+        if (eventType === Clutter.EventType.BUTTON_PRESS || eventType === Clutter.EventType.TOUCH_BEGIN) {
+            if (!this._itemsBuilt) {
+                this._itemsBuilt = true;
+                this._buildCurrentItems();
+            }
+        }
+        return super.vfunc_event(event);
     }
 
     _buildCurrentItems() {
         if (typeof this.menu.removeAll === 'function') {
             this.menu.removeAll();
         }
-        let itemsToBuild = this._rawItems;
-        if (this._profile && typeof expandDynamicProfileItems === 'function') {
-            const expanded = expandDynamicProfileItems({
-                id: this._profile.id,
-                menus: [{ label: this.accessible_name, items: this._rawItems }],
-            });
-            if (expanded && Array.isArray(expanded.menus) && expanded.menus[0]?.items) {
-                itemsToBuild = expanded.menus[0].items;
-            }
-            if (typeof getBookmarksCacheMtime === 'function') {
-                this._lastMtime = getBookmarksCacheMtime(this._profile.id);
-            }
+        if (typeof getBookmarksCacheMtime === 'function' && this._profile) {
+            this._lastMtime = getBookmarksCacheMtime(this._profile.id);
         }
-        this._buildItems(itemsToBuild);
+        this._buildItems(this._rawItems);
     }
 
     _buildItems(items, targetMenu = this.menu) {
@@ -1269,20 +1308,72 @@ class DeclarativeMenuButton extends PanelMenu.Button {
             }
 
             const subItems = item.items || item.submenu || item.children;
-            if (Array.isArray(subItems) && subItems.length > 0) {
+            const isDynamic = !!(item.dynamic || (this._profile && (item.label === 'Bookmarks Bar' || item.dynamic === 'bookmarks-bar')));
+            if (isDynamic || (Array.isArray(subItems) && subItems.length > 0)) {
                 if (this._useHoverSubmenus) {
                     const subMenu = new HoverSubMenuMenuItem(item.label || '', targetMenu);
                     subMenu.setLazyPopulate(childMenu => {
-                        this._buildItems(subItems, childMenu);
+                        let actualSubItems = subItems;
+                        if (isDynamic && typeof expandDynamicProfileItems === 'function' && this._profile) {
+                            try {
+                                const expanded = expandDynamicProfileItems({
+                                    id: this._profile.id,
+                                    menus: [{ label: this.accessible_name, items: [item] }],
+                                });
+                                if (expanded && Array.isArray(expanded.menus) && Array.isArray(expanded.menus[0]?.items?.[0]?.items)) {
+                                    actualSubItems = expanded.menus[0].items[0].items;
+                                }
+                            } catch (e) {
+                                console.warn(`FUHGlobe: Error expanding dynamic items: ${e}`);
+                            }
+                        }
+                        this._buildItems(actualSubItems, childMenu);
                     });
                     targetMenu.addMenuItem(subMenu);
                 } else {
                     const subMenu = new PopupMenu.PopupSubMenuMenuItem(item.label || '');
                     let subBuilt = false;
+                    subMenu.menu.isEmpty = () => false;
+                    const origSubOpen = subMenu.menu.open.bind(subMenu.menu);
+                    subMenu.menu.open = (animate) => {
+                        if (!subBuilt) {
+                            subBuilt = true;
+                            let actualSubItems = subItems;
+                            if (isDynamic && typeof expandDynamicProfileItems === 'function' && this._profile) {
+                                try {
+                                    const expanded = expandDynamicProfileItems({
+                                        id: this._profile.id,
+                                        menus: [{ label: this.accessible_name, items: [item] }],
+                                    });
+                                    if (expanded && Array.isArray(expanded.menus) && Array.isArray(expanded.menus[0]?.items?.[0]?.items)) {
+                                        actualSubItems = expanded.menus[0].items[0].items;
+                                    }
+                                } catch (e) {
+                                    console.warn(`FUHGlobe: Error expanding dynamic items: ${e}`);
+                                }
+                            }
+                            this._buildItems(actualSubItems, subMenu.menu);
+                        }
+                        return origSubOpen(animate);
+                    };
                     subMenu.menu.connect('open-state-changed', (_menu, isOpen) => {
                         if (isOpen && !subBuilt) {
                             subBuilt = true;
-                            this._buildItems(subItems, subMenu.menu);
+                            let actualSubItems = subItems;
+                            if (isDynamic && typeof expandDynamicProfileItems === 'function' && this._profile) {
+                                try {
+                                    const expanded = expandDynamicProfileItems({
+                                        id: this._profile.id,
+                                        menus: [{ label: this.accessible_name, items: [item] }],
+                                    });
+                                    if (expanded && Array.isArray(expanded.menus) && Array.isArray(expanded.menus[0]?.items?.[0]?.items)) {
+                                        actualSubItems = expanded.menus[0].items[0].items;
+                                    }
+                                } catch (e) {
+                                    console.warn(`FUHGlobe: Error expanding dynamic items: ${e}`);
+                                }
+                            }
+                            this._buildItems(actualSubItems, subMenu.menu);
                         }
                     });
                     targetMenu.addMenuItem(subMenu);
@@ -1392,11 +1483,32 @@ class GtkMenuButton extends PanelMenu.Button {
                     popupMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
                 }
             } else if (submenu) {
-                const subItem = this._useHoverSubmenus
-                    ? new HoverSubMenuMenuItem(label, popupMenu)
-                    : new PopupMenu.PopupSubMenuMenuItem(label);
-                this._buildSubmenu(subItem.menu, submenu, actionDispatcher);
-                popupMenu.addMenuItem(subItem);
+                if (this._useHoverSubmenus) {
+                    const subItem = new HoverSubMenuMenuItem(label, popupMenu);
+                    subItem.setLazyPopulate(childMenu => {
+                        this._buildSubmenu(childMenu, submenu, actionDispatcher);
+                    });
+                    popupMenu.addMenuItem(subItem);
+                } else {
+                    const subItem = new PopupMenu.PopupSubMenuMenuItem(label);
+                    let subBuilt = false;
+                    subItem.menu.isEmpty = () => false;
+                    const origSubOpen = subItem.menu.open.bind(subItem.menu);
+                    subItem.menu.open = (animate) => {
+                        if (!subBuilt) {
+                            subBuilt = true;
+                            this._buildSubmenu(subItem.menu, submenu, actionDispatcher);
+                        }
+                        return origSubOpen(animate);
+                    };
+                    subItem.menu.connect('open-state-changed', (_menu, isOpen) => {
+                        if (isOpen && !subBuilt) {
+                            subBuilt = true;
+                            this._buildSubmenu(subItem.menu, submenu, actionDispatcher);
+                        }
+                    });
+                    popupMenu.addMenuItem(subItem);
+                }
             } else {
                 const menuItem = new PopupMenu.PopupMenuItem(label);
 

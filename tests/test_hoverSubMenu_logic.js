@@ -107,6 +107,9 @@ class MockHoverSubMenu {
     setLazyPopulate(callback) {
         this._lazyPopulate = callback;
         this._isPopulated = false;
+        if (this.menu) {
+            this.menu.isEmpty = () => false;
+        }
     }
 
     activate() {
@@ -598,6 +601,34 @@ lazyParent.close();
 lazyParent.open();
 assert(childItemsCreated === 5, "Child items not duplicated on subsequent open");
 
+// ── Test 13b: Verify Nested Lazy Submenu Hierarchy ─────────────────────────
+console.log("13b. Verifying nested lazy child submenus are not populated until hovered...");
+const nestedParent = new MockHoverSubMenu("Bookmarks Bar", rootTopMenu);
+let nestedChildSubmenu = null;
+let grandChildCreated = 0;
+
+nestedParent.setLazyPopulate((menu) => {
+    nestedChildSubmenu = new MockHoverSubMenu("Subfolder", menu);
+    nestedChildSubmenu.setLazyPopulate((sub) => {
+        grandChildCreated += 3;
+    });
+    menu.addMenuItem(nestedChildSubmenu);
+});
+
+assert(!nestedParent._isPopulated, "Bookmarks Bar not populated initially");
+assert(grandChildCreated === 0, "Zero grandchild items created on init");
+
+nestedParent.open();
+assert(nestedParent._isPopulated === true, "Bookmarks Bar populated on open");
+assert(nestedChildSubmenu !== null, "Subfolder created inside Bookmarks Bar");
+assert(nestedChildSubmenu._isPopulated === false, "Subfolder is NOT populated when parent opens");
+assert(grandChildCreated === 0, "Zero grandchild items created when parent opens");
+
+// Now open/hover the nested child submenu
+nestedChildSubmenu.open();
+assert(nestedChildSubmenu._isPopulated === true, "Subfolder marked populated after open");
+assert(grandChildCreated === 3, "Grandchild items created only when child subfolder is opened");
+
 // ── Test 14: Verify LIFO Grab Dismissal Order in Nested Hierarchy ────────────
 console.log("14. Verifying LIFO grab dismissal order in nested submenus...");
 const dismissalOrder = [];
@@ -667,26 +698,156 @@ console.log("19. Verifying captured event propagation on flyout background click
 const flyoutBackgroundActor = lvl3Submenu.menu.actor;
 assert(lvl3Submenu._handleCapturedEvent(flyoutBackgroundActor, "button-press") === "propagate", "Click on flyout container itself propagates");
 
-// ── Test 20: Verify DeclarativeMenuButton non-empty initialization ─────────
-console.log("20. Verifying DeclarativeMenuButton initializes non-empty...");
-class MockDeclarativeMenu {
-    constructor(items) {
-        this.rawItems = items;
+// ── Test 20: Verify DeclarativeMenuButton lazy initialization with isEmpty override ─────────
+console.log("20. Verifying DeclarativeMenuButton lazy initialization with isEmpty override...");
+class MockDeclarativeMenuButton {
+    constructor(groupLabel, items, profile = null) {
+        this.accessible_name = groupLabel;
+        this._rawItems = items;
+        this._profile = profile;
+        this._itemsBuilt = false;
         this.items = [];
-        // Must build eagerly on init so isEmpty() is false for GNOME Shell PopupMenu.open()
-        this._buildItems(this.rawItems);
+        this.menu = {
+            isEmpty: () => false, // Overridden so PanelMenu.Button does not abort toggle()
+            isOpen: false,
+            removeAll: () => {
+                this.items = [];
+            },
+            toggle: () => {
+                if (this.menu.isOpen) {
+                    this.menu.close();
+                } else {
+                    this.menu.open();
+                }
+            },
+            open: () => {
+                if (!this._itemsBuilt) {
+                    this._itemsBuilt = true;
+                    this._buildCurrentItems();
+                }
+                this.menu.isOpen = true;
+            },
+            close: () => {
+                this.menu.isOpen = false;
+            },
+            addMenuItem: (item) => {
+                this.items.push(item);
+            },
+        };
+        // Items must NOT be built eagerly on init to avoid window focus freeze!
     }
-    _buildItems(items) {
+
+    _buildCurrentItems() {
+        this.menu.removeAll();
+        this._buildItems(this._rawItems);
+    }
+
+    _buildItems(items, targetMenu = this.menu) {
         for (const item of items) {
-            this.items.push(item);
+            if (item.type === 'separator') {
+                targetMenu.addMenuItem({ type: 'separator' });
+                continue;
+            }
+            const subItems = item.items || item.submenu || item.children;
+            const isDynamic = !!(item.dynamic || (this._profile && (item.label === 'Bookmarks Bar' || item.dynamic === 'bookmarks-bar')));
+            if (isDynamic || (Array.isArray(subItems) && subItems.length > 0)) {
+                const subMenu = new MockHoverSubMenu(item.label || '', targetMenu);
+                subMenu.setLazyPopulate((childMenu) => {
+                    let actualSubItems = subItems;
+                    if (isDynamic) {
+                        // Dynamically expand bookmarks bar only when hovered
+                        actualSubItems = [
+                            { label: 'Bookmark 1', url: 'https://example1.com' },
+                            { label: 'Bookmark 2', url: 'https://example2.com' },
+                            { label: 'Nested Folder', items: [{ label: 'Nested Bookmark', url: 'https://nested.com' }] },
+                        ];
+                    }
+                    this._buildItems(actualSubItems, childMenu);
+                });
+                targetMenu.addMenuItem(subMenu);
+                continue;
+            }
+            targetMenu.addMenuItem({ label: item.label, shortcut: item.shortcut });
         }
     }
-    isEmpty() {
-        return this.items.length === 0;
+
+    vfunc_event(event) {
+        const eventType = event ? (typeof event.type === 'function' ? event.type() : event.type) : null;
+        if (eventType === 4 || eventType === 9) { // BUTTON_PRESS or TOUCH_BEGIN
+            if (!this._itemsBuilt) {
+                this._itemsBuilt = true;
+                this._buildCurrentItems();
+            }
+        }
+        if (!this.menu.isEmpty()) {
+            this.menu.toggle();
+        }
     }
 }
-const mockDeclMenu = new MockDeclarativeMenu(calcJson.menus[0].items);
-assert(!mockDeclMenu.isEmpty(), "DeclarativeMenu is not empty on init (PopupMenu.open() will not abort)");
+
+const mockDeclMenu = new MockDeclarativeMenuButton("Calculator", calcJson.menus[0].items);
+assert(mockDeclMenu._itemsBuilt === false, "DeclarativeMenuButton does NOT build items on init (0ms focus latency)");
+assert(mockDeclMenu.items.length === 0, "No Clutter actors/items created during window focus");
+assert(!mockDeclMenu.menu.isEmpty(), "menu.isEmpty() returns false on init so PanelMenu.Button will not abort click");
+
+// Simulate button click on Calculator
+mockDeclMenu.vfunc_event({ type: () => 4 }); // BUTTON_PRESS
+assert(mockDeclMenu._itemsBuilt === true, "Items built lazily on first click");
+assert(mockDeclMenu.items.length === calcJson.menus[0].items.length, "Items populated after click");
+assert(mockDeclMenu.menu.isOpen === true, "Menu successfully toggled open");
+
+// ── Test 20b: Verify Bookmarks panel button click builds only top-level items ─────────
+console.log("20b. Verifying Bookmarks panel button click builds only top-level items...");
+const braveBmMenuDef = braveJson.menus.find(m => m.label === "Bookmarks");
+assert(braveBmMenuDef !== undefined, "Brave Bookmarks menu definition exists");
+
+const mockBmMenuBtn = new MockDeclarativeMenuButton("Bookmarks", braveBmMenuDef.items, { id: "brave-browser" });
+assert(mockBmMenuBtn._itemsBuilt === false, "Bookmarks button lazy on init");
+assert(mockBmMenuBtn.items.length === 0, "0 items built on window focus");
+
+// Click Bookmarks panel button
+mockBmMenuBtn.vfunc_event({ type: () => 4 });
+assert(mockBmMenuBtn._itemsBuilt === true, "Bookmarks items built on click");
+assert(mockBmMenuBtn.items.length === braveBmMenuDef.items.length, `Expected ${braveBmMenuDef.items.length} top-level items, got ${mockBmMenuBtn.items.length}`);
+
+// Find Bookmarks Bar in the built items
+const bmBarSubmenu = mockBmMenuBtn.items.find(i => i instanceof MockHoverSubMenu && i.title === "Bookmarks Bar");
+assert(bmBarSubmenu !== undefined, "Bookmarks Bar submenu item exists in top-level items");
+assert(bmBarSubmenu._isPopulated === false, "Bookmarks Bar is NOT populated on top-level click (lazy!)");
+
+// Hover/open Bookmarks Bar
+bmBarSubmenu.open();
+assert(bmBarSubmenu._isPopulated === true, "Bookmarks Bar populated on hover");
+
+// ── Test 20c: Verify Keyboard / Direct menu.open() builds items lazily ─────────
+console.log("20c. Verifying keyboard or PopupMenuManager menu.open() builds items lazily...");
+const mockKeyNavMenu = new MockDeclarativeMenuButton("File", calcJson.menus[0].items);
+assert(mockKeyNavMenu._itemsBuilt === false, "KeyNav menu starts lazy");
+assert(mockKeyNavMenu.items.length === 0, "0 items on init");
+
+// Open via menu.open() directly (no BUTTON_PRESS)
+mockKeyNavMenu.menu.open();
+assert(mockKeyNavMenu._itemsBuilt === true, "Items built lazily on menu.open()");
+assert(mockKeyNavMenu.items.length === calcJson.menus[0].items.length, "All items populated on keyboard open");
+assert(mockKeyNavMenu.menu.isOpen === true, "Menu opened via keyboard");
+
+// ── Test 20d: Verify Non-Hover Submenu (PopupSubMenuMenuItem) isEmpty override ───
+console.log("20d. Verifying non-hover submenu isEmpty override prevents toggle abort...");
+const mockNonHoverSubmenu = {
+    isEmpty: () => false,
+    isOpen: false,
+    open() {
+        if (this.isEmpty()) return;
+        this.isOpen = true;
+    },
+    toggle() {
+        if (this.isOpen) this.isOpen = false;
+        else this.open();
+    },
+};
+assert(!mockNonHoverSubmenu.isEmpty(), "Non-hover submenu isEmpty returns false initially");
+mockNonHoverSubmenu.toggle();
+assert(mockNonHoverSubmenu.isOpen === true, "Non-hover submenu successfully opened via toggle");
 
 // ── Test 21: Verify topMenu.actor.contains grab delegation for hover submenus ──
 console.log("21. Verifying topMenu.actor.contains grab delegation for hover submenus...");

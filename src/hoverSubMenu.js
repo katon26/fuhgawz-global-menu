@@ -100,6 +100,9 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this.menu.actor.track_hover = true;
             this.menu.actor.reactive = true;
             this.menu.actor.hide();
+            if (typeof this._lazyPopulate === 'function') {
+                this.menu.isEmpty = () => false;
+            }
 
             this._flyoutHoverActor = this.menu.box ?? this.menu.actor;
             if (this._flyoutHoverActor) {
@@ -137,6 +140,21 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
         setLazyPopulate(callback) {
             this._lazyPopulate = callback;
             this._isPopulated = false;
+            if (this.menu) {
+                this.menu.isEmpty = () => false;
+                const origSubOpen = this.menu.open.bind(this.menu);
+                this.menu.open = (animate) => {
+                    if (typeof this._lazyPopulate === 'function' && !this._isPopulated) {
+                        this._isPopulated = true;
+                        try {
+                            this._lazyPopulate(this.menu);
+                        } catch (e) {
+                            console.warn(`FUHGlobe: Error lazily populating submenu: ${e}`);
+                        }
+                    }
+                    return origSubOpen(animate);
+                };
+            }
         }
 
         _registerChildSubmenu(child) {
