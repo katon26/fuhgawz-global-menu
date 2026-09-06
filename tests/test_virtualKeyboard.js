@@ -1,4 +1,5 @@
 import GLib from 'gi://GLib';
+import Gio from 'gi://Gio';
 import GIRepository from 'gi://GIRepository';
 
 // Ensure Mutter typelib paths are searched if not in default search path
@@ -182,5 +183,67 @@ assert(dispatchedCalls.length === 0, 'No calls dispatched for invalid chord');
 
 dispatcher.destroy();
 assert(dispatcher._virtualDevice === null, 'dispatcher destroyed cleanly');
+
+// Test 12: Specific keys used in Calculator, LibreOffice, ONLYOFFICE, and TextEditor
+console.log('12. Verifying keyval parsing for app shortcuts (Alt+1..5, Ctrl+?, Ctrl+Return, Alt+F12)...');
+const parsedQuestion = parseAccelerator('Ctrl+?');
+assert(parsedQuestion !== null, 'Ctrl+? parsed');
+assert(parsedQuestion.keyval === Clutter.KEY_question, 'keyval is KEY_question');
+assert(parsedQuestion.modifiers[0] === Clutter.KEY_Control_L, 'modifier is Control_L');
+
+const parsedAlt1 = parseAccelerator('Alt+1');
+assert(parsedAlt1 !== null, 'Alt+1 parsed');
+assert(parsedAlt1.keyval === Clutter.KEY_1, 'keyval is KEY_1');
+assert(parsedAlt1.modifiers[0] === Clutter.KEY_Alt_L, 'modifier is Alt_L');
+
+const parsedReturn = parseAccelerator('Ctrl+Return');
+assert(parsedReturn !== null, 'Ctrl+Return parsed');
+assert(parsedReturn.keyval === Clutter.KEY_Return, 'keyval is KEY_Return');
+
+const parsedAltF12 = parseAccelerator('Alt+F12');
+assert(parsedAltF12 !== null, 'Alt+F12 parsed');
+assert(parsedAltF12.keyval === Clutter.KEY_F12, 'keyval is KEY_F12');
+
+// Test 13: Validate all shortcuts in all profiles/ JSON files
+console.log('13. Validating all shortcuts in all profiles/*.json files...');
+const profilesDir = Gio.File.new_for_path(GLib.build_filenamev([GLib.get_current_dir(), 'profiles']));
+const enumerator = profilesDir.enumerate_children('standard::name', Gio.FileQueryInfoFlags.NONE, null);
+let fileInfo;
+let totalShortcutsValidated = 0;
+while ((fileInfo = enumerator.next_file(null)) !== null) {
+    const filename = fileInfo.get_name();
+    if (!filename.endsWith('.json')) continue;
+    const jsonFile = profilesDir.get_child(filename);
+    const [ok, bytes] = jsonFile.load_contents(null);
+    assert(ok && bytes, `Loaded ${filename}`);
+    const profile = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+
+    const checkItems = (items) => {
+        for (const item of items) {
+            if (item.shortcut && typeof item.shortcut === 'string' && item.shortcut.trim() !== '') {
+                const isSingle = parseAccelerator(item.shortcut);
+                const normalized = item.shortcut.replace(/\s*\+\s*/g, '+').trim();
+                const chords = normalized.split(/[\s,]+/).filter(Boolean);
+                const isChord = chords.length > 1 && chords.every(c => parseAccelerator(c) !== null);
+                assert(isSingle || isChord, `Shortcut "${item.shortcut}" for "${item.label}" in ${filename} must be valid`);
+                totalShortcutsValidated++;
+            }
+            if (Array.isArray(item.items)) {
+                checkItems(item.items);
+            }
+        }
+    };
+
+    if (Array.isArray(profile.menus)) {
+        for (const menu of profile.menus) {
+            if (Array.isArray(menu.items)) checkItems(menu.items);
+        }
+    }
+    if (profile.app_menu && Array.isArray(profile.app_menu.items)) {
+        checkItems(profile.app_menu.items);
+    }
+}
+assert(totalShortcutsValidated >= 100, `Validated at least 100 shortcuts across profiles (got ${totalShortcutsValidated})`);
+console.log(`Validated ${totalShortcutsValidated} shortcuts across all profiles successfully.`);
 
 console.log('All virtualKeyboard tests passed successfully!');

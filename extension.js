@@ -2235,6 +2235,7 @@ class FUHGlobeGlobalMenu {
         console.log(`FUHGlobe: Added ${addedCount} action-based menu buttons`);
         if (addedCount === 0) {
             console.log('FUHGlobe: 0 GTK actions added, falling back to declarative profile');
+            const enableDeclarative = !this._settings || this._settings.get_boolean('enable-declarative-profiles');
             const profileToUse = profile || (this._profileManager ? this._profileManager.getProfileForWindow(win) : null);
             if (enableDeclarative && profileToUse) {
                 this._loadDeclarativeProfile(profileToUse, win);

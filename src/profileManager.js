@@ -572,9 +572,12 @@ export class ProfileManager {
                 if (app) {
                     const appId = app.get_id ? app.get_id() : null;
                     if (appId) {
-                        candidates.push({ type: 'app_id', value: appId.toLowerCase() });
-                        if (appId.endsWith('.desktop')) {
-                            candidates.push({ type: 'app_id', value: appId.slice(0, -8).toLowerCase() });
+                        const lower = appId.toLowerCase();
+                        candidates.push({ type: 'app_id', value: lower });
+                        if (lower.endsWith('.desktop')) {
+                            candidates.push({ type: 'app_id', value: lower.slice(0, -8) });
+                        } else {
+                            candidates.push({ type: 'app_id', value: `${lower}.desktop` });
                         }
                     }
                 }
@@ -588,9 +591,12 @@ export class ProfileManager {
                 if (app) {
                     const appId = typeof app.get_id === 'function' ? app.get_id() : (app.id || app);
                     if (appId && typeof appId === 'string') {
-                        candidates.push({ type: 'app_id', value: appId.toLowerCase() });
-                        if (appId.endsWith('.desktop')) {
-                            candidates.push({ type: 'app_id', value: appId.slice(0, -8).toLowerCase() });
+                        const lower = appId.toLowerCase();
+                        candidates.push({ type: 'app_id', value: lower });
+                        if (lower.endsWith('.desktop')) {
+                            candidates.push({ type: 'app_id', value: lower.slice(0, -8) });
+                        } else {
+                            candidates.push({ type: 'app_id', value: `${lower}.desktop` });
                         }
                     }
                 }

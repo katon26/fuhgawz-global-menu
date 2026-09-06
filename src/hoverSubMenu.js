@@ -664,6 +664,50 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             return PointerState.OUTSIDE;
         }
 
+        _registerWithTopMenu() {
+            let top = this._parentMenu;
+            if (top && typeof top._getTopMenu === 'function') {
+                top = top._getTopMenu();
+            } else {
+                while (top && top._parent) {
+                    top = top._parent;
+                }
+            }
+            if (top?.actor && typeof top.actor.contains === 'function') {
+                if (!top.actor._origContains) {
+                    top.actor._origContains = top.actor.contains.bind(top.actor);
+                    top.actor._hoverSubmenuActors = new Set();
+                    top.actor.contains = function(descendant) {
+                        if (!descendant) return false;
+                        if (top.actor._origContains(descendant)) return true;
+                        for (const subActor of top.actor._hoverSubmenuActors) {
+                            if (subActor && (subActor === descendant || (typeof subActor.contains === 'function' && subActor.contains(descendant)))) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    };
+                }
+                if (top.actor._hoverSubmenuActors && this.menu?.actor) {
+                    top.actor._hoverSubmenuActors.add(this.menu.actor);
+                }
+            }
+        }
+
+        _unregisterFromTopMenu() {
+            let top = this._parentMenu;
+            if (top && typeof top._getTopMenu === 'function') {
+                top = top._getTopMenu();
+            } else {
+                while (top && top._parent) {
+                    top = top._parent;
+                }
+            }
+            if (top?.actor?._hoverSubmenuActors && this.menu?.actor) {
+                top.actor._hoverSubmenuActors.delete(this.menu.actor);
+            }
+        }
+
         open() {
             if (this._isDestroyed || !this.menu || this.menu.isOpen) return;
 
@@ -707,6 +751,10 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
                 }
             }
 
+            // Ensure parent/top menu's actor.contains includes our submenu flyout actor
+            // so PopupMenuManager's modal grab does not prematurely close the menu on click
+            this._registerWithTopMenu();
+
             if (this.menu.actor) {
                 this.menu.actor.show();
             }
@@ -731,6 +779,7 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._cancelClose();
             this._stopGlobalHoverMonitor();
             this._disconnectSiblingSignals();
+            this._unregisterFromTopMenu();
 
             if (this._childSubmenus) {
                 for (const child of this._childSubmenus) {
@@ -781,6 +830,7 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._stopGlobalHoverMonitor();
             this._disconnectParentSignals();
             this._disconnectSiblingSignals();
+            this._unregisterFromTopMenu();
 
             if (this._parentHoverSubmenu) {
                 this._parentHoverSubmenu._unregisterChildSubmenu(this);

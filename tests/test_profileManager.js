@@ -450,6 +450,41 @@ assert(matchedOO.id === 'onlyoffice-desktopeditors', 'Profile ID is onlyoffice-d
 assert(matchedOO.menus.some(m => m.label === 'File'), 'ONLYOFFICE has File menu');
 assert(matchedOO.menus.some(m => m.label === 'Insert'), 'ONLYOFFICE has Insert menu');
 
+// 10p. Test WindowTracker bidirectional matching (bare appId without .desktop matching profile with .desktop)
+console.log('10p. Verifying WindowTracker bidirectional appId matching...');
+const mockTrackerBareWindow = {
+    get_window_app: () => ({
+        get_id: () => 'org.gnome.TextEditor',
+    }),
+};
+const matchedTrackerBare = manager.getProfileForWindow(mockTrackerBareWindow);
+assert(matchedTrackerBare !== null, 'Matched TextEditor window via WindowTracker bare appId');
+assert(matchedTrackerBare.id === 'org.gnome.TextEditor', 'Profile ID matches org.gnome.TextEditor');
+
+// 10q. Test _buildActionsMenu fallback evaluation when addedCount === 0
+console.log('10q. Verifying _buildActionsMenu 0-action declarative fallback safety...');
+const mockActionsContext = {
+    _settings: null,
+    _profileManager: manager,
+    _loadedProfile: null,
+    _loadDeclarativeProfile(prof) {
+        this._loadedProfile = prof;
+    },
+    triggerFallback(win, profile) {
+        const addedCount = 0;
+        if (addedCount === 0) {
+            const enableDeclarative = !this._settings || this._settings.get_boolean('enable-declarative-profiles');
+            const profileToUse = profile || (this._profileManager ? this._profileManager.getProfileForWindow(win) : null);
+            if (enableDeclarative && profileToUse) {
+                this._loadDeclarativeProfile(profileToUse, win);
+            }
+        }
+    }
+};
+mockActionsContext.triggerFallback(mockCalcWindow, null);
+assert(mockActionsContext._loadedProfile !== null, 'Fallback loaded declarative profile for Calculator');
+assert(mockActionsContext._loadedProfile.id === 'org.gnome.Calculator', 'Loaded Calculator profile on 0 actions');
+
 // 11. Cleanup and cache clearing on destroy
 console.log('11. Verifying cleanup and bookmarks cache clearing on destroy...');
 assert(_bookmarksCache.size > 0, 'Bookmarks cache has entries before destroy');

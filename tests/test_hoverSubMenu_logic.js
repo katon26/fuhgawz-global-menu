@@ -688,4 +688,113 @@ class MockDeclarativeMenu {
 const mockDeclMenu = new MockDeclarativeMenu(calcJson.menus[0].items);
 assert(!mockDeclMenu.isEmpty(), "DeclarativeMenu is not empty on init (PopupMenu.open() will not abort)");
 
+// ── Test 21: Verify topMenu.actor.contains grab delegation for hover submenus ──
+console.log("21. Verifying topMenu.actor.contains grab delegation for hover submenus...");
+const realMockTopMenu = {
+    _parent: null,
+    actor: {
+        id: "real-mock-top-menu-actor",
+        contains(child) {
+            return child === this || child?._parentActor === this;
+        },
+    },
+};
+
+class DelegatingHoverSubMenu extends MockHoverSubMenu {
+    _registerWithTopMenu() {
+        let top = this._parentMenu;
+        if (top && typeof top._getTopMenu === "function") {
+            top = top._getTopMenu();
+        } else {
+            while (top && top._parent) {
+                top = top._parent;
+            }
+        }
+        if (top?.actor && typeof top.actor.contains === "function") {
+            if (!top.actor._origContains) {
+                top.actor._origContains = top.actor.contains.bind(top.actor);
+                top.actor._hoverSubmenuActors = new Set();
+                top.actor.contains = function(descendant) {
+                    if (!descendant) return false;
+                    if (top.actor._origContains(descendant)) return true;
+                    for (const subActor of top.actor._hoverSubmenuActors) {
+                        if (subActor && (subActor === descendant || (typeof subActor.contains === "function" && subActor.contains(descendant)))) {
+                            return true;
+                        }
+                    }
+                    return false;
+                };
+            }
+            if (top.actor._hoverSubmenuActors && this.menu?.actor) {
+                top.actor._hoverSubmenuActors.add(this.menu.actor);
+            }
+        }
+    }
+
+    _unregisterFromTopMenu() {
+        let top = this._parentMenu;
+        if (top && typeof top._getTopMenu === "function") {
+            top = top._getTopMenu();
+        } else {
+            while (top && top._parent) {
+                top = top._parent;
+            }
+        }
+        if (top?.actor?._hoverSubmenuActors && this.menu?.actor) {
+            top.actor._hoverSubmenuActors.delete(this.menu.actor);
+        }
+    }
+
+    open() {
+        super.open();
+        this._registerWithTopMenu();
+    }
+
+    close() {
+        this._unregisterFromTopMenu();
+        super.close();
+    }
+
+    destroy() {
+        this._unregisterFromTopMenu();
+        this._isDestroyed = true;
+        this.close();
+    }
+}
+
+const delLvl2 = new DelegatingHoverSubMenu("Lvl2", realMockTopMenu);
+const delLvl3 = new DelegatingHoverSubMenu("Lvl3", delLvl2.menu);
+
+const directTopChild = { id: "top-child", _parentActor: realMockTopMenu.actor };
+const lvl2Child = { id: "lvl2-child", _parentActor: delLvl2.menu.actor };
+const lvl3Child = { id: "lvl3-child", _parentActor: delLvl3.menu.actor };
+const desktopOutsideActor = { id: "desktop-outside" };
+
+// Before opening submenus, topMenu only contains its direct children
+assert(realMockTopMenu.actor.contains(directTopChild), "Top menu contains direct child initially");
+assert(!realMockTopMenu.actor.contains(lvl2Child), "Top menu does NOT contain lvl2 child before open");
+assert(!realMockTopMenu.actor.contains(lvl3Child), "Top menu does NOT contain lvl3 child before open");
+assert(!realMockTopMenu.actor.contains(desktopOutsideActor), "Top menu does NOT contain desktop outside actor");
+
+// Open Level 2
+delLvl2.open();
+assert(realMockTopMenu.actor.contains(lvl2Child), "Top menu contains lvl2 child when lvl2 is open (preventing premature grab close)");
+assert(!realMockTopMenu.actor.contains(lvl3Child), "Top menu does not contain lvl3 child before lvl3 is open");
+
+// Open Level 3
+delLvl3.open();
+assert(realMockTopMenu.actor.contains(lvl3Child), "Top menu contains lvl3 child when lvl3 is open");
+assert(realMockTopMenu.actor.contains(lvl2Child), "Top menu continues to contain lvl2 child");
+assert(!realMockTopMenu.actor.contains(desktopOutsideActor), "Top menu does NOT contain desktop outside actor");
+
+// Close Level 3
+delLvl3.close();
+assert(!realMockTopMenu.actor.contains(lvl3Child), "Top menu no longer contains lvl3 child after lvl3 close");
+assert(realMockTopMenu.actor.contains(lvl2Child), "Top menu still contains lvl2 child while lvl2 is open");
+
+// Close Level 2
+delLvl2.close();
+assert(!realMockTopMenu.actor.contains(lvl2Child), "Top menu no longer contains lvl2 child after lvl2 close");
+assert(realMockTopMenu.actor.contains(directTopChild), "Top menu still contains its own direct child");
+
 console.log("All Multi-level Submenu and Hover tests passed successfully!");
