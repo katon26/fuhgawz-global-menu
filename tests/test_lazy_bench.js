@@ -329,6 +329,205 @@ assert(fileBtn.menu.isOpen === true, "File menu opened via menu.open()");
 assert(fileBtn._itemsBuilt === true, "File menu items built on open()");
 assert(fileBtn.items.length > 0, "File menu items populated");
 
+// ── Test Step 7: Benchmark GtkMenuButton Lazy Loading (GNOME Files / Nautilus) ─
+console.log("7. Benchmarking GNOME Files (Nautilus) GtkMenuButton lazy loading...");
+
+class MockGtkMenuModel {
+    constructor(items) {
+        this._items = items;
+    }
+    get_n_items() {
+        return this._items.length;
+    }
+    get_item_attribute_value(i, attr) {
+        const item = this._items[i];
+        if (attr === "label") return { unpack: () => item.label };
+        if (attr === "action") return { unpack: () => item.action };
+        return null;
+    }
+    get_item_link(i, linkType) {
+        const item = this._items[i];
+        if (linkType === "submenu" && item.submenu) return new MockGtkMenuModel(item.submenu);
+        if (linkType === "section" && item.section) return new MockGtkMenuModel(item.section);
+        return null;
+    }
+}
+
+class MockGtkMenuButton {
+    constructor(label, model) {
+        this.accessible_name = label;
+        this._model = model;
+        this._itemsBuilt = false;
+        this.items = [];
+        this.menu = {
+            isOpen: false,
+            isEmpty: () => false,
+            addMenuItem: (item) => {
+                this.items.push(item);
+            },
+            open: () => {
+                this._ensureItemsBuilt();
+                this.menu.isOpen = true;
+            },
+            close: () => {
+                this.menu.isOpen = false;
+            },
+            toggle: () => {
+                if (this.menu.isOpen) this.menu.close();
+                else this.menu.open();
+            }
+        };
+    }
+
+    _ensureItemsBuilt() {
+        if (!this._itemsBuilt) {
+            this._itemsBuilt = true;
+            this._buildSubmenu(this.menu, this._model);
+        }
+    }
+
+    _buildSubmenu(popupMenu, model) {
+        const n = model.get_n_items();
+        for (let i = 0; i < n; i++) {
+            const sub = model.get_item_link(i, "submenu");
+            const lblVal = model.get_item_attribute_value(i, "label");
+            const lbl = lblVal ? lblVal.unpack() : "";
+            if (sub) {
+                const subItem = new MockHoverSubMenu(lbl, popupMenu);
+                subItem.setLazyPopulate((childMenu) => {
+                    this._buildSubmenu(childMenu, sub);
+                });
+                popupMenu.addMenuItem(subItem);
+            } else {
+                popupMenu.addMenuItem({
+                    label: lbl,
+                    activated: false,
+                    activate() {
+                        this.activated = true;
+                    }
+                });
+            }
+        }
+    }
+
+    vfunc_event(event) {
+        const eventType = typeof event.type === "function" ? event.type() : event.type;
+        if (eventType === 4 || eventType === 9) {
+            this._ensureItemsBuilt();
+        }
+        if (!this.menu.isEmpty()) {
+            this.menu.toggle();
+        }
+    }
+}
+
+const nautilusMenus = [
+    {
+        label: "File",
+        items: [
+            { label: "New Window", action: "app.new-window" },
+            { label: "New Tab", action: "win.new-tab" },
+            { label: "New Folder", action: "win.new-folder" },
+            {
+                label: "Open With...",
+                submenu: [
+                    { label: "Text Editor", action: "win.open-with" },
+                    { label: "Image Viewer", action: "win.open-with" },
+                    { label: "Other Application...", action: "win.open-with" }
+                ]
+            },
+            { label: "Properties", action: "win.properties" },
+            { label: "Close Tab", action: "win.close-tab" },
+            { label: "Close Window", action: "win.close-window" }
+        ]
+    },
+    {
+        label: "Edit",
+        items: [
+            { label: "Undo", action: "win.undo" },
+            { label: "Redo", action: "win.redo" },
+            { label: "Cut", action: "win.cut" },
+            { label: "Copy", action: "win.copy" },
+            { label: "Paste", action: "win.paste" },
+            { label: "Select All", action: "win.select-all" }
+        ]
+    },
+    {
+        label: "View",
+        items: [
+            { label: "Grid View", action: "win.view-grid" },
+            { label: "List View", action: "win.view-list" },
+            { label: "Show Hidden Files", action: "win.show-hidden" },
+            { label: "Zoom In", action: "win.zoom-in" },
+            { label: "Zoom Out", action: "win.zoom-out" },
+            { label: "Reset Zoom", action: "win.zoom-reset" }
+        ]
+    },
+    {
+        label: "Go",
+        items: [
+            { label: "Parent Folder", action: "win.go-up" },
+            { label: "Back", action: "win.go-back" },
+            { label: "Forward", action: "win.go-forward" },
+            { label: "Home", action: "win.go-home" },
+            { label: "Bookmarks", action: "win.bookmarks" }
+        ]
+    },
+    {
+        label: "Help",
+        items: [
+            { label: "Keyboard Shortcuts", action: "win.show-help-overlay" },
+            { label: "Help", action: "app.help" },
+            { label: "About Files", action: "app.about" }
+        ]
+    }
+];
+
+// Focus latency benchmark for Nautilus
+const nautilusFocusStart = GLib.get_monotonic_time();
+const nautilusButtons = [];
+for (const menuDef of nautilusMenus) {
+    nautilusButtons.push(new MockGtkMenuButton(menuDef.label, new MockGtkMenuModel(menuDef.items)));
+}
+const nautilusFocusEnd = GLib.get_monotonic_time();
+const nautilusFocusMs = (nautilusFocusEnd - nautilusFocusStart) / 1000;
+
+console.log(`-> Nautilus window focus time: ${nautilusFocusMs.toFixed(3)} ms for ${nautilusButtons.length} panel buttons`);
+assert(nautilusFocusMs < 1.0, `Nautilus focus latency must be < 1ms (got ${nautilusFocusMs.toFixed(3)}ms)`);
+
+let nautilusItemsOnFocus = 0;
+for (const btn of nautilusButtons) {
+    nautilusItemsOnFocus += btn.items.length;
+    assert(!btn._itemsBuilt, `Nautilus button "${btn.accessible_name}" must be lazy on focus`);
+    assert(!btn.menu.isEmpty(), `Nautilus button "${btn.accessible_name}" isEmpty() must be false`);
+}
+assert(nautilusItemsOnFocus === 0, `Expected 0 items built for Nautilus on focus, got ${nautilusItemsOnFocus}`);
+console.log("-> 0 menu items created upfront on Nautilus window focus. Zero map latency verified!");
+
+// Click "File" button
+console.log("8. Benchmarking Nautilus click on 'File' panel button...");
+const nautilusFileBtn = nautilusButtons.find(b => b.accessible_name === "File");
+assert(nautilusFileBtn !== undefined, "Nautilus File button found");
+
+const nautilusClickStart = GLib.get_monotonic_time();
+nautilusFileBtn.vfunc_event({ type: () => 4 });
+const nautilusClickEnd = GLib.get_monotonic_time();
+const nautilusClickMs = (nautilusClickEnd - nautilusClickStart) / 1000;
+
+console.log(`-> Nautilus click-to-open latency: ${nautilusClickMs.toFixed(3)} ms`);
+assert(nautilusClickMs < 2.0, `Nautilus click should take < 2ms (got ${nautilusClickMs.toFixed(3)}ms)`);
+assert(nautilusFileBtn.menu.isOpen === true, "Nautilus File menu opened");
+assert(nautilusFileBtn._itemsBuilt === true, "Nautilus File items built flag is true");
+assert(nautilusFileBtn.items.length === nautilusMenus[0].items.length, "Nautilus File top-level items populated");
+
+// Verify nested "Open With..." submenu inside File remains lazy
+const openWithSubmenu = nautilusFileBtn.items.find(i => i instanceof MockHoverSubMenu && i.title === "Open With...");
+assert(openWithSubmenu !== undefined, "Open With... submenu found");
+assert(openWithSubmenu._isPopulated === false, "Open With... submenu must remain lazy before hover");
+openWithSubmenu.open();
+assert(openWithSubmenu._isPopulated === true, "Open With... submenu populated on hover");
+assert(openWithSubmenu.items.length === 3, `Open With... has 3 items (got ${openWithSubmenu.items.length})`);
+
 // Cleanup
 try { tmpFile.delete(null); } catch (e) {}
 clearBookmarksCache();

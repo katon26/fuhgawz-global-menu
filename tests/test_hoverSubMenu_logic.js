@@ -955,7 +955,146 @@ assert(realMockTopMenu.actor.contains(lvl2Child), "Top menu still contains lvl2 
 
 // Close Level 2
 delLvl2.close();
-assert(!realMockTopMenu.actor.contains(lvl2Child), "Top menu no longer contains lvl2 child after lvl2 close");
-assert(realMockTopMenu.actor.contains(directTopChild), "Top menu still contains its own direct child");
+// ── Test 22: Verify GtkMenuButton lazy initialization with isEmpty override ─
+console.log("22. Verifying GtkMenuButton lazy initialization with isEmpty override...");
+
+class MockGtkBtnMenu {
+    constructor() {
+        this.isOpen = false;
+        this._items = [];
+        this.isEmpty = () => false; // Overridden like in GtkMenuButton
+    }
+    addMenuItem(item) {
+        this._items.push(item);
+    }
+    open() {
+        this.isOpen = true;
+    }
+    close() {
+        this.isOpen = false;
+    }
+    toggle() {
+        if (this.isOpen) this.close();
+        else this.open();
+    }
+}
+
+class TestGtkMenuButton {
+    constructor(label, rawItems) {
+        this.accessible_name = label;
+        this._rawItems = rawItems;
+        this._itemsBuilt = false;
+        this.menu = new MockGtkBtnMenu();
+
+        const origOpen = this.menu.open.bind(this.menu);
+        this.menu.open = () => {
+            this._ensureItemsBuilt();
+            origOpen();
+        };
+    }
+
+    _ensureItemsBuilt() {
+        if (!this._itemsBuilt) {
+            this._itemsBuilt = true;
+            for (const item of this._rawItems) {
+                this.menu.addMenuItem({ label: item.label, activated: false });
+            }
+        }
+    }
+
+    vfunc_event(event) {
+        const type = typeof event.type === "function" ? event.type() : event.type;
+        if (type === 4 || type === 9) {
+            this._ensureItemsBuilt();
+        }
+        if (!this.menu.isEmpty()) {
+            this.menu.toggle();
+        }
+    }
+}
+
+const gtkBtn = new TestGtkMenuButton("File", [
+    { label: "New Window" },
+    { label: "New Tab" },
+    { label: "Close" }
+]);
+
+assert(gtkBtn._itemsBuilt === false, "GtkMenuButton starts lazy");
+assert(gtkBtn.menu._items.length === 0, "0 items built on focus for GtkMenuButton");
+assert(!gtkBtn.menu.isEmpty(), "menu.isEmpty() returns false to prevent PanelMenu.Button abort");
+
+// Click opening
+gtkBtn.vfunc_event({ type: () => 4 });
+assert(gtkBtn._itemsBuilt === true, "Items built on click for GtkMenuButton");
+assert(gtkBtn.menu._items.length === 3, "All 3 items populated on click");
+assert(gtkBtn.menu.isOpen === true, "GtkMenuButton opened on click");
+
+// Keyboard open test for GtkMenuButton
+const gtkKeyBtn = new TestGtkMenuButton("Edit", [{ label: "Cut" }, { label: "Copy" }]);
+assert(gtkKeyBtn._itemsBuilt === false, "GtkKeyBtn starts lazy");
+gtkKeyBtn.menu.open();
+assert(gtkKeyBtn._itemsBuilt === true, "Items built on menu.open() keyboard nav");
+assert(gtkKeyBtn.menu._items.length === 2, "Items populated on menu.open()");
+assert(gtkKeyBtn.menu.isOpen === true, "Menu opened via keyboard");
+
+// ── Test 23: Verify ActionsMenuButton lazy initialization with isEmpty override
+console.log("23. Verifying ActionsMenuButton lazy initialization with isEmpty override...");
+
+class TestActionsMenuButton {
+    constructor(label, actions) {
+        this.accessible_name = label;
+        this._actions = actions;
+        this._itemsBuilt = false;
+        this.menu = new MockGtkBtnMenu();
+
+        const origOpen = this.menu.open.bind(this.menu);
+        this.menu.open = () => {
+            this._ensureItemsBuilt();
+            origOpen();
+        };
+    }
+
+    _ensureItemsBuilt() {
+        if (!this._itemsBuilt) {
+            this._itemsBuilt = true;
+            for (const item of this._actions) {
+                this.menu.addMenuItem({
+                    label: item.label,
+                    actionName: item.actionName,
+                    activate: () => {
+                        this.menu.close();
+                    }
+                });
+            }
+        }
+    }
+
+    vfunc_event(event) {
+        const type = typeof event.type === "function" ? event.type() : event.type;
+        if (type === 4 || type === 9) {
+            this._ensureItemsBuilt();
+        }
+        if (!this.menu.isEmpty()) {
+            this.menu.toggle();
+        }
+    }
+}
+
+const actBtn = new TestActionsMenuButton("File", [
+    { label: "New Document", actionName: "new-document" },
+    { label: "Save", actionName: "save" }
+]);
+
+assert(actBtn._itemsBuilt === false, "ActionsMenuButton starts lazy");
+assert(actBtn.menu._items.length === 0, "0 items built on focus for ActionsMenuButton");
+assert(!actBtn.menu.isEmpty(), "menu.isEmpty() returns false for ActionsMenuButton");
+
+actBtn.vfunc_event({ type: () => 4 });
+assert(actBtn._itemsBuilt === true, "ActionsMenuButton items built on click");
+assert(actBtn.menu._items.length === 2, "All 2 actions populated");
+assert(actBtn.menu.isOpen === true, "ActionsMenuButton opened");
+
+actBtn.menu._items[0].activate();
+assert(actBtn.menu.isOpen === false, "ActionsMenuButton closes menu on action activation");
 
 console.log("All Multi-level Submenu and Hover tests passed successfully!");

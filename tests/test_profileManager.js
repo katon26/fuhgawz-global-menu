@@ -485,6 +485,138 @@ mockActionsContext.triggerFallback(mockCalcWindow, null);
 assert(mockActionsContext._loadedProfile !== null, 'Fallback loaded declarative profile for Calculator');
 assert(mockActionsContext._loadedProfile.id === 'org.gnome.Calculator', 'Loaded Calculator profile on 0 actions');
 
+// 10r. Test TextEditor matching via Wayland get_app_id()
+console.log('10r. Verifying TextEditor matching via Wayland get_app_id()...');
+const mockWaylandTextEditorWindow = {
+    get_app_id: () => 'org.gnome.TextEditor',
+};
+const matchedWaylandTextEditor = manager.getProfileForWindow(mockWaylandTextEditorWindow);
+assert(matchedWaylandTextEditor !== null, 'Matched TextEditor window via Wayland get_app_id()');
+assert(matchedWaylandTextEditor.id === 'org.gnome.TextEditor', 'Profile ID is org.gnome.TextEditor');
+
+// 10s. Test TextEditor matching via GTK application object path
+console.log('10s. Verifying TextEditor matching via GTK application object path...');
+const mockObjPathTextEditorWindow = {
+    get_gtk_application_object_path: () => '/org/gnome/TextEditor',
+};
+const matchedObjPathTextEditor = manager.getProfileForWindow(mockObjPathTextEditorWindow);
+assert(matchedObjPathTextEditor !== null, 'Matched TextEditor window via GTK application object path');
+assert(matchedObjPathTextEditor.id === 'org.gnome.TextEditor', 'Profile ID is org.gnome.TextEditor');
+
+// 10t. Test _reloadGtkMenu 0-button fallback safety
+console.log('10t. Verifying _reloadGtkMenu 0-button declarative fallback safety...');
+const mockReloadContext = {
+    _settings: null,
+    _profileManager: manager,
+    _loadedProfile: null,
+    _loadDeclarativeProfile(prof) {
+        this._loadedProfile = prof;
+    },
+    triggerReloadFallback(win) {
+        const position = 2; // No buttons added (start position was 2)
+        if (position <= 2) {
+            const profile = (this._profileManager && win) ? this._profileManager.getProfileForWindow(win) : null;
+            const enableDeclarative = !this._settings || this._settings.get_boolean('enable-declarative-profiles');
+            if (enableDeclarative && profile) {
+                this._loadDeclarativeProfile(profile, win);
+            }
+        }
+    }
+};
+mockReloadContext.triggerReloadFallback(mockTextEditorPropWindow);
+assert(mockReloadContext._loadedProfile !== null, 'Loaded declarative profile when GTK menu model has 0 buttons');
+assert(mockReloadContext._loadedProfile.id === 'org.gnome.TextEditor', 'Loaded TextEditor profile on 0 GTK model items');
+
+// 10u. Test _buildActionsMenu incomplete action menu fallback safety
+console.log('10u. Verifying _buildActionsMenu incomplete action menu fallback safety...');
+const mockPartialActionsContext = {
+    _settings: null,
+    _profileManager: manager,
+    _loadedProfile: null,
+    _loadDeclarativeProfile(prof) {
+        this._loadedProfile = prof;
+    },
+    triggerPartialFallback(win, grouped, addedCount) {
+        const profileToUse = this._profileManager ? this._profileManager.getProfileForWindow(win) : null;
+        const enableDeclarative = !this._settings || this._settings.get_boolean('enable-declarative-profiles');
+        if (addedCount === 0 || (addedCount < 3 && !grouped['File'] && profileToUse)) {
+            if (enableDeclarative && profileToUse) {
+                this._loadDeclarativeProfile(profileToUse, win);
+            }
+        }
+    }
+};
+// Simulate only 'Help' and 'Edit' actions found without 'File'
+mockPartialActionsContext.triggerPartialFallback(mockTextEditorPropWindow, { 'Help': ['about'], 'Edit': ['preferences'] }, 2);
+assert(mockPartialActionsContext._loadedProfile !== null, 'Fell back to declarative profile when GTK actions lacked File menu');
+assert(mockPartialActionsContext._loadedProfile.id === 'org.gnome.TextEditor', 'Loaded complete TextEditor profile on incomplete actions');
+
+// 10v. Test TextEditor matching via bare "texteditor" and "text-editor" wm_class / app_id
+console.log('10v. Verifying TextEditor matching via bare wm_class/app_id...');
+const mockBareTextEditor1 = { get_wm_class: () => 'texteditor' };
+const mockBareTextEditor2 = { get_app_id: () => 'text-editor' };
+const matchedBare1 = manager.getProfileForWindow(mockBareTextEditor1);
+const matchedBare2 = manager.getProfileForWindow(mockBareTextEditor2);
+assert(matchedBare1 !== null && matchedBare1.id === 'org.gnome.TextEditor', 'Matched bare "texteditor"');
+assert(matchedBare2 !== null && matchedBare2.id === 'org.gnome.TextEditor', 'Matched bare "text-editor"');
+
+// 10w. Test updateCycleId and active window guard on delayed D-Bus callbacks
+console.log('10w. Verifying updateCycleId and active window guard against ghost buttons...');
+let builtActions = false;
+const mockCycleContext = {
+    _updateCycleId: 1,
+    currentFocusWindow: mockTextEditorPropWindow,
+    _buildActionsMenu(win, cycleId) {
+        if (cycleId && this._updateCycleId !== cycleId) return;
+        if (this.currentFocusWindow !== win) return;
+        builtActions = true;
+    }
+};
+// Delayed callback arrives after cycle advanced (window closed / focus changed)
+mockCycleContext._updateCycleId = 2;
+mockCycleContext._buildActionsMenu(mockTextEditorPropWindow, 1);
+assert(!builtActions, 'Delayed callback with obsolete cycleId correctly aborted (no ghost buttons)');
+
+// Delayed callback arrives after focus window changed to null/desktop
+mockCycleContext._updateCycleId = 3;
+mockCycleContext.currentFocusWindow = null;
+mockCycleContext._buildActionsMenu(mockTextEditorPropWindow, 3);
+assert(!builtActions, 'Delayed callback after window closed/unfocused correctly aborted');
+
+// Active window with matching cycle builds successfully
+mockCycleContext.currentFocusWindow = mockTextEditorPropWindow;
+mockCycleContext._buildActionsMenu(mockTextEditorPropWindow, 3);
+assert(builtActions, 'Matching cycle and active window builds actions menu');
+
+// 10x. Test Fallback 1 directly calling _loadGtkMenu when menuBarPath is present
+console.log('10x. Verifying Fallback 1 direct _loadGtkMenu invocation on menuBarPath...');
+let loadedGtkMenuPath = null;
+const mockGtkMenubarContext = {
+    _loadGtkMenu(bus, path, win) {
+        loadedGtkMenuPath = path;
+    },
+    triggerFallback1(win, busName, menuBarPath, appMenuPath, profile) {
+        if (busName && menuBarPath) {
+            this._loadGtkMenu(busName, menuBarPath, win);
+            return true;
+        }
+        if (busName && appMenuPath && !profile) {
+            this._loadGtkMenu(busName, appMenuPath, win);
+            return true;
+        }
+        return false;
+    }
+};
+const handledMenubar = mockGtkMenubarContext.triggerFallback1(
+    mockTextEditorPropWindow,
+    ':1.100',
+    '/org/gnome/Gedit/menus/menubar',
+    null,
+    null
+);
+assert(handledMenubar === true, 'Fallback 1 handled advertised GTK menubar directly');
+assert(loadedGtkMenuPath === '/org/gnome/Gedit/menus/menubar', 'Loaded correct GTK menubar path');
+
 // 11. Cleanup and cache clearing on destroy
 console.log('11. Verifying cleanup and bookmarks cache clearing on destroy...');
 assert(_bookmarksCache.size > 0, 'Bookmarks cache has entries before destroy');

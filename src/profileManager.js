@@ -555,6 +555,29 @@ export class ProfileManager {
                     candidates.push({ type: 'app_id', value: `${sLower}.desktop` });
                 }
             }
+            const waylandAppId = (typeof metaWindow.get_app_id === 'function' ? metaWindow.get_app_id() : metaWindow.app_id) || '';
+            if (waylandAppId) {
+                const wLower = waylandAppId.toLowerCase();
+                candidates.push({ type: 'app_id', value: wLower });
+                if (wLower.endsWith('.desktop')) {
+                    candidates.push({ type: 'app_id', value: wLower.slice(0, -8) });
+                } else {
+                    candidates.push({ type: 'app_id', value: `${wLower}.desktop` });
+                }
+            }
+            const appObjPath = (typeof metaWindow.get_gtk_application_object_path === 'function' ? metaWindow.get_gtk_application_object_path() : metaWindow.gtk_application_object_path) || '';
+            if (appObjPath && appObjPath.startsWith('/')) {
+                const pathId = appObjPath.slice(1).replace(/\//g, '.');
+                if (pathId && !pathId.startsWith('org.gtk.Application')) {
+                    const pLower = pathId.toLowerCase();
+                    candidates.push({ type: 'app_id', value: pLower });
+                    if (pLower.endsWith('.desktop')) {
+                        candidates.push({ type: 'app_id', value: pLower.slice(0, -8) });
+                    } else {
+                        candidates.push({ type: 'app_id', value: `${pLower}.desktop` });
+                    }
+                }
+            }
         } catch (e) {}
 
         // 3. Shell.WindowTracker App ID
