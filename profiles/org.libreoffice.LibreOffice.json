@@ -1,0 +1,143 @@
+{
+  "id": "org.libreoffice.LibreOffice",
+  "match": {
+    "wm_class": [
+      "libreoffice",
+      "libreoffice-writer",
+      "libreoffice-calc",
+      "libreoffice-impress",
+      "libreoffice-draw",
+      "libreoffice-math",
+      "libreoffice-base",
+      "soffice.bin",
+      "soffice",
+      "org.libreoffice.LibreOffice"
+    ],
+    "app_id": [
+      "org.libreoffice.LibreOffice",
+      "org.libreoffice.LibreOffice.desktop",
+      "libreoffice-writer.desktop",
+      "libreoffice-calc.desktop",
+      "libreoffice-impress.desktop",
+      "libreoffice-draw.desktop",
+      "libreoffice-math.desktop",
+      "libreoffice-base.desktop",
+      "libreoffice.desktop",
+      "libreoffice",
+      "soffice"
+    ]
+  },
+  "app_menu": {
+    "label": "LibreOffice",
+    "items": [
+      { "label": "About LibreOffice", "shortcut": "" },
+      { "label": "Preferences…", "shortcut": "Alt+F12" },
+      { "type": "separator" },
+      { "label": "Quit LibreOffice", "shortcut": "Ctrl+Q" }
+    ]
+  },
+  "menus": [
+    {
+      "label": "File",
+      "items": [
+        { "label": "New", "shortcut": "Ctrl+N" },
+        { "label": "Open…", "shortcut": "Ctrl+O" },
+        { "label": "Close", "shortcut": "Ctrl+W" },
+        { "type": "separator" },
+        { "label": "Save", "shortcut": "Ctrl+S" },
+        { "label": "Save As…", "shortcut": "Ctrl+Shift+S" },
+        { "label": "Save All", "shortcut": "" },
+        { "type": "separator" },
+        { "label": "Export as PDF…", "shortcut": "" },
+        { "label": "Print…", "shortcut": "Ctrl+P" },
+        { "type": "separator" },
+        { "label": "Exit LibreOffice", "shortcut": "Ctrl+Q" }
+      ]
+    },
+    {
+      "label": "Edit",
+      "items": [
+        { "label": "Undo", "shortcut": "Ctrl+Z" },
+        { "label": "Redo", "shortcut": "Ctrl+Y" },
+        { "label": "Repeat", "shortcut": "Ctrl+Shift+Y" },
+        { "type": "separator" },
+        { "label": "Cut", "shortcut": "Ctrl+X" },
+        { "label": "Copy", "shortcut": "Ctrl+C" },
+        { "label": "Paste", "shortcut": "Ctrl+V" },
+        { "label": "Paste Special…", "shortcut": "Ctrl+Shift+V" },
+        { "label": "Select All", "shortcut": "Ctrl+A" },
+        { "type": "separator" },
+        { "label": "Find…", "shortcut": "Ctrl+F" },
+        { "label": "Find and Replace…", "shortcut": "Ctrl+H" }
+      ]
+    },
+    {
+      "label": "View",
+      "items": [
+        { "label": "Normal", "shortcut": "" },
+        { "label": "Full Screen", "shortcut": "Ctrl+Shift+J" },
+        { "type": "separator" },
+        { "label": "Zoom In", "shortcut": "Ctrl++" },
+        { "label": "Zoom Out", "shortcut": "Ctrl+-" },
+        { "label": "Zoom 100%", "shortcut": "Ctrl+0" }
+      ]
+    },
+    {
+      "label": "Insert",
+      "items": [
+        { "label": "Page Break", "shortcut": "Ctrl+Return" },
+        { "label": "Image…", "shortcut": "" },
+        { "label": "Table…", "shortcut": "Ctrl+F12" },
+        { "label": "Shape", "shortcut": "" },
+        { "label": "Hyperlink…", "shortcut": "Ctrl+K" },
+        { "label": "Special Character…", "shortcut": "" },
+        { "label": "Bookmark…", "shortcut": "" }
+      ]
+    },
+    {
+      "label": "Format",
+      "items": [
+        { "label": "Bold", "shortcut": "Ctrl+B" },
+        { "label": "Italic", "shortcut": "Ctrl+I" },
+        { "label": "Underline", "shortcut": "Ctrl+U" },
+        { "label": "Strikethrough", "shortcut": "" },
+        { "label": "Superscript", "shortcut": "Ctrl+Shift+P" },
+        { "label": "Subscript", "shortcut": "Ctrl+Shift+B" },
+        { "type": "separator" },
+        { "label": "Align Left", "shortcut": "Ctrl+L" },
+        { "label": "Align Center", "shortcut": "Ctrl+E" },
+        { "label": "Align Right", "shortcut": "Ctrl+R" },
+        { "label": "Justified", "shortcut": "Ctrl+J" },
+        { "type": "separator" },
+        { "label": "Clear Direct Formatting", "shortcut": "Ctrl+M" }
+      ]
+    },
+    {
+      "label": "Tools",
+      "items": [
+        { "label": "Spelling…", "shortcut": "F7" },
+        { "label": "Language", "shortcut": "" },
+        { "label": "Word Count", "shortcut": "" },
+        { "label": "AutoCorrect", "shortcut": "" },
+        { "type": "separator" },
+        { "label": "Customize…", "shortcut": "" },
+        { "label": "Options…", "shortcut": "Alt+F12" }
+      ]
+    },
+    {
+      "label": "Window",
+      "items": [
+        { "label": "New Window", "shortcut": "" },
+        { "label": "Close Window", "shortcut": "Ctrl+W" }
+      ]
+    },
+    {
+      "label": "Help",
+      "items": [
+        { "label": "LibreOffice Help", "shortcut": "F1" },
+        { "label": "Keyboard Shortcuts", "shortcut": "Ctrl+?" },
+        { "label": "About LibreOffice", "shortcut": "" }
+      ]
+    }
+  ]
+}

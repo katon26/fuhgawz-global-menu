@@ -527,25 +527,33 @@ export class ProfileManager {
 
         // 1. WM_CLASS
         try {
-            if (typeof metaWindow.get_wm_class === 'function') {
-                const wmClass = metaWindow.get_wm_class();
-                if (wmClass) candidates.push({ type: 'wm_class', value: wmClass.toLowerCase() });
-            }
-            if (typeof metaWindow.get_wm_class_instance === 'function') {
-                const inst = metaWindow.get_wm_class_instance();
-                if (inst) candidates.push({ type: 'wm_class', value: inst.toLowerCase() });
-            }
+            const wmClass = (typeof metaWindow.get_wm_class === 'function' ? metaWindow.get_wm_class() : metaWindow.wm_class) || '';
+            if (wmClass) candidates.push({ type: 'wm_class', value: wmClass.toLowerCase() });
+            const inst = (typeof metaWindow.get_wm_class_instance === 'function' ? metaWindow.get_wm_class_instance() : metaWindow.wm_class_instance) || '';
+            if (inst) candidates.push({ type: 'wm_class', value: inst.toLowerCase() });
         } catch (e) {}
 
         // 2. GTK Application ID / Sandboxed App ID
         try {
-            if (typeof metaWindow.get_gtk_application_id === 'function') {
-                const appId = metaWindow.get_gtk_application_id();
-                if (appId) candidates.push({ type: 'app_id', value: appId.toLowerCase() });
+            const appId = (typeof metaWindow.get_gtk_application_id === 'function' ? metaWindow.get_gtk_application_id() : metaWindow.gtk_application_id) || '';
+            if (appId) {
+                const lower = appId.toLowerCase();
+                candidates.push({ type: 'app_id', value: lower });
+                if (lower.endsWith('.desktop')) {
+                    candidates.push({ type: 'app_id', value: lower.slice(0, -8) });
+                } else {
+                    candidates.push({ type: 'app_id', value: `${lower}.desktop` });
+                }
             }
-            if (typeof metaWindow.get_sandboxed_app_id === 'function') {
-                const sandboxedId = metaWindow.get_sandboxed_app_id();
-                if (sandboxedId) candidates.push({ type: 'app_id', value: sandboxedId.toLowerCase() });
+            const sandboxedId = (typeof metaWindow.get_sandboxed_app_id === 'function' ? metaWindow.get_sandboxed_app_id() : metaWindow.sandboxed_app_id) || '';
+            if (sandboxedId) {
+                const sLower = sandboxedId.toLowerCase();
+                candidates.push({ type: 'app_id', value: sLower });
+                if (sLower.endsWith('.desktop')) {
+                    candidates.push({ type: 'app_id', value: sLower.slice(0, -8) });
+                } else {
+                    candidates.push({ type: 'app_id', value: `${sLower}.desktop` });
+                }
             }
         } catch (e) {}
 

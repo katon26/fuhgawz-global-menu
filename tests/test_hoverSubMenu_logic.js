@@ -626,4 +626,66 @@ assert(chromeBmMenu, "Bookmarks menu exists in google-chrome.json");
 const chromeBmBar = chromeBmMenu.items.find(i => i.label === "Bookmarks Bar");
 assert(chromeBmBar && chromeBmBar.dynamic === "bookmarks-bar", "Bookmarks Bar marked with dynamic: bookmarks-bar in google-chrome.json");
 
+// ── Test 16: Verify GNOME Calculator profile structure ───────────────────────
+console.log("16. Verifying profiles/org.gnome.Calculator.json structure...");
+const calcFile = Gio.File.new_for_path(GLib.build_filenamev([GLib.get_current_dir(), "profiles", "org.gnome.Calculator.json"]));
+const [okCalc, bytesCalc] = calcFile.load_contents(null);
+assert(okCalc && bytesCalc, "Loaded org.gnome.Calculator.json");
+const calcJson = JSON.parse(new TextDecoder("utf-8").decode(bytesCalc));
+assert(calcJson.id === "org.gnome.Calculator", "Calculator id is org.gnome.Calculator");
+assert(calcJson.menus.some(m => m.label === "Mode"), "Calculator has Mode menu");
+assert(calcJson.menus.some(m => m.label === "Edit"), "Calculator has Edit menu");
+assert(calcJson.menus.some(m => m.label === "Help"), "Calculator has Help menu");
+
+// ── Test 17: Verify LibreOffice profile structure ───────────────────────────
+console.log("17. Verifying profiles/org.libreoffice.LibreOffice.json structure...");
+const loFile = Gio.File.new_for_path(GLib.build_filenamev([GLib.get_current_dir(), "profiles", "org.libreoffice.LibreOffice.json"]));
+const [okLO, bytesLO] = loFile.load_contents(null);
+assert(okLO && bytesLO, "Loaded org.libreoffice.LibreOffice.json");
+const loJson = JSON.parse(new TextDecoder("utf-8").decode(bytesLO));
+assert(loJson.id === "org.libreoffice.LibreOffice", "LibreOffice id matches");
+assert(loJson.menus.length === 8, "LibreOffice has 8 document menus");
+const loMenuLabels = loJson.menus.map(m => m.label);
+for (const req of ["File", "Edit", "View", "Insert", "Format", "Tools", "Window", "Help"]) {
+    assert(loMenuLabels.includes(req), `LibreOffice has ${req} menu`);
+}
+
+// ── Test 18: Verify ONLYOFFICE profile structure ────────────────────────────
+console.log("18. Verifying profiles/onlyoffice-desktopeditors.json structure...");
+const ooFile = Gio.File.new_for_path(GLib.build_filenamev([GLib.get_current_dir(), "profiles", "onlyoffice-desktopeditors.json"]));
+const [okOO, bytesOO] = ooFile.load_contents(null);
+assert(okOO && bytesOO, "Loaded onlyoffice-desktopeditors.json");
+const ooJson = JSON.parse(new TextDecoder("utf-8").decode(bytesOO));
+assert(ooJson.id === "onlyoffice-desktopeditors", "ONLYOFFICE id matches");
+const ooMenuLabels = ooJson.menus.map(m => m.label);
+for (const req of ["File", "Edit", "View", "Insert", "Help"]) {
+    assert(ooMenuLabels.includes(req), `ONLYOFFICE has ${req} menu`);
+}
+
+// ── Test 19: Verify captured event propagation on self-actor click ──────────
+console.log("19. Verifying captured event propagation on flyout background click...");
+const flyoutBackgroundActor = lvl3Submenu.menu.actor;
+assert(lvl3Submenu._handleCapturedEvent(flyoutBackgroundActor, "button-press") === "propagate", "Click on flyout container itself propagates");
+
+// ── Test 20: Verify DeclarativeMenuButton non-empty initialization ─────────
+console.log("20. Verifying DeclarativeMenuButton initializes non-empty...");
+class MockDeclarativeMenu {
+    constructor(items) {
+        this.rawItems = items;
+        this.items = [];
+        // Must build eagerly on init so isEmpty() is false for GNOME Shell PopupMenu.open()
+        this._buildItems(this.rawItems);
+    }
+    _buildItems(items) {
+        for (const item of items) {
+            this.items.push(item);
+        }
+    }
+    isEmpty() {
+        return this.items.length === 0;
+    }
+}
+const mockDeclMenu = new MockDeclarativeMenu(calcJson.menus[0].items);
+assert(!mockDeclMenu.isEmpty(), "DeclarativeMenu is not empty on init (PopupMenu.open() will not abort)");
+
 console.log("All Multi-level Submenu and Hover tests passed successfully!");

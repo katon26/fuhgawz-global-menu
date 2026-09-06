@@ -1,0 +1,50 @@
+{
+  "id": "org.gnome.Calculator",
+  "match": {
+    "wm_class": ["org.gnome.Calculator", "gnome-calculator", "Calculator", "calculator"],
+    "app_id": ["org.gnome.Calculator", "org.gnome.Calculator.desktop", "gnome-calculator", "gnome-calculator.desktop"]
+  },
+  "app_menu": {
+    "label": "Calculator",
+    "items": [
+      { "label": "About Calculator", "shortcut": "" },
+      { "label": "Preferences", "shortcut": "Ctrl+," },
+      { "label": "Keyboard Shortcuts", "shortcut": "Ctrl+?" },
+      { "type": "separator" },
+      { "label": "Quit", "shortcut": "Ctrl+Q" }
+    ]
+  },
+  "menus": [
+    {
+      "label": "Mode",
+      "items": [
+        { "label": "Basic Mode", "shortcut": "Alt+1" },
+        { "label": "Advanced Mode", "shortcut": "Alt+2" },
+        { "label": "Financial Mode", "shortcut": "Alt+3" },
+        { "label": "Programming Mode", "shortcut": "Alt+4" },
+        { "label": "Keyboard Mode", "shortcut": "Alt+5" }
+      ]
+    },
+    {
+      "label": "Edit",
+      "items": [
+        { "label": "Undo", "shortcut": "Ctrl+Z" },
+        { "label": "Redo", "shortcut": "Ctrl+Shift+Z" },
+        { "type": "separator" },
+        { "label": "Cut", "shortcut": "Ctrl+X" },
+        { "label": "Copy", "shortcut": "Ctrl+C" },
+        { "label": "Paste", "shortcut": "Ctrl+V" },
+        { "type": "separator" },
+        { "label": "Clear", "shortcut": "Escape" }
+      ]
+    },
+    {
+      "label": "Help",
+      "items": [
+        { "label": "Keyboard Shortcuts", "shortcut": "Ctrl+?" },
+        { "label": "Help", "shortcut": "F1" },
+        { "label": "About Calculator", "shortcut": "" }
+      ]
+    }
+  ]
+}

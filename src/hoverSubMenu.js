@@ -249,14 +249,14 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
                         if (!targetActor) return Clutter.EVENT_PROPAGATE;
 
                         // 1. Click is inside this submenu flyout
-                        if (this.menu && this.menu.actor && this.menu.actor.contains(targetActor)) {
+                        if (this.menu && this.menu.actor && (this.menu.actor === targetActor || (this.menu.actor.contains && this.menu.actor.contains(targetActor)))) {
                             return Clutter.EVENT_PROPAGATE;
                         }
 
                         // 2. Click is inside an open child submenu flyout
                         if (this._childSubmenus) {
                             for (const child of this._childSubmenus) {
-                                if (child && child.isOpen && child.menu?.actor?.contains(targetActor)) {
+                                if (child && child.isOpen && child.menu?.actor && (child.menu.actor === targetActor || (child.menu.actor.contains && child.menu.actor.contains(targetActor)))) {
                                     return Clutter.EVENT_PROPAGATE;
                                 }
                             }
@@ -712,13 +712,15 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             }
             this.menu.open(BoxPointer.PopupAnimation.FULL);
 
-            // Standard Clutter grab semantics to route pointer clicks without Main.pushModal traps
-            if (!this._grab && typeof global !== 'undefined' && global.stage?.grab) {
-                try {
-                    this._grab = global.stage.grab(this.menu.actor);
-                } catch (e) {
-                    this._grab = null;
-                }
+            // Manage internal grab token without raw stage grab to preserve PopupMenuManager modal grab
+            if (!this._grab) {
+                this._grab = {
+                    actor: this.menu.actor,
+                    dismissed: false,
+                    dismiss() {
+                        this.dismissed = true;
+                    },
+                };
             }
 
             this._startGlobalHoverMonitor();

@@ -16,11 +16,14 @@ const manager = new ProfileManager(currentDir);
 // 1. Load profiles from ./profiles/
 manager.loadProfiles();
 
-assert(manager._profiles.size >= 7, `Loaded at least 7 profiles (got ${manager._profiles.size})`);
+assert(manager._profiles.size >= 10, `Loaded at least 10 profiles (got ${manager._profiles.size})`);
 assert(manager._profiles.has('brave-browser'), 'Brave profile loaded');
 assert(manager._profiles.has('google-chrome'), 'Chrome profile loaded');
 assert(manager._profiles.has('com.visualstudio.code'), 'VS Code profile loaded');
 assert(manager._profiles.has('org.gnome.TextEditor'), 'Text Editor profile loaded');
+assert(manager._profiles.has('org.gnome.Calculator'), 'Calculator profile loaded');
+assert(manager._profiles.has('org.libreoffice.LibreOffice'), 'LibreOffice profile loaded');
+assert(manager._profiles.has('onlyoffice-desktopeditors'), 'ONLYOFFICE profile loaded');
 assert(manager._profiles.has('firefox'), 'Firefox profile loaded');
 assert(manager._profiles.has('dev.zed.Zed'), 'Zed profile loaded');
 assert(manager._profiles.has('warp-terminal'), 'Warp profile loaded');
@@ -391,6 +394,61 @@ getBrowserBookmarks('brave-browser', mtimeTestFile.get_path());
 const cachedMtime = getBookmarksCacheMtime('brave-browser', mtimeTestFile.get_path());
 assert(cachedMtime > 0, `Cached mtime is > 0 (got ${cachedMtime})`);
 try { mtimeTestFile.delete(null); } catch (e) {}
+
+// 10l. Test matching Calculator
+console.log('10l. Verifying Calculator profile matching...');
+const mockCalcWindow = {
+    get_wm_class: () => 'org.gnome.Calculator',
+    get_wm_class_instance: () => 'gnome-calculator',
+    gtk_application_id: 'org.gnome.Calculator',
+};
+const matchedCalc = manager.getProfileForWindow(mockCalcWindow);
+assert(matchedCalc !== null, 'Matched Calculator window');
+assert(matchedCalc.id === 'org.gnome.Calculator', 'Profile ID is org.gnome.Calculator');
+assert(matchedCalc.menus.some(m => m.label === 'Mode'), 'Calculator has Mode menu');
+assert(matchedCalc.menus.some(m => m.label === 'Edit'), 'Calculator has Edit menu');
+assert(matchedCalc.menus.some(m => m.label === 'Help'), 'Calculator has Help menu');
+
+// 10m. Test matching TextEditor via property without .desktop
+console.log('10m. Verifying TextEditor window matching via property...');
+const mockTextEditorPropWindow = {
+    gtk_application_id: 'org.gnome.TextEditor',
+};
+const matchedTextEditor = manager.getProfileForWindow(mockTextEditorPropWindow);
+assert(matchedTextEditor !== null, 'Matched TextEditor window via gtk_application_id property');
+assert(matchedTextEditor.id === 'org.gnome.TextEditor', 'Profile ID is org.gnome.TextEditor');
+
+// 10n. Test matching LibreOffice
+console.log('10n. Verifying LibreOffice profile matching...');
+const mockLibreOfficeSoffice = {
+    get_wm_class: () => 'soffice.bin',
+    get_wm_class_instance: () => 'soffice',
+};
+const matchedLO = manager.getProfileForWindow(mockLibreOfficeSoffice);
+assert(matchedLO !== null, 'Matched LibreOffice window via soffice.bin');
+assert(matchedLO.id === 'org.libreoffice.LibreOffice', 'Profile ID is org.libreoffice.LibreOffice');
+assert(matchedLO.menus.length === 8, `LibreOffice has 8 menus (got ${matchedLO.menus.length})`);
+assert(matchedLO.menus.some(m => m.label === 'Format'), 'LibreOffice has Format menu');
+assert(matchedLO.menus.some(m => m.label === 'Tools'), 'LibreOffice has Tools menu');
+
+const mockLibreOfficeWriter = {
+    gtk_application_id: 'libreoffice-writer.desktop',
+};
+const matchedLOWriter = manager.getProfileForWindow(mockLibreOfficeWriter);
+assert(matchedLOWriter !== null, 'Matched LibreOffice Writer window via app_id');
+assert(matchedLOWriter.id === 'org.libreoffice.LibreOffice', 'Writer matches LibreOffice profile');
+
+// 10o. Test matching ONLYOFFICE
+console.log('10o. Verifying ONLYOFFICE profile matching...');
+const mockOnlyOfficeWindow = {
+    get_wm_class: () => 'DesktopEditors',
+    get_wm_class_instance: () => 'desktopeditors',
+};
+const matchedOO = manager.getProfileForWindow(mockOnlyOfficeWindow);
+assert(matchedOO !== null, 'Matched ONLYOFFICE window');
+assert(matchedOO.id === 'onlyoffice-desktopeditors', 'Profile ID is onlyoffice-desktopeditors');
+assert(matchedOO.menus.some(m => m.label === 'File'), 'ONLYOFFICE has File menu');
+assert(matchedOO.menus.some(m => m.label === 'Insert'), 'ONLYOFFICE has Insert menu');
 
 // 11. Cleanup and cache clearing on destroy
 console.log('11. Verifying cleanup and bookmarks cache clearing on destroy...');

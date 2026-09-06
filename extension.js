@@ -641,12 +641,22 @@ function _navigateBrowserUrl(win, dispatcher, url, openNewTab = true) {
             if (win && typeof win.connect === 'function') {
                 unmanagedId = win.connect('unmanaged', () => cleanup());
             }
+            let winHadFocus = false;
+            try {
+                const initialFocus = typeof global?.display?.get_focus_window === 'function'
+                    ? global.display.get_focus_window()
+                    : global?.display?.focus_window;
+                if (initialFocus === win) winHadFocus = true;
+            } catch (e) {}
+
             if (typeof global !== 'undefined' && global.display) {
                 focusId = global.display.connect('notify::focus-window', () => {
                     const currentFocus = typeof global.display.get_focus_window === 'function'
                         ? global.display.get_focus_window()
                         : global.display.focus_window;
-                    if (currentFocus !== win) {
+                    if (currentFocus === win) {
+                        winHadFocus = true;
+                    } else if (winHadFocus) {
                         cleanup();
                     }
                 });
@@ -1204,8 +1214,11 @@ class DeclarativeMenuButton extends PanelMenu.Button {
         this._dispatcher = dispatcher;
         this._profile = profile;
         this._rawItems = items;
-        this._itemsBuilt = false;
+        this._itemsBuilt = true;
         this._lastMtime = 0;
+
+        // Build top-level menu items immediately on init so menu is never empty and opens on click
+        this._buildCurrentItems();
 
         this.menu.connect('open-state-changed', (_menu, isOpen) => {
             if (!isOpen) return;
@@ -1215,10 +1228,7 @@ class DeclarativeMenuButton extends PanelMenu.Button {
                 this._rawItems.some(i => i.dynamic || (Array.isArray(i.items) && i.items.some(si => si.dynamic)))
             );
 
-            if (!this._itemsBuilt) {
-                this._itemsBuilt = true;
-                this._buildCurrentItems();
-            } else if (isDynamic) {
+            if (isDynamic) {
                 const currentMtime = typeof getBookmarksCacheMtime === 'function'
                     ? getBookmarksCacheMtime(this._profile.id)
                     : 0;
@@ -2225,9 +2235,9 @@ class FUHGlobeGlobalMenu {
         console.log(`FUHGlobe: Added ${addedCount} action-based menu buttons`);
         if (addedCount === 0) {
             console.log('FUHGlobe: 0 GTK actions added, falling back to declarative profile');
-            const enableDeclarative = !this._settings || this._settings.get_boolean('enable-declarative-profiles');
-            if (enableDeclarative && profile) {
-                this._loadDeclarativeProfile(profile, win);
+            const profileToUse = profile || (this._profileManager ? this._profileManager.getProfileForWindow(win) : null);
+            if (enableDeclarative && profileToUse) {
+                this._loadDeclarativeProfile(profileToUse, win);
             }
         }
     }
