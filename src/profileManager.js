@@ -9,6 +9,351 @@ try {
     // Standalone unit test environment where gi://Shell typelib is not in search path
 }
 
+export const MAX_DYNAMIC_ITEMS = 50;
+export const BOOKMARKS_MANAGER_ITEM = {
+    label: 'Open Bookmarks Manager... (Ctrl+Shift+O)',
+    shortcut: 'Ctrl+Shift+O',
+};
+
+// In-memory cache for parsed bookmarks: Map<string, { data: Object, mtime: number, monitor: Gio.FileMonitor|null, monitorSignalId: number }>
+export const _bookmarksCache = new Map();
+
+/**
+ * Clears the bookmarks cache and cancels all active file monitors.
+ */
+export function clearBookmarksCache() {
+    for (const [path, entry] of _bookmarksCache.entries()) {
+        if (entry.monitor) {
+            try {
+                if (entry.monitorSignalId) {
+                    entry.monitor.disconnect(entry.monitorSignalId);
+                }
+                entry.monitor.cancel();
+            } catch (e) {}
+        }
+    }
+    _bookmarksCache.clear();
+}
+
+function _resolveBookmarkPaths(browserType = 'brave-browser', customPath = null) {
+    if (customPath) return [customPath];
+
+    const homeDir = GLib.get_home_dir();
+    const typeLower = (browserType || '').toLowerCase();
+    const candidatePaths = [];
+
+    if (typeLower.includes('brave')) {
+        candidatePaths.push(
+            GLib.build_filenamev([homeDir, '.config', 'BraveSoftware', 'Brave-Browser', 'Default', 'Bookmarks']),
+            GLib.build_filenamev([homeDir, '.var', 'app', 'com.brave.Browser', 'config', 'BraveSoftware', 'Brave-Browser', 'Default', 'Bookmarks']),
+            GLib.build_filenamev([homeDir, 'snap', 'brave', 'current', '.config', 'BraveSoftware', 'Brave-Browser', 'Default', 'Bookmarks'])
+        );
+    } else if (typeLower.includes('chrome') || typeLower.includes('chromium')) {
+        candidatePaths.push(
+            GLib.build_filenamev([homeDir, '.config', 'google-chrome', 'Default', 'Bookmarks']),
+            GLib.build_filenamev([homeDir, '.config', 'chromium', 'Default', 'Bookmarks']),
+            GLib.build_filenamev([homeDir, '.var', 'app', 'com.google.Chrome', 'config', 'google-chrome', 'Default', 'Bookmarks'])
+        );
+    }
+    return candidatePaths;
+}
+
+function _getFileMtime(file) {
+    try {
+        const info = file.query_info(Gio.FILE_ATTRIBUTE_TIME_MODIFIED, Gio.FileQueryInfoFlags.NONE, null);
+        return info.get_attribute_uint64(Gio.FILE_ATTRIBUTE_TIME_MODIFIED);
+    } catch (e) {
+        return 0;
+    }
+}
+
+function _parseBookmarksJson(rawJson) {
+    if (!rawJson || !rawJson.roots) {
+        return { bookmarkBarItems: [], otherItems: [] };
+    }
+
+    const convertNode = node => {
+        if (!node || typeof node !== 'object') return null;
+
+        if (node.type === 'folder') {
+            let children = Array.isArray(node.children) ? node.children.map(convertNode).filter(Boolean) : [];
+            if (children.length > MAX_DYNAMIC_ITEMS) {
+                children = children.slice(0, MAX_DYNAMIC_ITEMS);
+                children.push(BOOKMARKS_MANAGER_ITEM);
+            }
+            return {
+                label: node.name || 'Folder',
+                items: children.length > 0 ? children : [{ label: 'Folder is Empty', sensitive: false }],
+            };
+        }
+
+        if (node.type === 'url') {
+            let label = node.name ? node.name.trim() : '';
+            if (!label && node.url) {
+                try {
+                    const u = GLib.Uri.parse(node.url, GLib.UriFlags.NONE);
+                    label = u.get_host()?.replace(/^www\./, '') || node.url;
+                } catch (e) {
+                    label = node.url;
+                }
+            }
+            if (!label) label = 'Bookmark';
+            return {
+                label,
+                url: node.url,
+            };
+        }
+
+        return null;
+    };
+
+    let bookmarkBarItems = Array.isArray(rawJson.roots?.bookmark_bar?.children)
+        ? rawJson.roots.bookmark_bar.children.map(convertNode).filter(Boolean)
+        : [];
+    if (bookmarkBarItems.length > MAX_DYNAMIC_ITEMS) {
+        bookmarkBarItems = bookmarkBarItems.slice(0, MAX_DYNAMIC_ITEMS);
+        bookmarkBarItems.push(BOOKMARKS_MANAGER_ITEM);
+    }
+
+    let otherItems = Array.isArray(rawJson.roots?.other?.children)
+        ? rawJson.roots.other.children.map(convertNode).filter(Boolean)
+        : [];
+    if (otherItems.length > MAX_DYNAMIC_ITEMS) {
+        otherItems = otherItems.slice(0, MAX_DYNAMIC_ITEMS);
+        otherItems.push(BOOKMARKS_MANAGER_ITEM);
+    }
+
+    return { bookmarkBarItems, otherItems };
+}
+
+function _setupBookmarkFileMonitor(filePath, file) {
+    const entry = _bookmarksCache.get(filePath);
+    if (!entry || entry.monitor) return;
+
+    try {
+        const monitor = file.monitor_file(Gio.FileMonitorFlags.NONE, null);
+        const signalId = monitor.connect('changed', (_mon, _f, _otherF, eventType) => {
+            if (
+                eventType === Gio.FileMonitorEvent.CHANGED ||
+                eventType === Gio.FileMonitorEvent.CHANGES_DONE_HINT ||
+                eventType === Gio.FileMonitorEvent.CREATED
+            ) {
+                file.load_contents_async(null, (source, res) => {
+                    try {
+                        const [ok, bytes] = source.load_contents_finish(res);
+                        if (ok && bytes) {
+                            const rawJson = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+                            const parsed = _parseBookmarksJson(rawJson);
+                            const currentEntry = _bookmarksCache.get(filePath);
+                            if (currentEntry) {
+                                currentEntry.data = parsed;
+                                currentEntry.mtime = _getFileMtime(file);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(`[FUHGAWZ] Failed to reload bookmarks async: ${e}`);
+                    }
+                });
+            }
+        });
+        entry.monitor = monitor;
+        entry.monitorSignalId = signalId;
+    } catch (e) {
+        // Monitoring not supported in headless unit tests
+    }
+}
+
+/**
+ * Loads bookmarks from disk for Chromium-based browsers (Brave, Google Chrome, Chromium).
+ * Uses in-memory caching and file modification checks.
+ *
+ * @param {string} browserType - 'brave-browser' | 'google-chrome' | 'chromium'
+ * @param {string} [customPath] - Optional custom path for testing
+ * @returns {{ bookmarkBarItems: Object[], otherItems: Object[] }}
+ */
+export function getBrowserBookmarks(browserType = 'brave-browser', customPath = null) {
+    const candidatePaths = _resolveBookmarkPaths(browserType, customPath);
+
+    let targetPath = null;
+    let file = null;
+    for (const path of candidatePaths) {
+        if (GLib.file_test(path, GLib.FileTest.EXISTS)) {
+            targetPath = path;
+            file = Gio.File.new_for_path(path);
+            break;
+        }
+    }
+
+    if (!targetPath || !file) {
+        return { bookmarkBarItems: [], otherItems: [] };
+    }
+
+    const mtime = _getFileMtime(file);
+    if (_bookmarksCache.has(targetPath)) {
+        const cached = _bookmarksCache.get(targetPath);
+        if (cached.mtime && cached.mtime === mtime) {
+            return cached.data;
+        }
+    }
+
+    let rawJson = null;
+    try {
+        const [ok, bytes] = GLib.file_get_contents(targetPath);
+        if (ok && bytes) {
+            rawJson = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+        }
+    } catch (e) {
+        console.warn(`[FUHGAWZ] Error parsing bookmarks at ${targetPath}: ${e.message}`);
+    }
+
+    const data = _parseBookmarksJson(rawJson);
+    const existingEntry = _bookmarksCache.get(targetPath);
+    if (existingEntry) {
+        existingEntry.data = data;
+        existingEntry.mtime = mtime;
+    } else {
+        _bookmarksCache.set(targetPath, {
+            data,
+            mtime,
+            monitor: null,
+            monitorSignalId: 0,
+        });
+        _setupBookmarkFileMonitor(targetPath, file);
+    }
+
+    return data;
+}
+
+/**
+ * Asynchronously loads bookmarks from disk using Gio.File.load_contents_async().
+ *
+ * @param {string} browserType - 'brave-browser' | 'google-chrome' | 'chromium'
+ * @param {string} [customPath] - Optional custom path for testing
+ * @param {Gio.Cancellable} [cancellable] - Optional cancellable
+ * @returns {Promise<{ bookmarkBarItems: Object[], otherItems: Object[] }>}
+ */
+export function loadBrowserBookmarksAsync(browserType = 'brave-browser', customPath = null, cancellable = null) {
+    return new Promise(resolve => {
+        const candidatePaths = _resolveBookmarkPaths(browserType, customPath);
+
+        let targetPath = null;
+        let file = null;
+        for (const path of candidatePaths) {
+            if (GLib.file_test(path, GLib.FileTest.EXISTS)) {
+                targetPath = path;
+                file = Gio.File.new_for_path(path);
+                break;
+            }
+        }
+
+        if (!targetPath || !file) {
+            resolve({ bookmarkBarItems: [], otherItems: [] });
+            return;
+        }
+
+        const mtime = _getFileMtime(file);
+        if (_bookmarksCache.has(targetPath)) {
+            const cached = _bookmarksCache.get(targetPath);
+            if (cached.mtime && cached.mtime === mtime) {
+                resolve(cached.data);
+                return;
+            }
+        }
+
+        file.load_contents_async(cancellable, (source, res) => {
+            try {
+                const [ok, bytes] = source.load_contents_finish(res);
+                if (ok && bytes) {
+                    const rawJson = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+                    const data = _parseBookmarksJson(rawJson);
+                    const existingEntry = _bookmarksCache.get(targetPath);
+                    if (existingEntry) {
+                        existingEntry.data = data;
+                        existingEntry.mtime = mtime;
+                    } else {
+                        _bookmarksCache.set(targetPath, {
+                            data,
+                            mtime,
+                            monitor: null,
+                            monitorSignalId: 0,
+                        });
+                        _setupBookmarkFileMonitor(targetPath, file);
+                    }
+                    resolve(data);
+                } else {
+                    resolve({ bookmarkBarItems: [], otherItems: [] });
+                }
+            } catch (e) {
+                console.warn(`[FUHGAWZ] Async bookmark load error: ${e}`);
+                resolve({ bookmarkBarItems: [], otherItems: [] });
+            }
+        });
+    });
+}
+
+/**
+ * Recursively expands dynamic menu items in a profile (e.g. bookmarks-bar).
+ *
+ * @param {Object} profile - Profile to expand.
+ * @param {string} [customBookmarksPath] - Optional override path for testing.
+ * @returns {Object}
+ */
+export function expandDynamicProfileItems(profile, customBookmarksPath = null) {
+    if (!profile || !profile.id) return profile;
+
+    const profileId = (profile.id || '').toLowerCase();
+    const isChromium = profileId.includes('brave') || profileId.includes('chrome') || profileId.includes('chromium');
+
+    if (!isChromium) return profile;
+
+    const { bookmarkBarItems, otherItems } = getBrowserBookmarks(profileId, customBookmarksPath);
+    if (bookmarkBarItems.length === 0 && otherItems.length === 0) {
+        return profile;
+    }
+
+    const expandItem = item => {
+        if (!item || typeof item !== 'object') return item;
+        const copy = { ...item };
+
+        if (copy.dynamic === 'bookmarks-bar' || copy.dynamic === 'brave-bookmarks-bar' ||
+            (copy.label === 'Bookmarks Bar' && (!copy.items || copy.items.length <= 1))) {
+            const finalItems = bookmarkBarItems.length > 0
+                ? [...bookmarkBarItems]
+                : [{ label: 'Bookmarks Bar is Empty', sensitive: false }];
+
+            if (otherItems.length > 0) {
+                finalItems.push(
+                    { type: 'separator' },
+                    {
+                        label: 'Other Bookmarks',
+                        items: otherItems,
+                    }
+                );
+            }
+            copy.items = finalItems;
+            return copy;
+        }
+
+        const subItems = copy.items || copy.submenu || copy.children;
+        if (Array.isArray(subItems)) {
+            const mapped = subItems.map(expandItem);
+            if (copy.items) copy.items = mapped;
+            if (copy.submenu) copy.submenu = mapped;
+            if (copy.children) copy.children = mapped;
+        }
+        return copy;
+    };
+
+    const result = { ...profile };
+    if (Array.isArray(result.menus)) {
+        result.menus = result.menus.map(menu => ({
+            ...menu,
+            items: Array.isArray(menu.items) ? menu.items.map(expandItem) : [],
+        }));
+    }
+    return result;
+}
+
 /**
  * Replaces {{appName}} placeholders in profile labels and menu items.
  *
@@ -276,5 +621,6 @@ export class ProfileManager {
         this._profiles.clear();
         this._wmClassIndex.clear();
         this._appIdIndex.clear();
+        clearBookmarksCache();
     }
 }

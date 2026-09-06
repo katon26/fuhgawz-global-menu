@@ -1,6 +1,6 @@
 {
   "name": "FUHGAWZ Global Menu",
-  "description": "A sleek, native global application menu for centralized workspace utilization for GNOME Shell. Shows File, Edit, View, etc. in the top bar. Supports GNOME 45–50.",
+  "description": "A sleek, native global application menu for centralized workspace utilization for GNOME Shell. Shows File, Edit, View, etc. in the top bar. Temporarily uses clipboard to navigate browser URLs from declarative profile bookmarks/actions. Supports GNOME 45–50.",
   "shell-version": [
     "45",
     "46",

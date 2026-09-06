@@ -64,7 +64,7 @@
     {
       "label": "History",
       "items": [
-        { "label": "Show Full History", "shortcut": "Ctrl+H" },
+        { "label": "Open History Page", "shortcut": "Ctrl+H" },
         { "type": "separator" },
         {
           "label": "Recently Closed",
@@ -76,17 +76,25 @@
         {
           "label": "Recent Tabs",
           "items": [
-            { "label": "Restore Last Session" },
+            { "label": "Restore Last Session", "shortcut": "Ctrl+Shift+T" },
             { "type": "separator" },
             {
               "label": "GitHub - 2 tabs",
               "items": [
-                { "label": "Restore 2 tabs" },
+                { "label": "Restore 2 tabs", "shortcut": "Ctrl+Shift+T" },
                 { "type": "separator" },
-                { "label": "Pull Requests · my-repo" },
-                { "label": "Issues · my-repo" }
+                { "label": "Pull Requests · my-repo", "url": "https://github.com/pulls" },
+                { "label": "Issues · my-repo", "url": "https://github.com/issues" }
               ]
-            }
+            },
+            { "label": "Settings - About Brave", "url": "brave://settings/help" },
+            { "label": "Brave Help Center", "url": "https://support.brave.app/" }
+          ]
+        },
+        {
+          "label": "Your Devices",
+          "items": [
+            { "label": "No Connected Devices" }
           ]
         },
         { "type": "separator" },
@@ -98,11 +106,15 @@
       "items": [
         { "label": "Bookmark This Tab...", "shortcut": "Ctrl+D" },
         { "label": "Bookmark All Tabs...", "shortcut": "Ctrl+Shift+D" },
-        { "label": "Bookmark Manager", "shortcut": "Ctrl+Shift+O" },
+        { "type": "separator" },
         { "label": "Show Bookmarks Bar", "shortcut": "Ctrl+Shift+B" },
+        { "label": "Show Bookmarks in Side Panel" },
+        { "label": "Open Bookmarks Manager", "shortcut": "Ctrl+Shift+O" },
+        { "label": "Import Bookmarks and Settings..." },
         { "type": "separator" },
         {
           "label": "Bookmarks Bar",
+          "dynamic": "bookmarks-bar",
           "items": [
             { "label": "Bookmarks Bar is Empty" }
           ]

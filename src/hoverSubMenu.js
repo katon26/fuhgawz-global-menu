@@ -11,6 +11,12 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as BoxPointer from 'resource:///org/gnome/shell/ui/boxpointer.js';
 
+let Shell = null;
+try {
+    const mod = await import('gi://Shell');
+    Shell = mod.default;
+} catch (e) {}
+
 const HOVER_CLOSE_DELAY_MS = 200;
 const HOVER_OPEN_DELAY_MS = 200;
 const POINTER_TOLERANCE_PX = 8;
@@ -45,12 +51,15 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._childSubmenus = [];
             this._hoverCloseTimeoutId = 0;
             this._openDelayTimeoutId = 0;
-            this._globalHoverMonitorId = 0;
+            this._stageMotionId = 0;
             this._parentMenuCloseId = 0;
             this._siblingSignalIds = [];
             this._flyoutSignalIds = [];
             this._chromeAdded = false;
             this._isDestroyed = false;
+            this._grab = null;
+            this._lazyPopulate = typeof params.populate === 'function' ? params.populate : null;
+            this._isPopulated = false;
 
             // Optional icon
             if (params.iconName || params.gicon) {
@@ -123,6 +132,11 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
 
         get isOpen() {
             return !!(this.menu && this.menu.isOpen);
+        }
+
+        setLazyPopulate(callback) {
+            this._lazyPopulate = callback;
+            this._isPopulated = false;
         }
 
         _registerChildSubmenu(child) {
@@ -221,6 +235,60 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
                     return Clutter.EVENT_PROPAGATE;
                 });
                 this._flyoutSignalIds.push({ target: this.menu.actor, id: keyPressId });
+
+                const capturedId = this.menu.actor.connect('captured-event', (_actor, event) => {
+                    const eventType = event.type();
+                    if (eventType === Clutter.EventType.BUTTON_PRESS || eventType === Clutter.EventType.TOUCH_BEGIN) {
+                        let targetActor = null;
+                        try {
+                            if (typeof global !== 'undefined' && global.stage) {
+                                targetActor = global.stage.get_event_actor(event);
+                            }
+                        } catch (e) {}
+
+                        if (!targetActor) return Clutter.EVENT_PROPAGATE;
+
+                        // 1. Click is inside this submenu flyout
+                        if (this.menu && this.menu.actor && this.menu.actor.contains(targetActor)) {
+                            return Clutter.EVENT_PROPAGATE;
+                        }
+
+                        // 2. Click is inside an open child submenu flyout
+                        if (this._childSubmenus) {
+                            for (const child of this._childSubmenus) {
+                                if (child && child.isOpen && child.menu?.actor?.contains(targetActor)) {
+                                    return Clutter.EVENT_PROPAGATE;
+                                }
+                            }
+                        }
+
+                        // 3. Click is on trigger item, parent menu, or any ancestor trigger/menu
+                        let isAncestor = false;
+                        let p = this._parentHoverSubmenu;
+                        while (p) {
+                            if ((p.actor && (p.actor === targetActor || (p.actor.contains && p.actor.contains(targetActor)))) ||
+                                (p.menu?.actor && (p.menu.actor === targetActor || (p.menu.actor.contains && p.menu.actor.contains(targetActor))))) {
+                                isAncestor = true;
+                                break;
+                            }
+                            p = p._parentHoverSubmenu;
+                        }
+
+                        if ((this.actor && (this.actor === targetActor || (this.actor.contains && this.actor.contains(targetActor)))) ||
+                            (this._parentMenu?.actor && (this._parentMenu.actor === targetActor || (this._parentMenu.actor.contains && this._parentMenu.actor.contains(targetActor)))) ||
+                            isAncestor) {
+                            this.close();
+                            return Clutter.EVENT_PROPAGATE;
+                        }
+
+                        // 4. Click is outside all menus - close entire chain
+                        this.close();
+                        this._closeEntireMenuChain();
+                        return Clutter.EVENT_STOP;
+                    }
+                    return Clutter.EVENT_PROPAGATE;
+                });
+                this._flyoutSignalIds.push({ target: this.menu.actor, id: capturedId });
             }
 
             // Close flyout and top menu when any leaf item inside this submenu is activated
@@ -359,41 +427,51 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
         }
 
         _startGlobalHoverMonitor() {
-            if (this._globalHoverMonitorId !== 0) return;
+            if (this._stageMotionId !== 0) return;
 
-            this._globalHoverMonitorId = GLib.timeout_add(
-                GLib.PRIORITY_DEFAULT,
-                100,
-                () => {
+            if (typeof global !== 'undefined' && global.stage) {
+                this._stageMotionId = global.stage.connect('motion-event', (_stage, event) => {
                     if (!this.isOpen) {
-                        this._globalHoverMonitorId = 0;
-                        return GLib.SOURCE_REMOVE;
+                        this._stopGlobalHoverMonitor();
+                        return Clutter.EVENT_PROPAGATE;
                     }
 
-                    const pointerState = this._getPointerState();
+                    let pointerX, pointerY;
+                    try {
+                        if (typeof event.get_coords === 'function') {
+                            [pointerX, pointerY] = event.get_coords();
+                        } else {
+                            [pointerX, pointerY] = global.get_pointer();
+                        }
+                    } catch (e) {
+                        return Clutter.EVENT_PROPAGATE;
+                    }
+
+                    const pointerState = this._getPointerState(pointerX, pointerY);
                     if (
                         pointerState === PointerState.INSIDE_TRIGGER ||
                         pointerState === PointerState.INSIDE_SUBMENU ||
                         pointerState === PointerState.BRIDGE
                     ) {
+                        this._cancelClose();
                         this._setSubmenuHover(true);
                     } else if (pointerState === PointerState.OUTSIDE) {
-                        this.close();
-                        this._setSubmenuHover(false);
-                        this._globalHoverMonitorId = 0;
-                        return GLib.SOURCE_REMOVE;
+                        this._scheduleClose();
                     }
 
-                    return GLib.SOURCE_CONTINUE;
-                }
-            );
-            GLib.Source.set_name_by_id(this._globalHoverMonitorId, 'FUHGlobeGlobalHoverMonitor');
+                    return Clutter.EVENT_PROPAGATE;
+                });
+            }
         }
 
         _stopGlobalHoverMonitor() {
-            if (this._globalHoverMonitorId !== 0) {
-                GLib.source_remove(this._globalHoverMonitorId);
-                this._globalHoverMonitorId = 0;
+            if (this._stageMotionId !== 0) {
+                if (typeof global !== 'undefined' && global.stage) {
+                    try {
+                        global.stage.disconnect(this._stageMotionId);
+                    } catch (e) {}
+                }
+                this._stageMotionId = 0;
             }
         }
 
@@ -590,6 +668,16 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._connectSiblingSignals();
             this._setSubmenuHover(true);
 
+            // Lazy populate child items if configured
+            if (typeof this._lazyPopulate === 'function' && !this._isPopulated) {
+                this._isPopulated = true;
+                try {
+                    this._lazyPopulate(this.menu);
+                } catch (e) {
+                    console.warn(`FUHGlobe: Error lazily populating submenu: ${e}`);
+                }
+            }
+
             // Close any sibling submenus that are currently open in the same parent menu
             if (this._parentHoverSubmenu && this._parentHoverSubmenu._childSubmenus) {
                 for (const sibling of this._parentHoverSubmenu._childSubmenus) {
@@ -620,6 +708,16 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
                 this.menu.actor.show();
             }
             this.menu.open(BoxPointer.PopupAnimation.FULL);
+
+            // Standard Clutter grab semantics to route pointer clicks without Main.pushModal traps
+            if (!this._grab && typeof global !== 'undefined' && global.stage?.grab) {
+                try {
+                    this._grab = global.stage.grab(this.menu.actor);
+                } catch (e) {
+                    this._grab = null;
+                }
+            }
+
             this._startGlobalHoverMonitor();
         }
 
@@ -628,6 +726,15 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._cancelClose();
             this._stopGlobalHoverMonitor();
             this._disconnectSiblingSignals();
+
+            if (this._grab) {
+                try {
+                    if (typeof this._grab.dismiss === 'function') {
+                        this._grab.dismiss();
+                    }
+                } catch (e) {}
+                this._grab = null;
+            }
 
             if (this._childSubmenus) {
                 for (const child of this._childSubmenus) {
@@ -669,6 +776,15 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._stopGlobalHoverMonitor();
             this._disconnectParentSignals();
             this._disconnectSiblingSignals();
+
+            if (this._grab) {
+                try {
+                    if (typeof this._grab.dismiss === 'function') {
+                        this._grab.dismiss();
+                    }
+                } catch (e) {}
+                this._grab = null;
+            }
 
             if (this._parentHoverSubmenu) {
                 this._parentHoverSubmenu._unregisterChildSubmenu(this);

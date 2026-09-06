@@ -32,6 +32,13 @@ class MockHoverSubMenu {
         this.actorHidden = true; // Hidden by default on init!
         this.chromeAdded = false; // Not added to top chrome on init!
         this._isDestroyed = false;
+        this._grab = null;
+        this._lazyPopulate = null;
+        this._isPopulated = false;
+
+        this.actor = {
+            contains: (child) => child === this.actor,
+        };
 
         this.menu = {
             _ownerSubMenu: this,
@@ -47,6 +54,9 @@ class MockHoverSubMenu {
                 visible: false,
                 hide: () => { this.actorHidden = true; this.menu.actor.visible = false; },
                 show: () => { this.actorHidden = false; this.menu.actor.visible = true; },
+                contains: (child) => {
+                    return child === this.menu.actor || (child && child._parentActor === this.menu.actor);
+                },
             },
             close: () => {
                 this.isOpen = false;
@@ -94,12 +104,23 @@ class MockHoverSubMenu {
         }
     }
 
+    setLazyPopulate(callback) {
+        this._lazyPopulate = callback;
+        this._isPopulated = false;
+    }
+
     activate() {
         this.open();
     }
 
     open() {
         if (this._isDestroyed || this.isOpen) return;
+
+        // Execute lazy populate if registered
+        if (typeof this._lazyPopulate === 'function' && !this._isPopulated) {
+            this._isPopulated = true;
+            this._lazyPopulate(this.menu);
+        }
 
         // Close siblings
         if (this._parentHoverSubmenu && this._parentHoverSubmenu._childSubmenus) {
@@ -111,10 +132,22 @@ class MockHoverSubMenu {
         }
 
         this.chromeAdded = true;
+        this.isOpen = true;
         this.menu.open();
+        this._grab = {
+            actor: this.menu.actor,
+            dismissed: false,
+            dismiss() {
+                this.dismissed = true;
+            }
+        };
     }
 
     close() {
+        if (this._grab) {
+            this._grab.dismiss();
+            this._grab = null;
+        }
         if (this._childSubmenus) {
             for (const child of this._childSubmenus) {
                 if (child.isOpen) {
@@ -122,7 +155,51 @@ class MockHoverSubMenu {
                 }
             }
         }
+        this.isOpen = false;
         this.menu.close();
+    }
+
+    _handleCapturedEvent(targetActor, eventType = 'button-press') {
+        if (eventType === 'button-press') {
+            // 1. Target is inside this menu
+            if (this.menu.actor === targetActor || (this.menu.actor.contains && this.menu.actor.contains(targetActor))) {
+                return 'propagate';
+            }
+
+            // 2. Target is inside an open child submenu
+            if (this._childSubmenus) {
+                for (const child of this._childSubmenus) {
+                    if (child.isOpen && (child.menu.actor === targetActor || (child.menu.actor.contains && child.menu.actor.contains(targetActor)))) {
+                        return 'propagate';
+                    }
+                }
+            }
+
+            // 3. Target is on trigger, parent menu, or ancestor trigger/menu
+            let isAncestor = false;
+            let p = this._parentHoverSubmenu;
+            while (p) {
+                if (p.actor === targetActor || (p.actor.contains && p.actor.contains(targetActor)) ||
+                    (p.menu?.actor && (p.menu.actor === targetActor || (p.menu.actor.contains && p.menu.actor.contains(targetActor))))) {
+                    isAncestor = true;
+                    break;
+                }
+                p = p._parentHoverSubmenu;
+            }
+
+            if (this.actor === targetActor || (this.actor.contains && this.actor.contains(targetActor)) ||
+                (this._parentMenu?.actor && (this._parentMenu.actor === targetActor || (this._parentMenu.actor.contains && this._parentMenu.actor.contains(targetActor)))) ||
+                isAncestor) {
+                this.close();
+                return 'propagate';
+            }
+
+            // 4. Outside everything
+            this.close();
+            this._closeEntireMenuChain();
+            return 'stop';
+        }
+        return 'propagate';
     }
 
     _closeEntireMenuChain() {
@@ -434,5 +511,91 @@ const [okZed, bytesZed] = zedFile.load_contents(null);
 assert(okZed && bytesZed, "Loaded dev.zed.Zed.json");
 const zedJson = JSON.parse(new TextDecoder("utf-8").decode(bytesZed));
 assert(zedJson.match.app_id.includes("dev.zed.Zed"), "dev.zed.Zed is included in match.app_id");
+
+// ── Test 10: Verify Brave History & Bookmarks Alignment with Native Hamburger Menu
+console.log("10. Verifying Brave History & Bookmarks alignment...");
+const histItems = histMenu.items;
+const openHistPage = histItems.find(i => i.label === "Open History Page");
+assert(openHistPage && openHistPage.shortcut === "Ctrl+H", "History has Open History Page with Ctrl+H");
+
+const reopenTab = recTabs.items.find(i => i.label === "Reopen Closed Tab" || i.label === "Restore Last Session");
+assert(reopenTab && reopenTab.shortcut === "Ctrl+Shift+T", "Recent tabs has restore session/tab with Ctrl+Shift+T");
+
+const yourDev = histItems.find(i => i.label === "Your Devices");
+assert(yourDev && Array.isArray(yourDev.items), "History has Your Devices submenu");
+
+const bmMenu = braveJson.menus.find(m => m.label === "Bookmarks");
+assert(bmMenu, "Bookmarks menu exists");
+const bmBar = bmMenu.items.find(i => i.label === "Bookmarks Bar");
+assert(bmBar && bmBar.dynamic === "bookmarks-bar", "Bookmarks Bar marked with dynamic: bookmarks-bar");
+
+// ── Test 11: Verify Captured Event Click Routing in Multi-level Hierarchy ──
+console.log("11. Verifying captured event pointer click routing...");
+const rootTopMenu = {
+    _parent: null,
+    actor: { id: "top-root-actor" },
+    itemActivated: () => {},
+    close: () => {},
+};
+const lvl2Submenu = new MockHoverSubMenu("Recent Tabs", rootTopMenu);
+const lvl3Submenu = new MockHoverSubMenu("GitHub - 2 tabs", lvl2Submenu.menu);
+
+lvl2Submenu.open();
+lvl3Submenu.open();
+assert(lvl2Submenu.isOpen && lvl3Submenu.isOpen, "Level 2 and 3 are open");
+
+// 11a. Click inside lvl3 menu actor -> must propagate so item activates
+const lvl3LeafActor = { id: "lvl3-leaf", _parentActor: lvl3Submenu.menu.actor };
+assert(lvl3Submenu._handleCapturedEvent(lvl3LeafActor, "button-press") === "propagate", "Click inside level 3 flyout propagates");
+
+// 11b. Click inside lvl2 menu actor -> must propagate so lvl2 items activate
+const lvl2LeafActor = { id: "lvl2-leaf", _parentActor: lvl2Submenu.menu.actor };
+assert(lvl2Submenu._handleCapturedEvent(lvl2LeafActor, "button-press") === "propagate", "Click inside level 2 flyout propagates");
+
+// 11c. Click on lvl2 trigger item while lvl3 is open -> lvl3 closes, propagates to trigger
+assert(lvl3Submenu._handleCapturedEvent(lvl2Submenu.actor, "button-press") === "propagate", "Click on parent trigger closes child and propagates");
+assert(!lvl3Submenu.isOpen, "Level 3 closed when parent trigger clicked");
+
+// 11d. Click completely outside all menus -> stops and closes chain
+const outsideActor = { id: "desktop-outside" };
+lvl3Submenu.open();
+assert(lvl2Submenu._handleCapturedEvent(outsideActor, "button-press") === "stop", "Click outside stops and closes entire menu chain");
+assert(!lvl2Submenu.isOpen && !lvl3Submenu.isOpen, "All submenus closed on outside click");
+
+// ── Test 12: Verify Modal Grab Lifecycle Simulation ──────────────────────────
+console.log("12. Verifying modal grab lifecycle...");
+const grabTestSubmenu = new MockHoverSubMenu("Grab Test", rootTopMenu);
+assert(grabTestSubmenu._grab === null, "No grab before open");
+
+grabTestSubmenu.open();
+assert(grabTestSubmenu._grab !== null && grabTestSubmenu._grab.dismissed === false, "Grab active when open");
+
+grabTestSubmenu.close();
+assert(grabTestSubmenu._grab === null, "Grab cleared on close");
+
+grabTestSubmenu.open();
+grabTestSubmenu.destroy();
+assert(grabTestSubmenu._grab === null, "Grab safely cleared on destroy");
+
+// ── Test 13: Verify Lazy Submenu Item Population ─────────────────────────────
+console.log("13. Verifying lazy child submenu population...");
+const lazyParent = new MockHoverSubMenu("Lazy Bookmarks", rootTopMenu);
+let childItemsCreated = 0;
+lazyParent.setLazyPopulate((menu) => {
+    childItemsCreated += 5;
+    menu.addMenuItem(new MockHoverSubMenu("Sub Folder", menu));
+});
+
+assert(childItemsCreated === 0, "No child items created on init");
+assert(!lazyParent._isPopulated, "Not populated initially");
+
+lazyParent.open();
+assert(childItemsCreated === 5, "Child items created on first open");
+assert(lazyParent._isPopulated, "Marked populated after open");
+
+// Second open should not re-populate
+lazyParent.close();
+lazyParent.open();
+assert(childItemsCreated === 5, "Child items not duplicated on subsequent open");
 
 console.log("All Multi-level Submenu and Hover tests passed successfully!");

@@ -16,7 +16,7 @@ import { SystemMenu } from './src/systemMenu.js';
 import { UserSwitcherController } from './src/userSwitcher.js';
 import { QuickSettingsActionsController } from './src/quickSettingsHider.js';
 import { VirtualKeyboardDispatcher } from './src/virtualKeyboard.js';
-import { ProfileManager } from './src/profileManager.js';
+import { ProfileManager, expandDynamicProfileItems } from './src/profileManager.js';
 import { AtspiScanner } from './src/atspiScanner.js';
 import { HoverSubMenuMenuItem } from './src/hoverSubMenu.js';
 
@@ -583,6 +583,113 @@ class AppMenuButton extends PanelMenu.Button {
     }
 });
 
+function _navigateBrowserUrl(win, dispatcher, url, openNewTab = true) {
+    if (!win || !url) return;
+
+    try {
+        if (typeof win.activate === 'function') {
+            const time = (typeof global !== 'undefined' && global.get_current_time)
+                ? global.get_current_time()
+                : 0;
+            win.activate(time);
+        }
+    } catch (e) {}
+
+    if (!dispatcher || typeof dispatcher.dispatchAccelerator !== 'function') {
+        const tracker = Shell ? Shell.WindowTracker.get_default() : null;
+        const app = tracker ? tracker.get_window_app(win) : null;
+        const appInfo = app ? app.get_app_info() : null;
+        if (appInfo && typeof appInfo.launch_uris === 'function') {
+            try {
+                appInfo.launch_uris([url], null);
+                return;
+            } catch (e) {}
+        }
+        return;
+    }
+
+    try {
+        const clipboard = St.Clipboard.get_default();
+        clipboard.get_text(St.ClipboardType.CLIPBOARD, (_clip, originalText) => {
+            clipboard.set_text(St.ClipboardType.CLIPBOARD, url);
+
+            const timeoutIds = [];
+            let unmanagedId = 0;
+            let focusId = 0;
+            let clipboardRestored = false;
+
+            const cleanup = () => {
+                for (const id of timeoutIds) {
+                    GLib.source_remove(id);
+                }
+                timeoutIds.length = 0;
+
+                if (unmanagedId !== 0 && win) {
+                    try { win.disconnect(unmanagedId); } catch (e) {}
+                    unmanagedId = 0;
+                }
+                if (focusId !== 0 && typeof global !== 'undefined' && global.display) {
+                    try { global.display.disconnect(focusId); } catch (e) {}
+                    focusId = 0;
+                }
+                if (!clipboardRestored && originalText !== null && originalText !== undefined) {
+                    clipboardRestored = true;
+                    try { clipboard.set_text(St.ClipboardType.CLIPBOARD, originalText); } catch (e) {}
+                }
+            };
+
+            if (win && typeof win.connect === 'function') {
+                unmanagedId = win.connect('unmanaged', () => cleanup());
+            }
+            if (typeof global !== 'undefined' && global.display) {
+                focusId = global.display.connect('notify::focus-window', () => {
+                    if (global.display.focus_window !== win) {
+                        cleanup();
+                    }
+                });
+            }
+
+            const scheduleStep = (delay, callback) => {
+                const id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+                    const idx = timeoutIds.indexOf(id);
+                    if (idx !== -1) timeoutIds.splice(idx, 1);
+                    callback();
+                    return GLib.SOURCE_REMOVE;
+                });
+                timeoutIds.push(id);
+                return id;
+            };
+
+            // 1. Open new tab (Ctrl+T) or focus URL bar (Ctrl+L) after menu drops grab
+            scheduleStep(80, () => {
+                const navKey = openNewTab ? 'Ctrl+T' : 'Ctrl+L';
+                dispatcher.dispatchAccelerator(win, navKey, 0);
+
+                // 2. Paste the URL into the focused address bar
+                scheduleStep(120, () => {
+                    dispatcher.dispatchAccelerator(win, 'Ctrl+V', 0);
+
+                    // 3. Press Return to navigate
+                    scheduleStep(80, () => {
+                        dispatcher.dispatchAccelerator(win, 'Return', 0);
+
+                        // 4. Restore original clipboard content
+                        scheduleStep(300, () => {
+                            if (!clipboardRestored && originalText !== null && originalText !== undefined) {
+                                clipboardRestored = true;
+                                try { clipboard.set_text(St.ClipboardType.CLIPBOARD, originalText); } catch (e) {}
+                            }
+                            cleanup();
+                        });
+                    });
+                });
+            });
+        });
+    } catch (e) {
+        console.warn(`FUHGlobe: Failed to navigate browser URL via clipboard: ${e}`);
+    }
+}
+
 function _fallbackAboutAction(win, dispatcher, appLabel) {
     if (!win) return;
 
@@ -595,8 +702,12 @@ function _fallbackAboutAction(win, dispatcher, appLabel) {
     const app = tracker ? tracker.get_window_app(win) : null;
     const appInfo = app ? app.get_app_info() : null;
 
-    // 1. Brave Browser: open brave://settings/help
+    // 1. Brave Browser: open brave://settings/help in active window without new window
     if (wmClassLower.includes('brave') || wmInstanceLower.includes('brave')) {
+        if (dispatcher) {
+            _navigateBrowserUrl(win, dispatcher, 'brave://settings/help', true);
+            return;
+        }
         if (appInfo && typeof appInfo.launch_uris === 'function') {
             try {
                 appInfo.launch_uris(['brave://settings/help'], null);
@@ -611,9 +722,13 @@ function _fallbackAboutAction(win, dispatcher, appLabel) {
         }
     }
 
-    // 2. Google Chrome / Chromium: open chrome://settings/help
+    // 2. Google Chrome / Chromium: open chrome://settings/help in active window
     if (wmClassLower.includes('chrome') || wmInstanceLower.includes('chrome') ||
         wmClassLower.includes('chromium') || wmInstanceLower.includes('chromium')) {
+        if (dispatcher) {
+            _navigateBrowserUrl(win, dispatcher, 'chrome://settings/help', true);
+            return;
+        }
         if (appInfo && typeof appInfo.launch_uris === 'function') {
             try {
                 appInfo.launch_uris(['chrome://settings/help'], null);
@@ -735,34 +850,42 @@ function _triggerSettingsAction(win, dispatcher, appLabel) {
     const app = tracker ? tracker.get_window_app(win) : null;
     const appInfo = app ? app.get_app_info() : null;
 
-    // 1. Brave Browser: open brave://settings
+    // 1. Brave Browser: open brave://settings/ in active window without new window
     if (wmClassLower.includes('brave') || wmInstanceLower.includes('brave')) {
+        if (dispatcher) {
+            _navigateBrowserUrl(win, dispatcher, 'brave://settings/', true);
+            return;
+        }
         if (appInfo && typeof appInfo.launch_uris === 'function') {
             try {
-                appInfo.launch_uris(['brave://settings'], null);
+                appInfo.launch_uris(['brave://settings/'], null);
                 return;
             } catch (e) {}
         }
         for (const cmd of ['brave-browser', 'brave-browser-stable', 'brave']) {
             try {
-                Gio.Subprocess.new([cmd, 'brave://settings'], Gio.SubprocessFlags.NONE);
+                Gio.Subprocess.new([cmd, 'brave://settings/'], Gio.SubprocessFlags.NONE);
                 return;
             } catch (e) {}
         }
     }
 
-    // 2. Google Chrome / Chromium: open chrome://settings
+    // 2. Google Chrome / Chromium: open chrome://settings/ in active window
     if (wmClassLower.includes('chrome') || wmInstanceLower.includes('chrome') ||
         wmClassLower.includes('chromium') || wmInstanceLower.includes('chromium')) {
+        if (dispatcher) {
+            _navigateBrowserUrl(win, dispatcher, 'chrome://settings/', true);
+            return;
+        }
         if (appInfo && typeof appInfo.launch_uris === 'function') {
             try {
-                appInfo.launch_uris(['chrome://settings'], null);
+                appInfo.launch_uris(['chrome://settings/'], null);
                 return;
             } catch (e) {}
         }
         for (const cmd of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
             try {
-                Gio.Subprocess.new([cmd, 'chrome://settings'], Gio.SubprocessFlags.NONE);
+                Gio.Subprocess.new([cmd, 'chrome://settings/'], Gio.SubprocessFlags.NONE);
                 return;
             } catch (e) {}
         }
@@ -1062,7 +1185,7 @@ class ActionsMenuButton extends PanelMenu.Button {
 
 const DeclarativeMenuButton = GObject.registerClass(
 class DeclarativeMenuButton extends PanelMenu.Button {
-    _init(groupLabel, items, metaWindow, dispatcher, useHoverSubmenus = true) {
+    _init(groupLabel, items, metaWindow, dispatcher, useHoverSubmenus = true, profile = null) {
         super._init(0.0, `FUHGlobeDeclarativeMenu-${groupLabel}`);
         this.add_style_class_name('fuhgawz-panel-button');
         this.accessible_name = groupLabel;
@@ -1076,8 +1199,26 @@ class DeclarativeMenuButton extends PanelMenu.Button {
 
         this._metaWindow = metaWindow;
         this._dispatcher = dispatcher;
+        this._profile = profile;
+        this._rawItems = items;
+        this._itemsBuilt = false;
 
-        this._buildItems(items);
+        this.menu.connect('open-state-changed', (_menu, isOpen) => {
+            if (isOpen && !this._itemsBuilt) {
+                this._itemsBuilt = true;
+                let itemsToBuild = this._rawItems;
+                if (this._profile && typeof expandDynamicProfileItems === 'function') {
+                    const expanded = expandDynamicProfileItems({
+                        id: this._profile.id,
+                        menus: [{ label: this.accessible_name, items: this._rawItems }],
+                    });
+                    if (expanded && Array.isArray(expanded.menus) && expanded.menus[0]?.items) {
+                        itemsToBuild = expanded.menus[0].items;
+                    }
+                }
+                this._buildItems(itemsToBuild);
+            }
+        });
     }
 
     _buildItems(items, targetMenu = this.menu) {
@@ -1091,15 +1232,31 @@ class DeclarativeMenuButton extends PanelMenu.Button {
 
             const subItems = item.items || item.submenu || item.children;
             if (Array.isArray(subItems) && subItems.length > 0) {
-                const subMenu = this._useHoverSubmenus
-                    ? new HoverSubMenuMenuItem(item.label || '', targetMenu)
-                    : new PopupMenu.PopupSubMenuMenuItem(item.label || '');
-                this._buildItems(subItems, subMenu.menu);
-                targetMenu.addMenuItem(subMenu);
+                if (this._useHoverSubmenus) {
+                    const subMenu = new HoverSubMenuMenuItem(item.label || '', targetMenu);
+                    subMenu.setLazyPopulate(childMenu => {
+                        this._buildItems(subItems, childMenu);
+                    });
+                    targetMenu.addMenuItem(subMenu);
+                } else {
+                    const subMenu = new PopupMenu.PopupSubMenuMenuItem(item.label || '');
+                    let subBuilt = false;
+                    subMenu.menu.connect('open-state-changed', (_menu, isOpen) => {
+                        if (isOpen && !subBuilt) {
+                            subBuilt = true;
+                            this._buildItems(subItems, subMenu.menu);
+                        }
+                    });
+                    targetMenu.addMenuItem(subMenu);
+                }
                 continue;
             }
 
             const menuItem = new PopupMenu.PopupMenuItem(item.label || '');
+
+            if (item.sensitive === false || item.enabled === false) {
+                menuItem.setSensitive(false);
+            }
 
             if (item.shortcut) {
                 const shortcutLabel = new St.Label({
@@ -1131,6 +1288,11 @@ class DeclarativeMenuButton extends PanelMenu.Button {
                 menuItem.connect('activate', () => {
                     this.menu.close(BoxPointer.PopupAnimation.NONE);
                     _triggerSettingsAction(this._metaWindow, this._dispatcher, item.label || 'Application');
+                });
+            } else if (item.url) {
+                menuItem.connect('activate', () => {
+                    this.menu.close(BoxPointer.PopupAnimation.NONE);
+                    _navigateBrowserUrl(this._metaWindow, this._dispatcher, item.url, true);
                 });
             } else if (item.shortcut) {
                 menuItem.connect('activate', () => {
@@ -1592,7 +1754,7 @@ class FUHGlobeGlobalMenu {
             const appObjPath = appId ? '/' + appId.replace(/\./g, '/') : '';
             if (appObjPath) {
                 this._log(`Trying GTK Actions fallback: bus=${effectiveBus} appObj=${appObjPath}`);
-                this._loadGtkActions(effectiveBus, appObjPath, win);
+                this._loadGtkActions(effectiveBus, appObjPath, win, profile);
                 return;
             }
         }
@@ -1628,7 +1790,8 @@ class FUHGlobeGlobalMenu {
                 menuDef.items,
                 win,
                 this._virtualKeyboard,
-                useHover
+                useHover,
+                profile
             );
             const btnId = `fuhgawz-decl-menu-${this._nextId++}`;
             this._menuButtons.push(btn);
@@ -1749,7 +1912,7 @@ class FUHGlobeGlobalMenu {
     // We call DescribeAll on both the app and window objects, then group the
     // discovered actions into logical menu categories.
 
-    _loadGtkActions(busName, appObjectPath, win) {
+    _loadGtkActions(busName, appObjectPath, win, profile = null) {
         // Determine the window's D-Bus object path
         let winObjectPath = win.gtk_window_object_path || '';
 
@@ -1795,7 +1958,7 @@ class FUHGlobeGlobalMenu {
                             } catch (e) {
                                 console.log(`FUHGlobe: DescribeAll on win path failed: ${e}`);
                             }
-                            this._buildActionsMenu(appActions, winActions, busName, appObjectPath, winObjectPath, win);
+                            this._buildActionsMenu(appActions, winActions, busName, appObjectPath, winObjectPath, win, profile);
                         }
                     );
                 } else {
@@ -1821,13 +1984,13 @@ class FUHGlobeGlobalMenu {
                                     } catch (e) {
                                         console.log(`FUHGlobe: DescribeAll on discovered win path failed: ${e}`);
                                     }
-                                    this._buildActionsMenu(appActions, winActions, busName, appObjectPath, discoveredWinPath, win);
+                                    this._buildActionsMenu(appActions, winActions, busName, appObjectPath, discoveredWinPath, win, profile);
                                 }
                             );
                         } else {
                             // No window path found — build with app actions only
                             console.log('FUHGlobe: No window path found, using app actions only');
-                            this._buildActionsMenu(appActions, {}, busName, appObjectPath, '', win);
+                            this._buildActionsMenu(appActions, {}, busName, appObjectPath, '', win, profile);
                         }
                     });
                 }
@@ -1902,7 +2065,7 @@ class FUHGlobeGlobalMenu {
         );
     }
 
-    _buildActionsMenu(appActions, winActions, busName, appObjectPath, winObjectPath, win = null) {
+    _buildActionsMenu(appActions, winActions, busName, appObjectPath, winObjectPath, win = null, profile = null) {
         console.log(`FUHGlobe: Building actions menu — app actions: ${Object.keys(appActions).length}, win actions: ${Object.keys(winActions).length}`);
 
         // Merge all actions with metadata
@@ -2026,7 +2189,6 @@ class FUHGlobeGlobalMenu {
         if (addedCount === 0) {
             console.log('FUHGlobe: 0 GTK actions added, falling back to declarative profile');
             const enableDeclarative = !this._settings || this._settings.get_boolean('enable-declarative-profiles');
-            const profile = this._profileManager ? this._profileManager.getProfileForWindow(win) : null;
             if (enableDeclarative && profile) {
                 this._loadDeclarativeProfile(profile, win);
             }
