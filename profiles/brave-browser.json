@@ -8,7 +8,7 @@
     "label": "Brave",
     "items": [
       { "label": "About Brave", "action": "about", "shortcut": "" },
-      { "label": "Settings...", "shortcut": "Ctrl+," },
+      { "label": "Settings...", "action": "settings", "shortcut": "" },
       { "label": "Delete Browsing Data...", "shortcut": "Ctrl+Shift+Delete" },
       { "type": "separator" },
       { "label": "Hide Brave", "action": "hide" },
@@ -64,7 +64,41 @@
     {
       "label": "History",
       "items": [
-        { "label": "Show Full History", "shortcut": "Ctrl+H" }
+        { "label": "Open History Page", "shortcut": "Ctrl+H" },
+        { "type": "separator" },
+        {
+          "label": "Recently Closed",
+          "items": [
+            { "label": "Reopen Closed Tab", "shortcut": "Ctrl+Shift+T" },
+            { "label": "Reopen Closed Window", "shortcut": "Ctrl+Shift+N" }
+          ]
+        },
+        {
+          "label": "Recent Tabs",
+          "items": [
+            { "label": "Restore Last Session", "shortcut": "Ctrl+Shift+T" },
+            { "type": "separator" },
+            {
+              "label": "GitHub - 2 tabs",
+              "items": [
+                { "label": "Restore 2 tabs", "shortcut": "Ctrl+Shift+T" },
+                { "type": "separator" },
+                { "label": "Pull Requests · my-repo", "url": "https://github.com/pulls" },
+                { "label": "Issues · my-repo", "url": "https://github.com/issues" }
+              ]
+            },
+            { "label": "Settings - About Brave", "url": "brave://settings/help" },
+            { "label": "Brave Help Center", "url": "https://support.brave.app/" }
+          ]
+        },
+        {
+          "label": "Your Devices",
+          "items": [
+            { "label": "No Connected Devices" }
+          ]
+        },
+        { "type": "separator" },
+        { "label": "Clear Browsing Data...", "shortcut": "Ctrl+Shift+Delete" }
       ]
     },
     {
@@ -72,13 +106,26 @@
       "items": [
         { "label": "Bookmark This Tab...", "shortcut": "Ctrl+D" },
         { "label": "Bookmark All Tabs...", "shortcut": "Ctrl+Shift+D" },
-        { "label": "Bookmark Manager", "shortcut": "Ctrl+Shift+O" }
+        { "type": "separator" },
+        { "label": "Show Bookmarks Bar", "shortcut": "Ctrl+Shift+B" },
+        { "label": "Show Bookmarks in Side Panel" },
+        { "label": "Open Bookmarks Manager", "shortcut": "Ctrl+Shift+O" },
+        { "label": "Import Bookmarks and Settings..." },
+        { "type": "separator" },
+        {
+          "label": "Bookmarks Bar",
+          "dynamic": "bookmarks-bar",
+          "items": [
+            { "label": "Bookmarks Bar is Empty" }
+          ]
+        }
       ]
     },
     {
       "label": "Help",
       "items": [
-        { "label": "About Brave", "shortcut": "" }
+        { "label": "Brave Help", "shortcut": "F1" },
+        { "label": "Report an Issue..." }
       ]
     }
   ]

@@ -1,5 +1,6 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
+import GioUnix from 'gi://GioUnix';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import Meta from 'gi://Meta';
@@ -10,12 +11,14 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as BoxPointer from 'resource:///org/gnome/shell/ui/boxpointer.js';
+import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 import { SystemMenu } from './src/systemMenu.js';
 import { UserSwitcherController } from './src/userSwitcher.js';
 import { QuickSettingsActionsController } from './src/quickSettingsHider.js';
 import { VirtualKeyboardDispatcher } from './src/virtualKeyboard.js';
-import { ProfileManager } from './src/profileManager.js';
+import { ProfileManager, expandDynamicProfileItems, getBookmarksCacheMtime, loadBrowserBookmarksAsync } from './src/profileManager.js';
 import { AtspiScanner } from './src/atspiScanner.js';
+import { HoverSubMenuMenuItem } from './src/hoverSubMenu.js';
 
 // ── D-Bus Interface XML ──────────────────────────────────────────────────────
 
@@ -464,7 +467,15 @@ class AppMenuButton extends PanelMenu.Button {
                     continue;
                 }
 
-                const menuItem = new PopupMenu.PopupMenuItem(item.label || '');
+                let label = item.label || '';
+                if (appLabel && appLabel !== 'Code' && appLabel !== 'Visual Studio Code') {
+                    label = label
+                        .replace(/Visual Studio Code/g, appLabel)
+                        .replace(/\bCode\b/g, appLabel);
+                }
+                label = label.replace(/\{\{appName\}\}/g, appLabel);
+
+                const menuItem = new PopupMenu.PopupMenuItem(label);
 
                 if (item.shortcut) {
                     const shortcutLabel = new St.Label({
@@ -491,6 +502,11 @@ class AppMenuButton extends PanelMenu.Button {
                     menuItem.connect('activate', () => {
                         this.menu.close(BoxPointer.PopupAnimation.NONE);
                         this._triggerAboutAction(appLabel);
+                    });
+                } else if (item.action === 'settings' || item.action === 'preferences' || (item.label && /^(settings|preferences)/i.test(item.label))) {
+                    menuItem.connect('activate', () => {
+                        this.menu.close(BoxPointer.PopupAnimation.NONE);
+                        _triggerSettingsAction(this._window, this._dispatcher, appLabel);
                     });
                 } else if (item.shortcut) {
                     menuItem.connect('activate', () => {
@@ -567,6 +583,126 @@ class AppMenuButton extends PanelMenu.Button {
     }
 });
 
+function _navigateBrowserUrl(win, dispatcher, url, openNewTab = true) {
+    if (!win || !url) return;
+
+    try {
+        if (typeof win.activate === 'function') {
+            const time = (typeof global !== 'undefined' && global.get_current_time)
+                ? global.get_current_time()
+                : 0;
+            win.activate(time);
+        }
+    } catch (e) {}
+
+    if (!dispatcher || typeof dispatcher.dispatchAccelerator !== 'function') {
+        const tracker = Shell ? Shell.WindowTracker.get_default() : null;
+        const app = tracker ? tracker.get_window_app(win) : null;
+        const appInfo = app ? app.get_app_info() : null;
+        if (appInfo && typeof appInfo.launch_uris === 'function') {
+            try {
+                appInfo.launch_uris([url], null);
+                return;
+            } catch (e) {}
+        }
+        return;
+    }
+
+    try {
+        const clipboard = St.Clipboard.get_default();
+        clipboard.get_text(St.ClipboardType.CLIPBOARD, (_clip, originalText) => {
+            clipboard.set_text(St.ClipboardType.CLIPBOARD, url);
+
+            const timeoutIds = [];
+            let unmanagedId = 0;
+            let focusId = 0;
+            let clipboardRestored = false;
+
+            const cleanup = () => {
+                for (const id of timeoutIds) {
+                    GLib.source_remove(id);
+                }
+                timeoutIds.length = 0;
+
+                if (unmanagedId !== 0 && win) {
+                    try { win.disconnect(unmanagedId); } catch (e) {}
+                    unmanagedId = 0;
+                }
+                if (focusId !== 0 && typeof global !== 'undefined' && global.display) {
+                    try { global.display.disconnect(focusId); } catch (e) {}
+                    focusId = 0;
+                }
+                if (!clipboardRestored && originalText !== null && originalText !== undefined) {
+                    clipboardRestored = true;
+                    try { clipboard.set_text(St.ClipboardType.CLIPBOARD, originalText); } catch (e) {}
+                }
+            };
+
+            if (win && typeof win.connect === 'function') {
+                unmanagedId = win.connect('unmanaged', () => cleanup());
+            }
+            let winHadFocus = false;
+            try {
+                const initialFocus = typeof global?.display?.get_focus_window === 'function'
+                    ? global.display.get_focus_window()
+                    : global?.display?.focus_window;
+                if (initialFocus === win) winHadFocus = true;
+            } catch (e) {}
+
+            if (typeof global !== 'undefined' && global.display) {
+                focusId = global.display.connect('notify::focus-window', () => {
+                    const currentFocus = typeof global.display.get_focus_window === 'function'
+                        ? global.display.get_focus_window()
+                        : global.display.focus_window;
+                    if (currentFocus === win) {
+                        winHadFocus = true;
+                    } else if (winHadFocus) {
+                        cleanup();
+                    }
+                });
+            }
+
+            const scheduleStep = (delay, callback) => {
+                const id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+                    const idx = timeoutIds.indexOf(id);
+                    if (idx !== -1) timeoutIds.splice(idx, 1);
+                    callback();
+                    return GLib.SOURCE_REMOVE;
+                });
+                timeoutIds.push(id);
+                return id;
+            };
+
+            // 1. Open new tab (Ctrl+T) or focus URL bar (Ctrl+L) after menu drops grab
+            scheduleStep(80, () => {
+                const navKey = openNewTab ? 'Ctrl+T' : 'Ctrl+L';
+                dispatcher.dispatchAccelerator(win, navKey, 0);
+
+                // 2. Paste the URL into the focused address bar
+                scheduleStep(120, () => {
+                    dispatcher.dispatchAccelerator(win, 'Ctrl+V', 0);
+
+                    // 3. Press Return to navigate
+                    scheduleStep(80, () => {
+                        dispatcher.dispatchAccelerator(win, 'Return', 0);
+
+                        // 4. Restore original clipboard content
+                        scheduleStep(300, () => {
+                            if (!clipboardRestored && originalText !== null && originalText !== undefined) {
+                                clipboardRestored = true;
+                                try { clipboard.set_text(St.ClipboardType.CLIPBOARD, originalText); } catch (e) {}
+                            }
+                            cleanup();
+                        });
+                    });
+                });
+            });
+        });
+    } catch (e) {
+        console.warn(`FUHGlobe: Failed to navigate browser URL via clipboard: ${e}`);
+    }
+}
+
 function _fallbackAboutAction(win, dispatcher, appLabel) {
     if (!win) return;
 
@@ -579,8 +715,12 @@ function _fallbackAboutAction(win, dispatcher, appLabel) {
     const app = tracker ? tracker.get_window_app(win) : null;
     const appInfo = app ? app.get_app_info() : null;
 
-    // 1. Brave Browser: open brave://settings/help
+    // 1. Brave Browser: open brave://settings/help in active window without new window
     if (wmClassLower.includes('brave') || wmInstanceLower.includes('brave')) {
+        if (dispatcher) {
+            _navigateBrowserUrl(win, dispatcher, 'brave://settings/help', true);
+            return;
+        }
         if (appInfo && typeof appInfo.launch_uris === 'function') {
             try {
                 appInfo.launch_uris(['brave://settings/help'], null);
@@ -595,9 +735,13 @@ function _fallbackAboutAction(win, dispatcher, appLabel) {
         }
     }
 
-    // 2. Google Chrome / Chromium: open chrome://settings/help
+    // 2. Google Chrome / Chromium: open chrome://settings/help in active window
     if (wmClassLower.includes('chrome') || wmInstanceLower.includes('chrome') ||
         wmClassLower.includes('chromium') || wmInstanceLower.includes('chromium')) {
+        if (dispatcher) {
+            _navigateBrowserUrl(win, dispatcher, 'chrome://settings/help', true);
+            return;
+        }
         if (appInfo && typeof appInfo.launch_uris === 'function') {
             try {
                 appInfo.launch_uris(['chrome://settings/help'], null);
@@ -612,17 +756,7 @@ function _fallbackAboutAction(win, dispatcher, appLabel) {
         }
     }
 
-    // 3. Editors / Apps with command palette (VS Code, Antigravity, Zed): dispatch F1
-    if (wmClassLower.includes('code') || wmClassLower.includes('antigravity') ||
-        wmClassLower.includes('zed') || wmInstanceLower.includes('code') ||
-        wmInstanceLower.includes('antigravity') || wmInstanceLower.includes('zed')) {
-        if (dispatcher && typeof dispatcher.dispatchAccelerator === 'function') {
-            dispatcher.dispatchAccelerator(win, 'F1');
-            return;
-        }
-    }
-
-    // 4. Other apps: show desktop app info or notify banner
+    // 3. Other apps: show native About dialog with app metadata
     let cleanLabel = (appLabel || '').replace(/^about\s+/i, '').replace(/…|\.\.\.$/, '').trim();
     if (!cleanLabel && appInfo && typeof appInfo.get_name === 'function') {
         cleanLabel = appInfo.get_name();
@@ -632,6 +766,7 @@ function _fallbackAboutAction(win, dispatcher, appLabel) {
     }
     const infoTitle = cleanLabel ? _('About %s').replace('%s', cleanLabel) : _('About Application');
     let infoText = '';
+    let desktopInfo = null;
 
     if (appInfo) {
         const name = appInfo.get_name() || cleanLabel || 'Application';
@@ -640,11 +775,9 @@ function _fallbackAboutAction(win, dispatcher, appLabel) {
         infoText = desc ? `${name}\n${desc}` : (exec ? `${name} (${exec})` : name);
     } else {
         const appId = (win.get_gtk_application_id ? win.get_gtk_application_id() : win.gtk_application_id) || '';
-        let desktopInfo = null;
         if (appId) {
             try {
-                const DesktopAppInfo = imports.gi?.GioUnix?.DesktopAppInfo || Gio.DesktopAppInfo;
-                desktopInfo = DesktopAppInfo.new(appId.endsWith('.desktop') ? appId : `${appId}.desktop`);
+                desktopInfo = GioUnix.DesktopAppInfo.new(appId.endsWith('.desktop') ? appId : `${appId}.desktop`);
             } catch (e) {}
         }
         if (desktopInfo) {
@@ -656,10 +789,203 @@ function _fallbackAboutAction(win, dispatcher, appLabel) {
         }
     }
 
-    if (typeof Main.notify === 'function') {
-        Main.notify(infoTitle, infoText);
-    } else {
-        console.log(`FUHGlobe: ${infoTitle}: ${infoText}`);
+    try {
+        const dialog = new ModalDialog.ModalDialog();
+        const content = dialog.contentLayout;
+        content.style_class = 'about-dialog-content';
+        content.set_style('padding: 24px; spacing: 14px; min-width: 300px;');
+
+        let iconActor = null;
+        if (app && typeof app.create_icon_texture === 'function') {
+            try {
+                iconActor = app.create_icon_texture(64);
+            } catch (e) {}
+        }
+        if (!iconActor) {
+            const infoObj = appInfo || desktopInfo;
+            const gicon = infoObj && typeof infoObj.get_icon === 'function' ? infoObj.get_icon() : null;
+            if (gicon) {
+                iconActor = new St.Icon({ gicon, icon_size: 64 });
+            }
+        }
+        if (iconActor) {
+            iconActor.x_align = Clutter.ActorAlign.CENTER;
+            iconActor.y_align = Clutter.ActorAlign.CENTER;
+            content.add_child(iconActor);
+        }
+
+        const titleLabel = new St.Label({
+            text: cleanLabel || (appInfo ? appInfo.get_name() : null) || wmClass || _('Application'),
+            style: 'font-weight: bold; font-size: 14pt;',
+            x_align: Clutter.ActorAlign.CENTER,
+        });
+        content.add_child(titleLabel);
+
+        const descText = (appInfo && (appInfo.get_description() || appInfo.get_display_name())) ||
+                         (desktopInfo && desktopInfo.get_description()) ||
+                         '';
+        if (descText && descText !== titleLabel.text) {
+            const descLabel = new St.Label({
+                text: descText,
+                style: 'font-size: 10pt; color: #888; text-align: center;',
+                x_align: Clutter.ActorAlign.CENTER,
+            });
+            content.add_child(descLabel);
+        }
+
+        dialog.addButton({
+            label: _('OK'),
+            action: () => dialog.close(),
+            key: Clutter.KEY_Escape,
+            isDefault: true,
+        });
+        dialog.open();
+        return;
+    } catch (e) {
+        console.warn(`FUHGlobe: Could not show modal About dialog: ${e}`);
+        if (typeof Main.notifyError === 'function') {
+            Main.notifyError(infoTitle, infoText);
+        } else {
+            console.log(`FUHGlobe: ${infoTitle}: ${infoText}`);
+        }
+    }
+}
+
+function _getWindowGtkUniqueBusName(win) {
+    if (!win) return '';
+    return (typeof win.get_gtk_unique_bus_name === 'function' ? win.get_gtk_unique_bus_name() : win.gtk_unique_bus_name) || '';
+}
+
+function _getWindowGtkAppId(win) {
+    if (!win) return '';
+    const raw = (typeof win.get_gtk_application_id === 'function' ? win.get_gtk_application_id() : win.gtk_application_id)
+        || (typeof win.get_app_id === 'function' ? win.get_app_id() : win.app_id)
+        || (typeof win.get_sandboxed_app_id === 'function' ? win.get_sandboxed_app_id() : win.sandboxed_app_id)
+        || '';
+    return raw;
+}
+
+function _getWindowGtkAppObjectPath(win) {
+    if (!win) return '';
+    return (typeof win.get_gtk_application_object_path === 'function' ? win.get_gtk_application_object_path() : win.gtk_application_object_path) || '';
+}
+
+function _getWindowGtkWindowObjectPath(win) {
+    if (!win) return '';
+    return (typeof win.get_gtk_window_object_path === 'function' ? win.get_gtk_window_object_path() : win.gtk_window_object_path) || '';
+}
+
+function _getWindowGtkMenubarPath(win) {
+    if (!win) return '';
+    return (typeof win.get_gtk_menubar_object_path === 'function' ? win.get_gtk_menubar_object_path() : win.gtk_menubar_object_path) || '';
+}
+
+function _getWindowGtkAppMenuPath(win) {
+    if (!win) return '';
+    return (typeof win.get_gtk_app_menu_object_path === 'function' ? win.get_gtk_app_menu_object_path() : win.gtk_app_menu_object_path) || '';
+}
+
+function _triggerSettingsAction(win, dispatcher, appLabel) {
+    if (!win) return;
+
+    const wmClass = (win.get_wm_class ? win.get_wm_class() : '') || '';
+    const wmInstance = (win.get_wm_class_instance ? win.get_wm_class_instance() : '') || '';
+    const wmClassLower = wmClass.toLowerCase();
+    const wmInstanceLower = wmInstance.toLowerCase();
+
+    const tracker = Shell.WindowTracker.get_default();
+    const app = tracker ? tracker.get_window_app(win) : null;
+    const appInfo = app ? app.get_app_info() : null;
+
+    // 1. Brave Browser: open brave://settings/ in active window without new window
+    if (wmClassLower.includes('brave') || wmInstanceLower.includes('brave')) {
+        if (dispatcher) {
+            _navigateBrowserUrl(win, dispatcher, 'brave://settings/', true);
+            return;
+        }
+        if (appInfo && typeof appInfo.launch_uris === 'function') {
+            try {
+                appInfo.launch_uris(['brave://settings/'], null);
+                return;
+            } catch (e) {}
+        }
+        for (const cmd of ['brave-browser', 'brave-browser-stable', 'brave']) {
+            try {
+                Gio.Subprocess.new([cmd, 'brave://settings/'], Gio.SubprocessFlags.NONE);
+                return;
+            } catch (e) {}
+        }
+    }
+
+    // 2. Google Chrome / Chromium: open chrome://settings/ in active window
+    if (wmClassLower.includes('chrome') || wmInstanceLower.includes('chrome') ||
+        wmClassLower.includes('chromium') || wmInstanceLower.includes('chromium')) {
+        if (dispatcher) {
+            _navigateBrowserUrl(win, dispatcher, 'chrome://settings/', true);
+            return;
+        }
+        if (appInfo && typeof appInfo.launch_uris === 'function') {
+            try {
+                appInfo.launch_uris(['chrome://settings/'], null);
+                return;
+            } catch (e) {}
+        }
+        for (const cmd of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
+            try {
+                Gio.Subprocess.new([cmd, 'chrome://settings/'], Gio.SubprocessFlags.NONE);
+                return;
+            } catch (e) {}
+        }
+    }
+
+    // 3. Firefox: open about:preferences
+    if (wmClassLower.includes('firefox') || wmInstanceLower.includes('firefox')) {
+        if (appInfo && typeof appInfo.launch_uris === 'function') {
+            try {
+                appInfo.launch_uris(['about:preferences'], null);
+                return;
+            } catch (e) {}
+        }
+        for (const cmd of ['firefox', 'firefox-esr']) {
+            try {
+                Gio.Subprocess.new([cmd, 'about:preferences'], Gio.SubprocessFlags.NONE);
+                return;
+            } catch (e) {}
+        }
+    }
+
+    // 4. GTK / Libadwaita preferences actions
+    try {
+        const busName = _getWindowGtkUniqueBusName(win);
+        const appId = _getWindowGtkAppId(win);
+        const cleanAppId = appId.replace(/\.desktop$/, '');
+        const winPath = _getWindowGtkWindowObjectPath(win);
+        const appObjPath = _getWindowGtkAppObjectPath(win) || (cleanAppId ? '/' + cleanAppId.replace(/\./g, '/') : '');
+        if (busName) {
+            const tryPaths = [appObjPath, winPath].filter(p => p);
+            for (const objPath of tryPaths) {
+                for (const actionName of ['preferences', 'settings']) {
+                    Gio.DBus.session.call(
+                        busName,
+                        objPath,
+                        'org.gtk.Actions',
+                        'Activate',
+                        GLib.Variant.new('(sava{sv})', [actionName, [], {}]),
+                        null,
+                        Gio.DBusCallFlags.NONE,
+                        -1,
+                        null,
+                        null
+                    );
+                }
+            }
+            return;
+        }
+    } catch (e) {}
+
+    // 5. Fallback shortcut if available
+    if (dispatcher && typeof dispatcher.dispatchAccelerator === 'function') {
+        dispatcher.dispatchAccelerator(win, 'Ctrl+,');
     }
 }
 
@@ -667,10 +993,11 @@ function _triggerAboutAction(win, dispatcher, appLabel) {
     if (!win) return;
 
     try {
-        const busName = win.gtk_unique_bus_name || '';
-        const appId = win.gtk_application_id || '';
-        const winPath = win.gtk_window_object_path || '';
-        const appObjPath = appId ? '/' + appId.replace(/\./g, '/') : '';
+        const busName = _getWindowGtkUniqueBusName(win);
+        const appId = _getWindowGtkAppId(win);
+        const cleanAppId = appId.replace(/\.desktop$/, '');
+        const winPath = _getWindowGtkWindowObjectPath(win);
+        const appObjPath = _getWindowGtkAppObjectPath(win) || (cleanAppId ? '/' + cleanAppId.replace(/\./g, '/') : '');
 
         if (busName) {
             const tryPaths = [appObjPath, winPath].filter(p => p);
@@ -690,7 +1017,7 @@ function _triggerAboutAction(win, dispatcher, appLabel) {
                     GLib.Variant.new('(sava{sv})', ['about', [], {}]),
                     null,
                     Gio.DBusCallFlags.NONE,
-                    -1,
+                    1000,
                     null,
                     (_conn, res) => {
                         try {
@@ -705,7 +1032,6 @@ function _triggerAboutAction(win, dispatcher, appLabel) {
             tryNext();
             return;
         }
-
         _fallbackAboutAction(win, dispatcher, appLabel);
     } catch (e) {
         console.error(`FUHGlobe: Failed to show about dialog: ${e}`);
@@ -717,10 +1043,11 @@ function _triggerAboutAction(win, dispatcher, appLabel) {
 
 const DBusMenuButton = GObject.registerClass(
 class DBusMenuButton extends PanelMenu.Button {
-    _init(label, children, proxy) {
+    _init(label, children, proxy, useHoverSubmenus = true) {
         super._init(0.0, `FUHGlobeDBusMenu-${label}`);
         this.add_style_class_name('fuhgawz-panel-button');
         this.accessible_name = label;
+        this._useHoverSubmenus = useHoverSubmenus;
 
         const labelWidget = new St.Label({
             text: _cleanLabel(label),
@@ -739,9 +1066,32 @@ class DBusMenuButton extends PanelMenu.Button {
             if (props.type === 'separator') {
                 popupMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
             } else if (item.children && item.children.length > 0) {
-                const subItem = new PopupMenu.PopupSubMenuMenuItem(label);
-                this._buildSubmenu(subItem.menu, item.children, proxy);
-                popupMenu.addMenuItem(subItem);
+                if (this._useHoverSubmenus) {
+                    const subItem = new HoverSubMenuMenuItem(label, popupMenu);
+                    subItem.setLazyPopulate(childMenu => {
+                        this._buildSubmenu(childMenu, item.children, proxy);
+                    });
+                    popupMenu.addMenuItem(subItem);
+                } else {
+                    const subItem = new PopupMenu.PopupSubMenuMenuItem(label);
+                    let subBuilt = false;
+                    subItem.menu.isEmpty = () => false;
+                    const origSubOpen = subItem.menu.open.bind(subItem.menu);
+                    subItem.menu.open = (animate) => {
+                        if (!subBuilt) {
+                            subBuilt = true;
+                            this._buildSubmenu(subItem.menu, item.children, proxy);
+                        }
+                        return origSubOpen(animate);
+                    };
+                    subItem.menu.connect('open-state-changed', (_menu, isOpen) => {
+                        if (isOpen && !subBuilt) {
+                            subBuilt = true;
+                            this._buildSubmenu(subItem.menu, item.children, proxy);
+                        }
+                    });
+                    popupMenu.addMenuItem(subItem);
+                }
             } else {
                 const menuItem = new PopupMenu.PopupMenuItem(label);
 
@@ -804,8 +1154,40 @@ class ActionsMenuButton extends PanelMenu.Button {
         this._winObjectPath = winObjectPath;
         this._metaWindow = metaWindow;
         this._dispatcher = dispatcher;
+        this._actionItems = actionItems;
+        this._itemsBuilt = false;
 
-        this._buildItems(actionItems);
+        // Override isEmpty so GNOME Shell PanelMenu.Button does not abort menu.toggle()
+        if (this.menu) {
+            this.menu.isEmpty = () => false;
+
+            const origOpen = this.menu.open.bind(this.menu);
+            this.menu.open = (animate) => {
+                this._ensureItemsBuilt();
+                return origOpen(animate);
+            };
+
+            this.menu.connect('open-state-changed', (_menu, isOpen) => {
+                if (isOpen) {
+                    this._ensureItemsBuilt();
+                }
+            });
+        }
+    }
+
+    _ensureItemsBuilt() {
+        if (!this._itemsBuilt) {
+            this._itemsBuilt = true;
+            this._buildItems(this._actionItems);
+        }
+    }
+
+    vfunc_event(event) {
+        const eventType = event ? (typeof event.type === 'function' ? event.type() : event.type) : null;
+        if (eventType === Clutter.EventType.BUTTON_PRESS || eventType === Clutter.EventType.TOUCH_BEGIN) {
+            this._ensureItemsBuilt();
+        }
+        return super.vfunc_event(event);
     }
 
     _buildItems(actionItems) {
@@ -844,6 +1226,7 @@ class ActionsMenuButton extends PanelMenu.Button {
             }
 
             menuItem.connect('activate', () => {
+                this.menu.close(BoxPointer.PopupAnimation.NONE);
                 const fallbackShortcut = standardShortcuts[item.actionName];
 
                 try {
@@ -874,7 +1257,7 @@ class ActionsMenuButton extends PanelMenu.Button {
                         ]),
                         null,
                         Gio.DBusCallFlags.NONE,
-                        -1,
+                        1000,
                         null,
                         (_conn, res) => {
                             try {
@@ -904,10 +1287,11 @@ class ActionsMenuButton extends PanelMenu.Button {
 
 const DeclarativeMenuButton = GObject.registerClass(
 class DeclarativeMenuButton extends PanelMenu.Button {
-    _init(groupLabel, items, metaWindow, dispatcher) {
+    _init(groupLabel, items, metaWindow, dispatcher, useHoverSubmenus = true, profile = null) {
         super._init(0.0, `FUHGlobeDeclarativeMenu-${groupLabel}`);
         this.add_style_class_name('fuhgawz-panel-button');
         this.accessible_name = groupLabel;
+        this._useHoverSubmenus = useHoverSubmenus;
 
         const labelWidget = new St.Label({
             text: groupLabel,
@@ -917,8 +1301,69 @@ class DeclarativeMenuButton extends PanelMenu.Button {
 
         this._metaWindow = metaWindow;
         this._dispatcher = dispatcher;
+        this._profile = profile;
+        this._rawItems = items;
+        this._itemsBuilt = false;
+        this._lastMtime = 0;
 
-        this._buildItems(items);
+        // Override isEmpty so GNOME Shell PanelMenu.Button does not abort menu.toggle()
+        if (this.menu) {
+            this.menu.isEmpty = () => false;
+
+            const origOpen = this.menu.open.bind(this.menu);
+            this.menu.open = (animate) => {
+                if (!this._itemsBuilt) {
+                    this._itemsBuilt = true;
+                    this._buildCurrentItems();
+                }
+                return origOpen(animate);
+            };
+        }
+
+        this.menu.connect('open-state-changed', (_menu, isOpen) => {
+            if (!isOpen) return;
+
+            if (!this._itemsBuilt) {
+                this._itemsBuilt = true;
+                this._buildCurrentItems();
+            } else {
+                const isDynamic = this._profile && (
+                    this.accessible_name === 'Bookmarks' ||
+                    this._rawItems.some(i => i.dynamic || (Array.isArray(i.items) && i.items.some(si => si.dynamic)))
+                );
+
+                if (isDynamic) {
+                    const currentMtime = typeof getBookmarksCacheMtime === 'function'
+                        ? getBookmarksCacheMtime(this._profile.id)
+                        : 0;
+                    if (currentMtime && currentMtime !== this._lastMtime) {
+                        this._lastMtime = currentMtime;
+                        this._buildCurrentItems();
+                    }
+                }
+            }
+        });
+    }
+
+    vfunc_event(event) {
+        const eventType = event ? (typeof event.type === 'function' ? event.type() : event.type) : null;
+        if (eventType === Clutter.EventType.BUTTON_PRESS || eventType === Clutter.EventType.TOUCH_BEGIN) {
+            if (!this._itemsBuilt) {
+                this._itemsBuilt = true;
+                this._buildCurrentItems();
+            }
+        }
+        return super.vfunc_event(event);
+    }
+
+    _buildCurrentItems() {
+        if (typeof this.menu.removeAll === 'function') {
+            this.menu.removeAll();
+        }
+        if (typeof getBookmarksCacheMtime === 'function' && this._profile) {
+            this._lastMtime = getBookmarksCacheMtime(this._profile.id);
+        }
+        this._buildItems(this._rawItems);
     }
 
     _buildItems(items, targetMenu = this.menu) {
@@ -931,14 +1376,84 @@ class DeclarativeMenuButton extends PanelMenu.Button {
             }
 
             const subItems = item.items || item.submenu || item.children;
-            if (Array.isArray(subItems) && subItems.length > 0) {
-                const subMenu = new PopupMenu.PopupSubMenuMenuItem(item.label || '');
-                this._buildItems(subItems, subMenu.menu);
-                targetMenu.addMenuItem(subMenu);
+            const isDynamic = !!(item.dynamic || (this._profile && (item.label === 'Bookmarks Bar' || item.dynamic === 'bookmarks-bar')));
+            if (isDynamic || (Array.isArray(subItems) && subItems.length > 0)) {
+                if (this._useHoverSubmenus) {
+                    const subMenu = new HoverSubMenuMenuItem(item.label || '', targetMenu);
+                    subMenu.setLazyPopulate(childMenu => {
+                        let actualSubItems = subItems;
+                        if (isDynamic && typeof expandDynamicProfileItems === 'function' && this._profile) {
+                            try {
+                                const expanded = expandDynamicProfileItems({
+                                    id: this._profile.id,
+                                    menus: [{ label: this.accessible_name, items: [item] }],
+                                });
+                                if (expanded && Array.isArray(expanded.menus) && Array.isArray(expanded.menus[0]?.items?.[0]?.items)) {
+                                    actualSubItems = expanded.menus[0].items[0].items;
+                                }
+                            } catch (e) {
+                                console.warn(`FUHGlobe: Error expanding dynamic items: ${e}`);
+                            }
+                        }
+                        this._buildItems(actualSubItems, childMenu);
+                    });
+                    targetMenu.addMenuItem(subMenu);
+                } else {
+                    const subMenu = new PopupMenu.PopupSubMenuMenuItem(item.label || '');
+                    let subBuilt = false;
+                    subMenu.menu.isEmpty = () => false;
+                    const origSubOpen = subMenu.menu.open.bind(subMenu.menu);
+                    subMenu.menu.open = (animate) => {
+                        if (!subBuilt) {
+                            subBuilt = true;
+                            let actualSubItems = subItems;
+                            if (isDynamic && typeof expandDynamicProfileItems === 'function' && this._profile) {
+                                try {
+                                    const expanded = expandDynamicProfileItems({
+                                        id: this._profile.id,
+                                        menus: [{ label: this.accessible_name, items: [item] }],
+                                    });
+                                    if (expanded && Array.isArray(expanded.menus) && Array.isArray(expanded.menus[0]?.items?.[0]?.items)) {
+                                        actualSubItems = expanded.menus[0].items[0].items;
+                                    }
+                                } catch (e) {
+                                    console.warn(`FUHGlobe: Error expanding dynamic items: ${e}`);
+                                }
+                            }
+                            this._buildItems(actualSubItems, subMenu.menu);
+                        }
+                        return origSubOpen(animate);
+                    };
+                    subMenu.menu.connect('open-state-changed', (_menu, isOpen) => {
+                        if (isOpen && !subBuilt) {
+                            subBuilt = true;
+                            let actualSubItems = subItems;
+                            if (isDynamic && typeof expandDynamicProfileItems === 'function' && this._profile) {
+                                try {
+                                    const expanded = expandDynamicProfileItems({
+                                        id: this._profile.id,
+                                        menus: [{ label: this.accessible_name, items: [item] }],
+                                    });
+                                    if (expanded && Array.isArray(expanded.menus) && Array.isArray(expanded.menus[0]?.items?.[0]?.items)) {
+                                        actualSubItems = expanded.menus[0].items[0].items;
+                                    }
+                                } catch (e) {
+                                    console.warn(`FUHGlobe: Error expanding dynamic items: ${e}`);
+                                }
+                            }
+                            this._buildItems(actualSubItems, subMenu.menu);
+                        }
+                    });
+                    targetMenu.addMenuItem(subMenu);
+                }
                 continue;
             }
 
             const menuItem = new PopupMenu.PopupMenuItem(item.label || '');
+
+            if (item.sensitive === false || item.enabled === false) {
+                menuItem.setSensitive(false);
+            }
 
             if (item.shortcut) {
                 const shortcutLabel = new St.Label({
@@ -966,6 +1481,16 @@ class DeclarativeMenuButton extends PanelMenu.Button {
                     this.menu.close(BoxPointer.PopupAnimation.NONE);
                     _triggerAboutAction(this._metaWindow, this._dispatcher, item.label || 'Application');
                 });
+            } else if (item.action === 'settings' || item.action === 'preferences' || (item.label && /^(settings|preferences)/i.test(item.label))) {
+                menuItem.connect('activate', () => {
+                    this.menu.close(BoxPointer.PopupAnimation.NONE);
+                    _triggerSettingsAction(this._metaWindow, this._dispatcher, item.label || 'Application');
+                });
+            } else if (item.url) {
+                menuItem.connect('activate', () => {
+                    this.menu.close(BoxPointer.PopupAnimation.NONE);
+                    _navigateBrowserUrl(this._metaWindow, this._dispatcher, item.url, true);
+                });
             } else if (item.shortcut) {
                 menuItem.connect('activate', () => {
                     this.menu.close(BoxPointer.PopupAnimation.NONE);
@@ -989,10 +1514,14 @@ class DeclarativeMenuButton extends PanelMenu.Button {
 
 const GtkMenuButton = GObject.registerClass(
 class GtkMenuButton extends PanelMenu.Button {
-    _init(label, menuModel, actionDispatcher) {
+    _init(label, menuModel, actionDispatcher, useHoverSubmenus = true) {
         super._init(0.0, `FUHGlobeGtkMenu-${label}`);
         this.add_style_class_name('fuhgawz-panel-button');
         this.accessible_name = label;
+        this._useHoverSubmenus = useHoverSubmenus;
+        this._menuModel = menuModel;
+        this._actionDispatcher = actionDispatcher;
+        this._itemsBuilt = false;
 
         const labelWidget = new St.Label({
             text: _cleanLabel(label),
@@ -1000,7 +1529,37 @@ class GtkMenuButton extends PanelMenu.Button {
         });
         this.add_child(labelWidget);
 
-        this._buildSubmenu(this.menu, menuModel, actionDispatcher);
+        // Override isEmpty so GNOME Shell PanelMenu.Button does not abort menu.toggle()
+        if (this.menu) {
+            this.menu.isEmpty = () => false;
+
+            const origOpen = this.menu.open.bind(this.menu);
+            this.menu.open = (animate) => {
+                this._ensureItemsBuilt();
+                return origOpen(animate);
+            };
+
+            this.menu.connect('open-state-changed', (_menu, isOpen) => {
+                if (isOpen) {
+                    this._ensureItemsBuilt();
+                }
+            });
+        }
+    }
+
+    _ensureItemsBuilt() {
+        if (!this._itemsBuilt) {
+            this._itemsBuilt = true;
+            this._buildSubmenu(this.menu, this._menuModel, this._actionDispatcher);
+        }
+    }
+
+    vfunc_event(event) {
+        const eventType = event ? (typeof event.type === 'function' ? event.type() : event.type) : null;
+        if (eventType === Clutter.EventType.BUTTON_PRESS || eventType === Clutter.EventType.TOUCH_BEGIN) {
+            this._ensureItemsBuilt();
+        }
+        return super.vfunc_event(event);
     }
 
     _buildSubmenu(popupMenu, model, actionDispatcher) {
@@ -1025,9 +1584,32 @@ class GtkMenuButton extends PanelMenu.Button {
                     popupMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
                 }
             } else if (submenu) {
-                const subItem = new PopupMenu.PopupSubMenuMenuItem(label);
-                this._buildSubmenu(subItem.menu, submenu, actionDispatcher);
-                popupMenu.addMenuItem(subItem);
+                if (this._useHoverSubmenus) {
+                    const subItem = new HoverSubMenuMenuItem(label, popupMenu);
+                    subItem.setLazyPopulate(childMenu => {
+                        this._buildSubmenu(childMenu, submenu, actionDispatcher);
+                    });
+                    popupMenu.addMenuItem(subItem);
+                } else {
+                    const subItem = new PopupMenu.PopupSubMenuMenuItem(label);
+                    let subBuilt = false;
+                    subItem.menu.isEmpty = () => false;
+                    const origSubOpen = subItem.menu.open.bind(subItem.menu);
+                    subItem.menu.open = (animate) => {
+                        if (!subBuilt) {
+                            subBuilt = true;
+                            this._buildSubmenu(subItem.menu, submenu, actionDispatcher);
+                        }
+                        return origSubOpen(animate);
+                    };
+                    subItem.menu.connect('open-state-changed', (_menu, isOpen) => {
+                        if (isOpen && !subBuilt) {
+                            subBuilt = true;
+                            this._buildSubmenu(subItem.menu, submenu, actionDispatcher);
+                        }
+                    });
+                    popupMenu.addMenuItem(subItem);
+                }
             } else {
                 const menuItem = new PopupMenu.PopupMenuItem(label);
 
@@ -1127,6 +1709,7 @@ class FUHGlobeGlobalMenu {
         this._gtkMenuModelChangedId = 0;
         this._appActionGroup = null;
         this._winActionGroup = null;
+        this._updateCycleId = 0;
 
         // Debounce timer for _updateMenu
         this._updatePendingId = 0;
@@ -1154,7 +1737,7 @@ class FUHGlobeGlobalMenu {
         }
         // Fallback chain helpers
         this._virtualKeyboard = new VirtualKeyboardDispatcher();
-        this._profileManager = new ProfileManager(this._extensionPath);
+        this._profileManager = new ProfileManager(this._extensionPath, Shell.WindowTracker.get_default());
         this._profileManager.loadProfiles();
         this._atspiScanner = new AtspiScanner();
         this._updateSystemMenu();
@@ -1207,6 +1790,7 @@ class FUHGlobeGlobalMenu {
             }
         }
         this._menuButtons = [];
+        this._nextId = 0;
     }
 
     _disconnectSources() {
@@ -1291,6 +1875,9 @@ class FUHGlobeGlobalMenu {
     // ── Core update logic: implements Singularity OS fallback chain ──────
 
     _updateMenu() {
+        this._updateCycleId = (this._updateCycleId || 0) + 1;
+        const currentCycle = this._updateCycleId;
+
         // 1. Tear down everything from the previous cycle
         this._clearButtons();
         this._disconnectSources();
@@ -1300,11 +1887,11 @@ class FUHGlobeGlobalMenu {
         // Diagnostic info
         if (win) {
             const pid = win.get_pid();
-            const busName = win.gtk_unique_bus_name || '';
-            const menuBarPath = win.gtk_menubar_object_path || '';
-            const appMenuPath = win.gtk_app_menu_object_path || '';
-            const winPath = win.gtk_window_object_path || '';
-            const appId = win.gtk_application_id || '';
+            const busName = _getWindowGtkUniqueBusName(win);
+            const menuBarPath = _getWindowGtkMenubarPath(win);
+            const appMenuPath = _getWindowGtkAppMenuPath(win);
+            const winPath = _getWindowGtkWindowObjectPath(win);
+            const appId = _getWindowGtkAppId(win);
             this._log(
                 `Focus → "${win.get_title()}" pid=${pid} ` +
                 `bus=${busName} menubar=${menuBarPath} ` +
@@ -1334,7 +1921,7 @@ class FUHGlobeGlobalMenu {
 
         // 4. Add the App Menu Button after the Activities button (position 1)
         const appMenuBtn = new AppMenuButton(win, profile, this._virtualKeyboard);
-        const appMenuId = `fuhgawz-menu-${this._nextId++}`;
+        const appMenuId = 'fuhgawz-app-menu';
         this._menuButtons.push(appMenuBtn);
         try {
             Main.panel.addToStatusArea(appMenuId, appMenuBtn, 1, 'left');
@@ -1343,25 +1930,32 @@ class FUHGlobeGlobalMenu {
         }
 
         // ── Fallback 1: GTK menu model (org.gtk.Menus) ──────────────────
-        const busName = win.gtk_unique_bus_name || '';
-        const menuBarPath = win.gtk_menubar_object_path || '';
-        const appMenuPath = win.gtk_app_menu_object_path || '';
+        const busName = _getWindowGtkUniqueBusName(win);
+        const menuBarPath = _getWindowGtkMenubarPath(win);
+        const appMenuPath = _getWindowGtkAppMenuPath(win);
 
-        if (busName && (menuBarPath || appMenuPath)) {
-            const menuPath = menuBarPath || appMenuPath;
-            this._log(`Trying GTK menu model: bus=${busName} path=${menuPath}`);
-            this._loadGtkMenu(busName, menuPath, win);
+        if (busName && menuBarPath) {
+            this._log(`Trying GTK menubar model: bus=${busName} path=${menuBarPath}`);
+            this._loadGtkMenu(busName, menuBarPath, win);
+            return;
+        }
+
+        if (busName && appMenuPath && !profile) {
+            this._log(`Trying GTK app menu model: bus=${busName} path=${appMenuPath}`);
+            this._loadGtkMenu(busName, appMenuPath, win);
             return;
         }
 
         // ── Fallback 1b: Probe standard GTK 4 menubar path ─────────────
-        const appId = win.gtk_application_id || '';
-        if (busName && appId) {
-            const appObjPath = '/' + appId.replace(/\./g, '/');
+        const appId = _getWindowGtkAppId(win);
+        const cleanAppId = appId.replace(/\.desktop$/, '');
+        if (busName && cleanAppId && !profile) {
+            const appObjPath = _getWindowGtkAppObjectPath(win) || ('/' + cleanAppId.replace(/\./g, '/'));
             const standardMenubarPath = `${appObjPath}/menus/menubar`;
             this._log(`Probing standard GTK 4 menubar at ${standardMenubarPath}`);
-            this._probeMenubarPath(busName, standardMenubarPath, win);
-            return;
+            if (this._probeMenubarPath(busName, standardMenubarPath, win)) {
+                return;
+            }
         }
 
         // ── Fallback 2: DBusMenu (com.canonical.dbusmenu) ───────────────
@@ -1406,7 +2000,8 @@ class FUHGlobeGlobalMenu {
         }
 
         // ── Fallback 3: Declarative Application Profiles (JSON) ─────────
-        if (profile) {
+        const enableDeclarative = !this._settings || this._settings.get_boolean('enable-declarative-profiles');
+        if (enableDeclarative && profile) {
             this._log(`Rendering Declarative Profile: ${profile.id} for "${win.get_title()}"`);
             if (this._loadDeclarativeProfile(profile, win)) {
                 return;
@@ -1416,12 +2011,12 @@ class FUHGlobeGlobalMenu {
         // ── Fallback 4: GTK Actions (org.gtk.Actions.DescribeAll) ───────
         // For modern libadwaita apps that export actions without traditional menubar
         const enableGtkActions = !this._settings || this._settings.get_boolean('enable-gtk-actions');
-        if (enableGtkActions && (appId || busName)) {
-            const effectiveBus = appId || busName;
-            const appObjPath = appId ? '/' + appId.replace(/\./g, '/') : '';
+        if (enableGtkActions && (busName || cleanAppId)) {
+            const effectiveBus = busName || cleanAppId;
+            const appObjPath = _getWindowGtkAppObjectPath(win) || (cleanAppId ? '/' + cleanAppId.replace(/\./g, '/') : '');
             if (appObjPath) {
                 this._log(`Trying GTK Actions fallback: bus=${effectiveBus} appObj=${appObjPath}`);
-                this._loadGtkActions(effectiveBus, appObjPath, win);
+                this._loadGtkActions(effectiveBus, appObjPath, win, profile, currentCycle);
                 return;
             }
         }
@@ -1445,6 +2040,15 @@ class FUHGlobeGlobalMenu {
     _loadDeclarativeProfile(profile, win) {
         if (!profile || !Array.isArray(profile.menus)) return false;
 
+        // Pre-warm bookmarks cache asynchronously in background for browser profiles
+        if (profile.id) {
+            const pid = profile.id.toLowerCase();
+            if (pid.includes('brave') || pid.includes('chrome') || pid.includes('chromium')) {
+                loadBrowserBookmarksAsync(pid).catch(() => {});
+            }
+        }
+
+        const useHover = !this._settings || this._settings.get_boolean('enable-hover-submenus');
         let addedAny = false;
         let position = 2; // after Activities(0) and AppMenu(1)
         for (const menuDef of profile.menus) {
@@ -1455,9 +2059,11 @@ class FUHGlobeGlobalMenu {
                 menuDef.label,
                 menuDef.items,
                 win,
-                this._virtualKeyboard
+                this._virtualKeyboard,
+                useHover,
+                profile
             );
-            const btnId = `fuhgawz-decl-menu-${this._nextId++}`;
+            const btnId = `fuhgawz-menu-slot-${this._nextId++}`;
             this._menuButtons.push(btn);
             try {
                 Main.panel.addToStatusArea(btnId, btn, position++, 'left');
@@ -1481,40 +2087,35 @@ class FUHGlobeGlobalMenu {
             const nItems = model.get_n_items();
             if (nItems > 0) {
                 console.log(`FUHGlobe: Found GMenuModel at ${menuPath} with ${nItems} items`);
-                // Successfully found a menu model — load it
-                this._loadGtkMenu(busName, menuPath, win);
-            } else {
-                console.log(`FUHGlobe: GMenuModel at ${menuPath} has no items, trying GTK Actions`);
-                // No menu items — fall through to actions fallback
-                const appId = win.gtk_application_id || '';
-                const appObjPath = appId ? '/' + appId.replace(/\./g, '/') : '';
-                if (appObjPath) {
-                    this._loadGtkActions(busName, appObjPath, win);
-                }
+                // Successfully found a menu model — load it directly with the obtained model
+                this._loadGtkMenu(busName, menuPath, win, model);
+                return true;
             }
+            console.log(`FUHGlobe: GMenuModel at ${menuPath} has no items`);
+            return false;
         } catch (e) {
             console.log(`FUHGlobe: Failed to probe menubar at ${menuPath}: ${e}`);
-            // Probe failed — fall through to actions fallback
-            const appId = win.gtk_application_id || '';
-            const appObjPath = appId ? '/' + appId.replace(/\./g, '/') : '';
-            if (appObjPath) {
-                this._loadGtkActions(busName, appObjPath, win);
-            }
+            return false;
         }
     }
 
     // ── GTK Menu Model loading ───────────────────────────────────────────
 
-    _loadGtkMenu(busName, menuPath, win) {
+    _loadGtkMenu(busName, menuPath, win, existingModel = null) {
         try {
-            this._gtkMenuModel = Gio.DBusMenuModel.get(
+            this._gtkMenuModel = existingModel || Gio.DBusMenuModel.get(
                 Gio.DBus.session, busName, menuPath
             );
 
-            let appObjectPath = '/org/gtk/Application/anonymous';
-            if (win.gtk_application_id) {
-                const candidatePath = '/' + win.gtk_application_id.replace(/\./g, '/');
-                appObjectPath = candidatePath;
+            let appObjectPath = _getWindowGtkAppObjectPath(win);
+            if (!appObjectPath) {
+                const appId = _getWindowGtkAppId(win);
+                const cleanAppId = appId.replace(/\.desktop$/, '');
+                if (cleanAppId) {
+                    appObjectPath = '/' + cleanAppId.replace(/\./g, '/');
+                } else {
+                    appObjectPath = '/org/gtk/Application/anonymous';
+                }
             }
 
             this._appActionGroup = Gio.DBusActionGroup.get(
@@ -1522,28 +2123,29 @@ class FUHGlobeGlobalMenu {
             );
             console.log(`FUHGlobe: GTK app action group at ${appObjectPath}`);
 
-            if (win.gtk_window_object_path) {
+            const winPath = _getWindowGtkWindowObjectPath(win);
+            if (winPath) {
                 this._winActionGroup = Gio.DBusActionGroup.get(
-                    Gio.DBus.session, busName, win.gtk_window_object_path
+                    Gio.DBus.session, busName, winPath
                 );
-                console.log(`FUHGlobe: GTK win action group at ${win.gtk_window_object_path}`);
+                console.log(`FUHGlobe: GTK win action group at ${winPath}`);
             }
 
             this._gtkMenuModelChangedId = this._gtkMenuModel.connect(
                 'items-changed',
                 () => {
                     console.log('FUHGlobe: GTK menu model items-changed, reloading');
-                    this._reloadGtkMenu();
+                    this._reloadGtkMenu(win);
                 }
             );
 
-            this._reloadGtkMenu();
+            this._reloadGtkMenu(win);
         } catch (e) {
             console.error(`FUHGlobe: Error loading GTK menu model: ${e}`);
         }
     }
 
-    _reloadGtkMenu() {
+    _reloadGtkMenu(win = null) {
         if (!this._gtkMenuModel) return;
 
         this._removeMenuItemButtons();
@@ -1565,8 +2167,9 @@ class FUHGlobeGlobalMenu {
             const label = labelVal ? labelVal.unpack() : '';
 
             if (label && submenu) {
-                const btn = new GtkMenuButton(label, submenu, actionDispatcher);
-                const btnId = `fuhgawz-menu-${this._nextId++}`;
+                const useHover = !this._settings || this._settings.get_boolean('enable-hover-submenus');
+                const btn = new GtkMenuButton(label, submenu, actionDispatcher, useHover);
+                const btnId = `fuhgawz-menu-slot-${this._nextId++}`;
                 this._menuButtons.push(btn);
                 try {
                     Main.panel.addToStatusArea(btnId, btn, position++, 'left');
@@ -1577,138 +2180,172 @@ class FUHGlobeGlobalMenu {
         }
 
         console.log(`FUHGlobe: Added ${position - 1} GTK menu buttons`);
+
+        if (position <= 2) {
+            console.log('FUHGlobe: 0 GTK menu buttons added from model, attempting declarative profile fallback');
+            const targetWin = win || (typeof global !== 'undefined' && global.display?.get_focus_window ? global.display.get_focus_window() : null);
+            const profile = (this._profileManager && targetWin) ? this._profileManager.getProfileForWindow(targetWin) : null;
+            const enableDeclarative = !this._settings || this._settings.get_boolean('enable-declarative-profiles');
+            if (enableDeclarative && profile && targetWin) {
+                this._loadDeclarativeProfile(profile, targetWin);
+            }
+        }
     }
 
     // ── GTK Actions loading (org.gtk.Actions.DescribeAll) ────────────────
     //
     // For apps that export actions but no menubar (most libadwaita apps).
-    // We call DescribeAll on both the app and window objects, then group the
-    // discovered actions into logical menu categories.
+    // Dispatches app and window DescribeAll in parallel and caches discovered paths.
 
-    _loadGtkActions(busName, appObjectPath, win) {
-        // Determine the window's D-Bus object path
-        let winObjectPath = win.gtk_window_object_path || '';
+    _loadGtkActions(busName, appObjectPath, win, profile = null, cycleId = 0) {
+        let winObjectPath = _getWindowGtkWindowObjectPath(win);
+
+        if (!winObjectPath && this._discoveredWinPaths && this._discoveredWinPaths.has(appObjectPath)) {
+            winObjectPath = this._discoveredWinPaths.get(appObjectPath);
+        }
 
         console.log(`FUHGlobe: Loading GTK Actions from bus=${busName} app=${appObjectPath} win=${winObjectPath}`);
 
-        // Call DescribeAll on the app object
-        Gio.DBus.session.call(
-            busName,
-            appObjectPath,
-            'org.gtk.Actions',
-            'DescribeAll',
-            null,
-            GLib.VariantType.new('(a{s(bgav)})'),
-            Gio.DBusCallFlags.NONE,
-            -1,
-            null,
-            (_conn, appResult) => {
-                let appActions = {};
-                try {
-                    const result = Gio.DBus.session.call_finish(appResult);
-                    appActions = result.deepUnpack()[0] || {};
-                } catch (e) {
-                    console.log(`FUHGlobe: DescribeAll on app path failed: ${e}`);
-                }
+        const fetchParallel = (targetWinPath, preloadedWinActions = null) => {
+            let appActions = null;
+            let winActions = preloadedWinActions;
+            let finished = false;
 
-                // Now try window-level actions if we have a path
-                if (winObjectPath) {
-                    Gio.DBus.session.call(
-                        busName,
-                        winObjectPath,
-                        'org.gtk.Actions',
-                        'DescribeAll',
-                        null,
-                        GLib.VariantType.new('(a{s(bgav)})'),
-                        Gio.DBusCallFlags.NONE,
-                        -1,
-                        null,
-                        (_conn2, winResult) => {
-                            let winActions = {};
-                            try {
-                                const result2 = Gio.DBus.session.call_finish(winResult);
-                                winActions = result2.deepUnpack()[0] || {};
-                            } catch (e) {
-                                console.log(`FUHGlobe: DescribeAll on win path failed: ${e}`);
-                            }
-                            this._buildActionsMenu(appActions, winActions, busName, appObjectPath, winObjectPath, win);
+            const checkDone = () => {
+                if (appActions !== null && winActions !== null && !finished) {
+                    finished = true;
+                    if (cycleId && this._updateCycleId !== cycleId) {
+                        console.log(`FUHGlobe: GTK Actions cycle ${cycleId} superseded by ${this._updateCycleId}, ignoring`);
+                        return;
+                    }
+                    if (global.display && typeof global.display.get_focus_window === 'function') {
+                        if (global.display.get_focus_window() !== win) {
+                            console.log('FUHGlobe: Window focus changed before GTK actions arrived, ignoring');
+                            return;
                         }
-                    );
-                } else {
-                    // Try to discover window object path by introspecting
-                    this._discoverWindowPath(busName, appObjectPath, (discoveredWinPath) => {
-                        if (discoveredWinPath) {
-                            console.log(`FUHGlobe: Discovered window path: ${discoveredWinPath}`);
-                            Gio.DBus.session.call(
-                                busName,
-                                discoveredWinPath,
-                                'org.gtk.Actions',
-                                'DescribeAll',
-                                null,
-                                GLib.VariantType.new('(a{s(bgav)})'),
-                                Gio.DBusCallFlags.NONE,
-                                -1,
-                                null,
-                                (_conn3, winResult2) => {
-                                    let winActions = {};
-                                    try {
-                                        const result3 = Gio.DBus.session.call_finish(winResult2);
-                                        winActions = result3.deepUnpack()[0] || {};
-                                    } catch (e) {
-                                        console.log(`FUHGlobe: DescribeAll on discovered win path failed: ${e}`);
-                                    }
-                                    this._buildActionsMenu(appActions, winActions, busName, appObjectPath, discoveredWinPath, win);
-                                }
-                            );
-                        } else {
-                            // No window path found — build with app actions only
-                            console.log('FUHGlobe: No window path found, using app actions only');
-                            this._buildActionsMenu(appActions, {}, busName, appObjectPath, '', win);
-                        }
-                    });
+                    }
+                    if (targetWinPath && appObjectPath) {
+                        if (!this._discoveredWinPaths) this._discoveredWinPaths = new Map();
+                        this._discoveredWinPaths.set(appObjectPath, targetWinPath);
+                    }
+                    this._buildActionsMenu(appActions, winActions, busName, appObjectPath, targetWinPath, win, profile, cycleId);
                 }
+            };
+
+            // Call DescribeAll on the app object
+            Gio.DBus.session.call(
+                busName,
+                appObjectPath,
+                'org.gtk.Actions',
+                'DescribeAll',
+                null,
+                GLib.VariantType.new('(a{s(bgav)})'),
+                Gio.DBusCallFlags.NONE,
+                1000,
+                null,
+                (_conn, appResult) => {
+                    try {
+                        const result = Gio.DBus.session.call_finish(appResult);
+                        appActions = result.deepUnpack()[0] || {};
+                    } catch (e) {
+                        console.log(`FUHGlobe: DescribeAll on app path failed: ${e}`);
+                        appActions = {};
+                    }
+                    checkDone();
+                }
+            );
+
+            // Call DescribeAll on window path in parallel if not already preloaded
+            if (targetWinPath && winActions === null) {
+                Gio.DBus.session.call(
+                    busName,
+                    targetWinPath,
+                    'org.gtk.Actions',
+                    'DescribeAll',
+                    null,
+                    GLib.VariantType.new('(a{s(bgav)})'),
+                    Gio.DBusCallFlags.NONE,
+                    1000,
+                    null,
+                    (_conn2, winResult) => {
+                        try {
+                            const result2 = Gio.DBus.session.call_finish(winResult);
+                            winActions = result2.deepUnpack()[0] || {};
+                        } catch (e) {
+                            console.log(`FUHGlobe: DescribeAll on win path failed: ${e}`);
+                            winActions = {};
+                        }
+                        checkDone();
+                    }
+                );
+            } else if (!targetWinPath) {
+                winActions = {};
+                checkDone();
+            } else {
+                checkDone();
             }
-        );
+        };
+
+        if (winObjectPath) {
+            fetchParallel(winObjectPath);
+        } else {
+            this._discoverWindowPath(busName, appObjectPath, (discoveredWinPath, discoveredActions) => {
+                if (cycleId && this._updateCycleId !== cycleId) return;
+                if (global.display && typeof global.display.get_focus_window === 'function') {
+                    if (global.display.get_focus_window() !== win) return;
+                }
+                if (discoveredWinPath) {
+                    console.log(`FUHGlobe: Discovered window path: ${discoveredWinPath}`);
+                    fetchParallel(discoveredWinPath, discoveredActions);
+                } else {
+                    console.log('FUHGlobe: No window path found, using app actions only');
+                    fetchParallel('');
+                }
+            });
+        }
     }
 
     // Discover window child nodes under /app/path/window/
     _discoverWindowPath(busName, appObjectPath, callback) {
         const windowBasePath = appObjectPath + '/window';
 
-        // First, try to introspect the /window base path to find child nodes
-        Gio.DBus.session.call(
-            busName,
-            windowBasePath,
-            'org.freedesktop.DBus.Introspectable',
-            'Introspect',
-            null,
-            GLib.VariantType.new('(s)'),
-            Gio.DBusCallFlags.NONE,
-            -1,
-            null,
-            (_conn, result) => {
-                try {
-                    const xmlStr = Gio.DBus.session.call_finish(result).deepUnpack()[0];
-                    // Parse out <node name="N"/> entries
-                    const nodeMatches = xmlStr.match(/node\s+name="(\d+)"/g);
-                    if (nodeMatches && nodeMatches.length > 0) {
-                        // Get the first (or most recent) window number
-                        const nums = nodeMatches.map(m => {
-                            const n = m.match(/name="(\d+)"/);
-                            return n ? parseInt(n[1]) : 0;
-                        }).sort((a, b) => b - a); // Highest number = most recent
-                        callback(`${windowBasePath}/${nums[0]}`);
-                    } else {
-                        // No child nodes found — try /window/0 directly as fallback
+        // Check /window/1 directly first (GTK window IDs start at 1)
+        this._tryWindowPath(busName, `${windowBasePath}/1`, (win1Path, win1Actions) => {
+            if (win1Path) {
+                callback(win1Path, win1Actions);
+                return;
+            }
+
+            // Introspect /window base path to find any other window node numbers
+            Gio.DBus.session.call(
+                busName,
+                windowBasePath,
+                'org.freedesktop.DBus.Introspectable',
+                'Introspect',
+                null,
+                GLib.VariantType.new('(s)'),
+                Gio.DBusCallFlags.NONE,
+                1000,
+                null,
+                (_conn, result) => {
+                    try {
+                        const xmlStr = Gio.DBus.session.call_finish(result).deepUnpack()[0];
+                        const nodeMatches = xmlStr.match(/node\s+name="(\d+)"/g);
+                        if (nodeMatches && nodeMatches.length > 0) {
+                            const nums = nodeMatches.map(m => {
+                                const n = m.match(/name="(\d+)"/);
+                                return n ? parseInt(n[1]) : 0;
+                            }).sort((a, b) => b - a);
+                            this._tryWindowPath(busName, `${windowBasePath}/${nums[0]}`, callback);
+                        } else {
+                            this._tryWindowPath(busName, `${windowBasePath}/0`, callback);
+                        }
+                    } catch (e) {
                         this._tryWindowPath(busName, `${windowBasePath}/0`, callback);
                     }
-                } catch (e) {
-                    console.log(`FUHGlobe: Introspect on ${windowBasePath} failed: ${e}, trying /window/0`);
-                    // Introspection failed — try /window/0 directly
-                    this._tryWindowPath(busName, `${windowBasePath}/0`, callback);
                 }
-            }
-        );
+            );
+        });
     }
 
     // Probe a specific window path to check if it exports actions
@@ -1721,24 +2358,33 @@ class FUHGlobeGlobalMenu {
             null,
             GLib.VariantType.new('(a{s(bgav)})'),
             Gio.DBusCallFlags.NONE,
-            -1,
+            1000,
             null,
             (_conn, result) => {
                 try {
-                    Gio.DBus.session.call_finish(result);
-                    // Path exists and has actions — use it
+                    const res = Gio.DBus.session.call_finish(result);
+                    const actions = res.deepUnpack()[0] || {};
                     console.log(`FUHGlobe: Window path ${windowPath} has actions`);
-                    callback(windowPath);
+                    callback(windowPath, actions);
                 } catch (e) {
-                    // Path doesn't exist or has no actions
                     console.log(`FUHGlobe: Window path ${windowPath} has no actions: ${e}`);
-                    callback(null);
+                    callback(null, null);
                 }
             }
         );
     }
 
-    _buildActionsMenu(appActions, winActions, busName, appObjectPath, winObjectPath, win = null) {
+    _buildActionsMenu(appActions, winActions, busName, appObjectPath, winObjectPath, win = null, profile = null, cycleId = 0) {
+        if (cycleId && this._updateCycleId !== cycleId) {
+            console.log(`FUHGlobe: Aborting _buildActionsMenu for superseded cycle ${cycleId}`);
+            return;
+        }
+        if (global.display && typeof global.display.get_focus_window === 'function') {
+            if (global.display.get_focus_window() !== win) {
+                console.log('FUHGlobe: Window changed before building actions menu, aborting');
+                return;
+            }
+        }
         console.log(`FUHGlobe: Building actions menu — app actions: ${Object.keys(appActions).length}, win actions: ${Object.keys(winActions).length}`);
 
         // Merge all actions with metadata
@@ -1848,7 +2494,7 @@ class FUHGlobeGlobalMenu {
             const btn = new ActionsMenuButton(
                 groupName, items, busName, appObjectPath, winObjectPath, win, this._virtualKeyboard
             );
-            const btnId = `fuhgawz-menu-${this._nextId++}`;
+            const btnId = `fuhgawz-menu-slot-${this._nextId++}`;
             this._menuButtons.push(btn);
             try {
                 Main.panel.addToStatusArea(btnId, btn, position++, 'left');
@@ -1859,6 +2505,15 @@ class FUHGlobeGlobalMenu {
         }
 
         console.log(`FUHGlobe: Added ${addedCount} action-based menu buttons`);
+        const profileToUse = profile || (this._profileManager && win ? this._profileManager.getProfileForWindow(win) : null);
+        const enableDeclarative = !this._settings || this._settings.get_boolean('enable-declarative-profiles');
+        if (addedCount === 0 || (addedCount < 3 && !grouped['File'] && profileToUse)) {
+            console.log('FUHGlobe: GTK actions empty or incomplete, falling back to declarative profile');
+            if (enableDeclarative && profileToUse && win) {
+                this._removeMenuItemButtons();
+                this._loadDeclarativeProfile(profileToUse, win);
+            }
+        }
     }
 
     // Categorize actions by heuristic name patterns
@@ -1956,8 +2611,9 @@ class FUHGlobeGlobalMenu {
                 const label = props.label || '';
 
                 if (label && topItem.children && topItem.children.length > 0) {
-                    const btn = new DBusMenuButton(label, topItem.children, this._activeProxy);
-                    const btnId = `fuhgawz-menu-${this._nextId++}`;
+                    const useHover = !this._settings || this._settings.get_boolean('enable-hover-submenus');
+                    const btn = new DBusMenuButton(label, topItem.children, this._activeProxy, useHover);
+                    const btnId = `fuhgawz-menu-slot-${this._nextId++}`;
                     this._menuButtons.push(btn);
                     try {
                         Main.panel.addToStatusArea(btnId, btn, position++, 'left');

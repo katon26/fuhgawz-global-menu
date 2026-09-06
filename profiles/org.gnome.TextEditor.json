@@ -1,8 +1,8 @@
 {
   "id": "org.gnome.TextEditor",
   "match": {
-    "wm_class": ["org.gnome.TextEditor", "gnome-text-editor"],
-    "app_id": ["org.gnome.TextEditor.desktop", "gnome-text-editor.desktop"]
+    "wm_class": ["org.gnome.TextEditor", "gnome-text-editor", "Text Editor", "text-editor", "texteditor", "TextEditor"],
+    "app_id": ["org.gnome.TextEditor", "org.gnome.TextEditor.desktop", "gnome-text-editor", "gnome-text-editor.desktop", "text-editor", "texteditor"]
   },
   "app_menu": {
     "label": "Text Editor",

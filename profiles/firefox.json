@@ -8,7 +8,7 @@
     "label": "Firefox",
     "items": [
       { "label": "About Firefox", "action": "about", "shortcut": "" },
-      { "label": "Settings", "shortcut": "Ctrl+," },
+      { "label": "Settings", "action": "settings", "shortcut": "" },
       { "type": "separator" },
       { "label": "Hide Firefox", "action": "hide" },
       { "type": "separator" },
@@ -81,7 +81,7 @@
       "items": [
         { "label": "Downloads", "shortcut": "Ctrl+Shift+Y" },
         { "label": "Add-ons and Themes", "shortcut": "Ctrl+Shift+A" },
-        { "label": "Settings", "shortcut": "Ctrl+," },
+        { "label": "Settings", "action": "settings", "shortcut": "" },
         { "label": "Page Info", "shortcut": "Ctrl+I" }
       ]
     },

@@ -1,19 +1,19 @@
 {
-  "id": "com.visualstudio.code",
+  "id": "antigravity",
   "match": {
-    "wm_class": ["code", "Code", "com.visualstudio.code", "vscodium", "VSCodium", "code-oss"],
-    "app_id": ["code.desktop", "com.visualstudio.code.desktop", "vscodium.desktop", "code-oss.desktop"]
+    "wm_class": ["antigravity", "Antigravity"],
+    "app_id": ["antigravity.desktop", "Antigravity.desktop", "antigravity", "Antigravity"]
   },
   "app_menu": {
-    "label": "Code",
+    "label": "Antigravity",
     "items": [
-      { "label": "About Visual Studio Code", "action": "about", "shortcut": "" },
+      { "label": "About Antigravity", "action": "about", "shortcut": "" },
       { "label": "Preferences: Settings", "shortcut": "Ctrl+," },
       { "label": "Keyboard Shortcuts", "shortcut": "Ctrl+K Ctrl+S" },
       { "type": "separator" },
-      { "label": "Hide Code", "action": "hide" },
+      { "label": "Hide Antigravity", "action": "hide" },
       { "type": "separator" },
-      { "label": "Quit Code", "shortcut": "Ctrl+Q" }
+      { "label": "Quit Antigravity", "shortcut": "Ctrl+Q" }
     ]
   },
   "menus": [
@@ -84,7 +84,7 @@
     {
       "label": "Help",
       "items": [
-        { "label": "About", "action": "about", "shortcut": "" }
+        { "label": "About Antigravity", "action": "about", "shortcut": "" }
       ]
     }
   ]

@@ -2,7 +2,7 @@
   "id": "dev.zed.Zed",
   "match": {
     "wm_class": ["dev.zed.Zed", "zed", "Zed"],
-    "app_id": ["dev.zed.Zed.desktop", "zed.desktop"]
+    "app_id": ["dev.zed.Zed.desktop", "dev.zed.Zed", "zed.desktop", "zed"]
   },
   "app_menu": {
     "label": "Zed",

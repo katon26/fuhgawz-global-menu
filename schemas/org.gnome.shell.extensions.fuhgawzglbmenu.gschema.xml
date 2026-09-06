@@ -11,6 +11,16 @@
       <summary>Enable GTK 4 Actions probing</summary>
       <description>Enumerate org.gtk.Actions for modern apps without traditional menubars.</description>
     </key>
+    <key name="enable-declarative-profiles" type="b">
+      <default>true</default>
+      <summary>Enable Wayland Fallback Menus</summary>
+      <description>Enable Wayland Fallback Menus for unsupported apps like Brave, Firefox, Zed, Antigravity.</description>
+    </key>
+    <key name="enable-hover-submenus" type="b">
+      <default>true</default>
+      <summary>Enable Hover Flyout Submenus macOS-style</summary>
+      <description>Display nested submenus as macOS-style horizontal flyouts instead of inline accordions.</description>
+    </key>
     <key name="menu-padding" type="i">
       <default>10</default>
       <summary>Menu item padding</summary>

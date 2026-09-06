@@ -1,0 +1,87 @@
+{
+  "id": "onlyoffice-desktopeditors",
+  "match": {
+    "wm_class": [
+      "DesktopEditors",
+      "desktopeditors",
+      "onlyoffice-desktopeditors",
+      "asc.onlyoffice.DesktopEditors",
+      "asc.onlyoffice"
+    ],
+    "app_id": [
+      "onlyoffice-desktopeditors.desktop",
+      "onlyoffice-desktopeditors",
+      "desktopeditors.desktop",
+      "desktopeditors",
+      "asc.onlyoffice.DesktopEditors",
+      "asc.onlyoffice.DesktopEditors.desktop",
+      "asc.onlyoffice"
+    ]
+  },
+  "app_menu": {
+    "label": "ONLYOFFICE",
+    "items": [
+      { "label": "About ONLYOFFICE", "shortcut": "" },
+      { "label": "Settings", "shortcut": "Ctrl+," },
+      { "type": "separator" },
+      { "label": "Quit", "shortcut": "Ctrl+Q" }
+    ]
+  },
+  "menus": [
+    {
+      "label": "File",
+      "items": [
+        { "label": "New Document", "shortcut": "Ctrl+N" },
+        { "label": "Open Local File…", "shortcut": "Ctrl+O" },
+        { "type": "separator" },
+        { "label": "Save", "shortcut": "Ctrl+S" },
+        { "label": "Save As…", "shortcut": "Ctrl+Shift+S" },
+        { "type": "separator" },
+        { "label": "Print", "shortcut": "Ctrl+P" },
+        { "label": "Close", "shortcut": "Ctrl+W" }
+      ]
+    },
+    {
+      "label": "Edit",
+      "items": [
+        { "label": "Undo", "shortcut": "Ctrl+Z" },
+        { "label": "Redo", "shortcut": "Ctrl+Y" },
+        { "type": "separator" },
+        { "label": "Cut", "shortcut": "Ctrl+X" },
+        { "label": "Copy", "shortcut": "Ctrl+C" },
+        { "label": "Paste", "shortcut": "Ctrl+V" },
+        { "label": "Select All", "shortcut": "Ctrl+A" },
+        { "type": "separator" },
+        { "label": "Find", "shortcut": "Ctrl+F" },
+        { "label": "Replace", "shortcut": "Ctrl+H" }
+      ]
+    },
+    {
+      "label": "View",
+      "items": [
+        { "label": "Full Screen", "shortcut": "F11" },
+        { "type": "separator" },
+        { "label": "Zoom In", "shortcut": "Ctrl++" },
+        { "label": "Zoom Out", "shortcut": "Ctrl+-" },
+        { "label": "Zoom 100%", "shortcut": "Ctrl+0" }
+      ]
+    },
+    {
+      "label": "Insert",
+      "items": [
+        { "label": "Table", "shortcut": "" },
+        { "label": "Picture", "shortcut": "" },
+        { "label": "Shape", "shortcut": "" },
+        { "label": "Chart", "shortcut": "" },
+        { "label": "Hyperlink", "shortcut": "Ctrl+K" }
+      ]
+    },
+    {
+      "label": "Help",
+      "items": [
+        { "label": "Keyboard Shortcuts", "shortcut": "Ctrl+?" },
+        { "label": "About ONLYOFFICE", "shortcut": "" }
+      ]
+    }
+  ]
+}
