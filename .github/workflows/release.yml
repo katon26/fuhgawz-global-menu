@@ -24,15 +24,18 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             gnome-shell \
+            gir1.2-mutter-14 \
             libglib2.0-bin \
             gjs \
-            zip
+            zip || sudo apt-get install -y --no-install-recommends gnome-shell libglib2.0-bin gjs zip
 
       - name: Compile GSettings Schemas
         run: |
           glib-compile-schemas schemas/
 
       - name: Run Automated Test Suite
+        env:
+          GI_TYPELIB_PATH: /usr/lib/x86_64-linux-gnu/mutter-14:/usr/lib/x86_64-linux-gnu/gnome-shell:${{ env.GI_TYPELIB_PATH }}
         run: |
           gjs -m tests/test_profileManager.js
           gjs -m tests/test_hoverSubMenu_logic.js
