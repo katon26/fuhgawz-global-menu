@@ -21,7 +21,7 @@ EXT_DIR="${HOME}/.local/share/gnome-shell/extensions/${UUID}"
 
 info "Installing FUHGAWZ Global Menu to ${EXT_DIR}..."
 mkdir -p "${EXT_DIR}"
-cp -f metadata.json extension.js prefs.js stylesheet.css "${EXT_DIR}/"
+cp -f metadata.json extension.js prefs.js prefs.css stylesheet.css "${EXT_DIR}/"
 for dir in src app icons sysmenu profiles; do
     if [[ -d "${dir}" ]]; then
         mkdir -p "${EXT_DIR}/${dir}"

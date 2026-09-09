@@ -1,0 +1,53 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * prefs.css - Styles for FUHGAWZ Global Menu preferences window (GTK4/libadwaita).
+ */
+
+.fuhgawz-version-pill,
+.kiwimenu-version-pill {
+  padding: 6px 14px;
+  min-height: 0;
+  border-radius: 999px;
+  border: none;
+  background-color: alpha(@accent_bg_color, 0.18);
+  color: @accent_color;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.fuhgawz-version-pill:hover,
+.kiwimenu-version-pill:hover {
+  background-color: alpha(@accent_bg_color, 0.26);
+}
+
+.fuhgawz-version-pill:active,
+.kiwimenu-version-pill:active {
+  background-color: alpha(@accent_bg_color, 0.34);
+}
+
+.fuhgawz-coffee-button,
+.kiwimenu-coffee-button {
+  padding: 8px 16px;
+  min-height: 0;
+  border-radius: 999px;
+  border: none;
+  background-color: alpha(@accent_bg_color, 0.18);
+  color: @accent_color;
+  font-weight: 600;
+}
+
+.fuhgawz-coffee-button:hover,
+.kiwimenu-coffee-button:hover {
+  background-color: alpha(@accent_bg_color, 0.26);
+}
+
+.fuhgawz-coffee-button:active,
+.kiwimenu-coffee-button:active {
+  background-color: alpha(@accent_bg_color, 0.34);
+}
+
+.fuhgawz-shortcut-status .icon,
+.kiwimenu-shortcut-status .icon {
+  -gtk-icon-size: 48px;
+}

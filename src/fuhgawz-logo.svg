@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3584e4"/>
+      <stop offset="100%" stop-color="#1c71d8"/>
+    </linearGradient>
+    <linearGradient id="panelGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.10"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- Base App Tile with Shadow -->
+  <rect x="12" y="12" width="104" height="104" rx="26" fill="url(#bgGrad)" filter="url(#shadow)"/>
+
+  <!-- Top Bar Simulation -->
+  <rect x="22" y="24" width="84" height="18" rx="7" fill="url(#panelGrad)"/>
+
+  <!-- Top Bar Menu Dots / Logo -->
+  <circle cx="32" cy="33" r="3.5" fill="#ffffff" fill-opacity="0.95"/>
+  <rect x="42" y="31" width="14" height="4" rx="2" fill="#ffffff" fill-opacity="0.95"/>
+  <rect x="60" y="31" width="12" height="4" rx="2" fill="#ffffff" fill-opacity="0.75"/>
+  <rect x="76" y="31" width="12" height="4" rx="2" fill="#ffffff" fill-opacity="0.75"/>
+
+  <!-- Dropdown Global Menu Card -->
+  <rect x="36" y="48" width="56" height="54" rx="10" fill="#ffffff" fill-opacity="0.95" filter="url(#shadow)"/>
+
+  <!-- Menu Rows in Dropdown -->
+  <rect x="44" y="58" width="28" height="4" rx="2" fill="#1c71d8"/>
+  <rect x="76" y="58" width="10" height="4" rx="2" fill="#9a9996"/>
+
+  <rect x="44" y="68" width="34" height="4" rx="2" fill="#241f31"/>
+  <rect x="44" y="78" width="24" height="4" rx="2" fill="#241f31"/>
+
+  <line x1="42" y1="87" x2="86" y2="87" stroke="#e1e1e1" stroke-width="1.5"/>
+
+  <rect x="44" y="92" width="20" height="4" rx="2" fill="#e01b24"/>
+</svg>

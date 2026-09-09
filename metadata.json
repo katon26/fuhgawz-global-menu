@@ -11,5 +11,7 @@
   ],
   "uuid": "fuhgawzglbmenu@katon26.github.io",
   "url": "https://github.com/katon26/fuhgawz-global-menu",
-  "settings-schema": "org.gnome.shell.extensions.fuhgawzglbmenu"
+  "settings-schema": "org.gnome.shell.extensions.fuhgawzglbmenu",
+  "version": 1,
+  "version-name": "1.0.0"
 }
