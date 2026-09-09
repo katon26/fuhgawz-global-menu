@@ -58,6 +58,8 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._chromeAdded = false;
             this._isDestroyed = false;
             this._grab = null;
+            this._stageCapturedEventId = 0;
+            this._pressedItem = null;
             this._lazyPopulate = typeof params.populate === 'function' ? params.populate : null;
             this._isPopulated = false;
 
@@ -496,6 +498,148 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             }
         }
 
+        _findMenuItem(actor) {
+            let curr = actor;
+            while (curr) {
+                if (curr._delegate && (curr._delegate instanceof PopupMenu.PopupBaseMenuItem || typeof curr._delegate.activate === 'function')) {
+                    return curr._delegate;
+                }
+                if (typeof curr.activate === 'function' && typeof curr.addMenuItem !== 'function') {
+                    return curr;
+                }
+                curr = curr.get_parent ? curr.get_parent() : null;
+            }
+            return null;
+        }
+
+        _startGlobalClickMonitor() {
+            if (this._stageCapturedEventId !== 0) return;
+
+            if (typeof global !== 'undefined' && global.stage) {
+                this._stageCapturedEventId = global.stage.connect('captured-event', (_stage, event) => {
+                    if (!this.isOpen) {
+                        this._stopGlobalClickMonitor();
+                        return Clutter.EVENT_PROPAGATE;
+                    }
+
+                    const eventType = event.type();
+                    if (
+                        eventType !== Clutter.EventType.BUTTON_PRESS &&
+                        eventType !== Clutter.EventType.BUTTON_RELEASE &&
+                        eventType !== Clutter.EventType.TOUCH_BEGIN &&
+                        eventType !== Clutter.EventType.TOUCH_END
+                    ) {
+                        return Clutter.EVENT_PROPAGATE;
+                    }
+
+                    let targetActor = null;
+                    try {
+                        targetActor = global.stage.get_event_actor(event);
+                    } catch (e) {}
+
+                    if (!targetActor) return Clutter.EVENT_PROPAGATE;
+
+                    // 1. Check if click is inside this submenu flyout
+                    const isInsideThis = this.menu?.actor && (
+                        this.menu.actor === targetActor ||
+                        (this.menu.actor.contains && this.menu.actor.contains(targetActor))
+                    );
+
+                    if (isInsideThis) {
+                        const menuItem = this._findMenuItem(targetActor);
+
+                        if (eventType === Clutter.EventType.BUTTON_PRESS || eventType === Clutter.EventType.TOUCH_BEGIN) {
+                            this._pressedItem = menuItem;
+                            if (menuItem && typeof menuItem.add_style_pseudo_class === 'function') {
+                                menuItem.add_style_pseudo_class('active');
+                            }
+                            return Clutter.EVENT_STOP;
+                        }
+
+                        if (eventType === Clutter.EventType.BUTTON_RELEASE || eventType === Clutter.EventType.TOUCH_END) {
+                            const pressed = this._pressedItem;
+                            this._pressedItem = null;
+                            if (pressed && typeof pressed.remove_style_pseudo_class === 'function') {
+                                pressed.remove_style_pseudo_class('active');
+                            }
+
+                            if (menuItem) {
+                                if (menuItem instanceof HoverSubMenuMenuItem || menuItem?._ownerSubMenu) {
+                                    menuItem.open();
+                                    return Clutter.EVENT_STOP;
+                                }
+                                if (typeof menuItem.activate === 'function') {
+                                    menuItem.activate(event);
+                                    this.close();
+                                    this._closeEntireMenuChain();
+                                    return Clutter.EVENT_STOP;
+                                }
+                            }
+                            return Clutter.EVENT_STOP;
+                        }
+
+                        return Clutter.EVENT_STOP;
+                    }
+
+                    // 2. Click is inside an open child submenu flyout: let the child handle it
+                    if (this._childSubmenus) {
+                        for (const child of this._childSubmenus) {
+                            if (child && child.isOpen && child.menu?.actor &&
+                                (child.menu.actor === targetActor || (child.menu.actor.contains && child.menu.actor.contains(targetActor)))) {
+                                return Clutter.EVENT_PROPAGATE;
+                            }
+                        }
+                    }
+
+                    // 3. Click is on trigger item, parent menu, or ancestor
+                    let isAncestor = false;
+                    let p = this._parentHoverSubmenu;
+                    while (p) {
+                        if ((p.actor && (p.actor === targetActor || (p.actor.contains && p.actor.contains(targetActor)))) ||
+                            (p.menu?.actor && (p.menu.actor === targetActor || (p.menu.actor.contains && p.menu.actor.contains(targetActor))))) {
+                            isAncestor = true;
+                            break;
+                        }
+                        p = p._parentHoverSubmenu;
+                    }
+
+                    if ((this.actor && (this.actor === targetActor || (this.actor.contains && this.actor.contains(targetActor)))) ||
+                        (this._parentMenu?.actor && (this._parentMenu.actor === targetActor || (this._parentMenu.actor.contains && this._parentMenu.actor.contains(targetActor)))) ||
+                        isAncestor) {
+                        if (eventType === Clutter.EventType.BUTTON_PRESS || eventType === Clutter.EventType.TOUCH_BEGIN) {
+                            this.close();
+                        }
+                        return Clutter.EVENT_PROPAGATE;
+                    }
+
+                    // 4. Click outside everything
+                    if (eventType === Clutter.EventType.BUTTON_PRESS || eventType === Clutter.EventType.TOUCH_BEGIN) {
+                        this.close();
+                    }
+                    return Clutter.EVENT_PROPAGATE;
+                });
+            }
+        }
+
+        _stopGlobalClickMonitor() {
+            if (this._stageCapturedEventId !== 0) {
+                if (typeof global !== 'undefined' && global.stage) {
+                    try {
+                        global.stage.disconnect(this._stageCapturedEventId);
+                    } catch (e) {}
+                }
+                this._stageCapturedEventId = 0;
+            }
+            if (this._pressedItem) {
+                try {
+                    if (typeof this._pressedItem.remove_style_pseudo_class === 'function') {
+                        this._pressedItem.remove_style_pseudo_class('active');
+                    }
+                } catch (e) {}
+                this._pressedItem = null;
+            }
+        }
+
         _setSubmenuHover(shouldHover) {
             if (typeof this.setActive === 'function') {
                 this.setActive(shouldHover);
@@ -790,12 +934,14 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             }
 
             this._startGlobalHoverMonitor();
+            this._startGlobalClickMonitor();
         }
 
         close() {
             this._cancelOpenDelay();
             this._cancelClose();
             this._stopGlobalHoverMonitor();
+            this._stopGlobalClickMonitor();
             this._disconnectSiblingSignals();
             this._unregisterFromTopMenu();
 
@@ -846,6 +992,7 @@ export const HoverSubMenuMenuItem = GObject.registerClass(
             this._cancelClose();
             this._cancelOpenDelay();
             this._stopGlobalHoverMonitor();
+            this._stopGlobalClickMonitor();
             this._disconnectParentSignals();
             this._disconnectSiblingSignals();
             this._unregisterFromTopMenu();

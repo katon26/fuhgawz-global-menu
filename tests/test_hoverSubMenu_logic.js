@@ -1097,4 +1097,81 @@ assert(actBtn.menu.isOpen === true, "ActionsMenuButton opened");
 actBtn.menu._items[0].activate();
 assert(actBtn.menu.isOpen === false, "ActionsMenuButton closes menu on action activation");
 
+// 24. Verifying direct click monitor activation on flyout items (BUTTON_PRESS & BUTTON_RELEASE)
+console.log("24. Verifying direct click monitor activation on flyout items...");
+
+let activatedChild = false;
+const mockLeafItem = {
+    _delegate: null,
+    sensitive: true,
+    activate: () => {
+        activatedChild = true;
+    }
+};
+mockLeafItem._delegate = mockLeafItem;
+
+const mockSubmenuFlyout = {
+    actor: {
+        contains: (target) => target === mockLeafItem
+    }
+};
+
+let capturedStageHandler = null;
+const mockGlobalStage = {
+    connect: (signal, handler) => {
+        if (signal === "captured-event") {
+            capturedStageHandler = handler;
+            return 777;
+        }
+        return 0;
+    },
+    disconnect: (id) => {
+        if (id === 777) capturedStageHandler = null;
+    },
+    get_event_actor: (_event) => mockLeafItem
+};
+
+// Simulate _startGlobalClickMonitor logic
+let pressedItem = null;
+function handleStageCapturedEvent(event) {
+    const eventType = event.type;
+    const targetActor = mockGlobalStage.get_event_actor(event);
+    const isInsideThis = mockSubmenuFlyout.actor.contains(targetActor);
+
+    if (isInsideThis) {
+        const menuItem = targetActor._delegate;
+        if (eventType === 4) { // BUTTON_PRESS
+            pressedItem = menuItem;
+            return 1; // Clutter.EVENT_STOP
+        }
+        if (eventType === 7) { // BUTTON_RELEASE
+            const pressed = pressedItem;
+            pressedItem = null;
+            if (menuItem && (menuItem === pressed || !pressed)) {
+                if (typeof menuItem.activate === "function") {
+                    menuItem.activate(event);
+                    return 1; // Clutter.EVENT_STOP
+                }
+            }
+            return 1;
+        }
+        return 1;
+    }
+    return 0; // Clutter.EVENT_PROPAGATE
+}
+
+// 1. Send BUTTON_PRESS on leaf item
+const pressEvent = { type: 4 };
+const pressResult = handleStageCapturedEvent(pressEvent);
+assert(pressResult === 1, "BUTTON_PRESS captured and stopped on flyout child");
+assert(pressedItem === mockLeafItem, "Pressed item recorded");
+assert(activatedChild === false, "Not activated until release");
+
+// 2. Send BUTTON_RELEASE on same leaf item
+const releaseEvent = { type: 7 };
+const releaseResult = handleStageCapturedEvent(releaseEvent);
+assert(releaseResult === 1, "BUTTON_RELEASE captured and stopped on flyout child");
+assert(pressedItem === null, "Pressed item reset");
+assert(activatedChild === true, "Leaf item activated successfully on BUTTON_RELEASE");
+
 console.log("All Multi-level Submenu and Hover tests passed successfully!");

@@ -379,19 +379,21 @@ class AppMenuButton extends PanelMenu.Button {
         this._profile = profile;
         this._dispatcher = dispatcher;
 
-        const box = new St.BoxLayout({
+        this._box = new St.BoxLayout({
             style_class: 'panel-status-menu-box fuhgawz-menu-box',
         });
+        this._icon = null;
 
         const tracker = Shell.WindowTracker.get_default();
-        const app = tracker.focus_app;
+        const app = tracker ? tracker.focus_app : null;
 
         if (app) {
             try {
-                const icon = app.create_icon_texture(16);
-                if (icon) box.add_child(icon);
+                this._icon = app.create_icon_texture(16);
+                if (this._icon) this._box.add_child(this._icon);
             } catch (e) {
                 console.log(`FUHGlobe: Could not create app icon: ${e}`);
+                this._icon = null;
             }
         }
 
@@ -415,10 +417,92 @@ class AppMenuButton extends PanelMenu.Button {
             style_class: 'fuhgawz-app-title',
             y_align: Clutter.ActorAlign.CENTER,
         });
-        box.add_child(this._label);
-        this.add_child(box);
+        this._box.add_child(this._label);
+        this.add_child(this._box);
 
         this._buildMenu(appLabel);
+        if (!metaWindow) {
+            this.hide();
+        }
+    }
+
+    updateForWindow(metaWindow, profile = null, dispatcher = null) {
+        this._window = metaWindow;
+        this._profile = profile;
+        this._dispatcher = dispatcher;
+
+        if (this._icon) {
+            try {
+                this._box.remove_child(this._icon);
+                this._icon.destroy();
+            } catch (e) {}
+            this._icon = null;
+        }
+
+        const tracker = Shell.WindowTracker.get_default();
+        const app = tracker ? tracker.focus_app : null;
+
+        if (app) {
+            try {
+                this._icon = app.create_icon_texture(16);
+                if (this._icon) this._box.insert_child_at_index(this._icon, 0);
+            } catch (e) {
+                this._icon = null;
+            }
+        }
+
+        let appLabel = _('Desktop');
+        const wmClass = metaWindow && metaWindow.get_wm_class ? (metaWindow.get_wm_class() || '') : '';
+        const wmInstance = metaWindow && metaWindow.get_wm_class_instance ? (metaWindow.get_wm_class_instance() || '') : '';
+        if (wmClass.toLowerCase().includes('antigravity') || wmInstance.toLowerCase().includes('antigravity')) {
+            appLabel = 'Antigravity';
+        } else if (profile && profile.app_menu && profile.app_menu.label) {
+            appLabel = profile.app_menu.label;
+        } else if (app) {
+            appLabel = app.get_name() || _('Application');
+        } else if (metaWindow) {
+            appLabel = metaWindow.get_title() || _('Window');
+        }
+
+        this.accessible_name = appLabel || _('Application Menu');
+        if (this._label) {
+            this._label.set_text(appLabel);
+        }
+
+        if (this.menu) {
+            this.menu.removeAll();
+        }
+        this._buildMenu(appLabel);
+
+        if (metaWindow) {
+            this.show();
+        } else {
+            this.hide();
+        }
+    }
+
+    updateTitle(metaWindow) {
+        if (!metaWindow || metaWindow !== this._window) return;
+        let appLabel = _('Desktop');
+        const wmClass = metaWindow.get_wm_class ? (metaWindow.get_wm_class() || '') : '';
+        const wmInstance = metaWindow.get_wm_class_instance ? (metaWindow.get_wm_class_instance() || '') : '';
+        if (wmClass.toLowerCase().includes('antigravity') || wmInstance.toLowerCase().includes('antigravity')) {
+            appLabel = 'Antigravity';
+        } else if (this._profile && this._profile.app_menu && this._profile.app_menu.label) {
+            appLabel = this._profile.app_menu.label;
+        } else {
+            const tracker = Shell.WindowTracker.get_default();
+            const app = tracker ? tracker.focus_app : null;
+            if (app) {
+                appLabel = app.get_name() || _('Application');
+            } else {
+                appLabel = metaWindow.get_title() || _('Window');
+            }
+        }
+        if (this._label && this._label.get_text() !== appLabel) {
+            this._label.set_text(appLabel);
+            this.accessible_name = appLabel;
+        }
     }
 
     _triggerAboutAction(appLabel) {
@@ -1642,6 +1726,213 @@ class GtkMenuButton extends PanelMenu.Button {
     }
 });
 
+// ── Persistent Pooled Menu Button ───────────────────────────────────────────
+//
+// Reusable top panel menu button slot. Kept permanently allocated in Main.panel._leftBox
+// to eliminate actor churn, restyling, and relayout jitter during window switches and
+// minimize/unmap animations.
+
+const PooledMenuButton = GObject.registerClass(
+class PooledMenuButton extends PanelMenu.Button {
+    _init(slotIndex) {
+        super._init(0.0, `FUHGlobeMenuSlot-${slotIndex}`);
+        this.add_style_class_name('fuhgawz-panel-button');
+        this.accessible_name = '';
+
+        this._labelWidget = new St.Label({
+            text: '',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this.add_child(this._labelWidget);
+
+        this._mode = null;
+        this._itemsBuilt = false;
+        this._lastMtime = 0;
+        this._metaWindow = null;
+        this._dispatcher = null;
+        this._profile = null;
+        this._rawItems = null;
+        this._menuModel = null;
+        this._actionDispatcher = null;
+        this._children = null;
+        this._proxy = null;
+        this._actionItems = null;
+        this._busName = '';
+        this._appObjectPath = '';
+        this._winObjectPath = '';
+        this._useHoverSubmenus = true;
+
+        if (this.menu) {
+            this.menu.isEmpty = () => false;
+
+            const origOpen = this.menu.open.bind(this.menu);
+            this.menu.open = (animate) => {
+                this._ensureItemsBuilt();
+                return origOpen(animate);
+            };
+
+            this.menu.connect('open-state-changed', (_menu, isOpen) => {
+                if (!isOpen) return;
+                if (!this._itemsBuilt) {
+                    this._ensureItemsBuilt();
+                } else if (this._mode === 'declarative' && this._profile) {
+                    const isDynamic = (
+                        this.accessible_name === 'Bookmarks' ||
+                        (Array.isArray(this._rawItems) && this._rawItems.some(i => i.dynamic || (Array.isArray(i.items) && i.items.some(si => si.dynamic))))
+                    );
+                    if (isDynamic) {
+                        const currentMtime = typeof getBookmarksCacheMtime === 'function'
+                            ? getBookmarksCacheMtime(this._profile.id)
+                            : 0;
+                        if (currentMtime && currentMtime !== this._lastMtime) {
+                            this._lastMtime = currentMtime;
+                            this._buildCurrentItems();
+                        }
+                    }
+                }
+            });
+        }
+
+        this.hide();
+    }
+
+    vfunc_event(event) {
+        const eventType = event ? (typeof event.type === 'function' ? event.type() : event.type) : null;
+        if (eventType === Clutter.EventType.BUTTON_PRESS || eventType === Clutter.EventType.TOUCH_BEGIN) {
+            this._ensureItemsBuilt();
+        }
+        return super.vfunc_event(event);
+    }
+
+    setDeclarative(label, items, metaWindow, dispatcher, useHoverSubmenus = true, profile = null) {
+        this._mode = 'declarative';
+        this.accessible_name = label;
+        this._labelWidget.set_text(_cleanLabel(label));
+        this._rawItems = items;
+        this._metaWindow = metaWindow;
+        this._dispatcher = dispatcher;
+        this._useHoverSubmenus = useHoverSubmenus;
+        this._profile = profile;
+        this._itemsBuilt = false;
+        this._lastMtime = 0;
+        if (this.menu) {
+            this.menu.removeAll();
+        }
+        this.show();
+    }
+
+    setGtkMenu(label, menuModel, actionDispatcher, useHoverSubmenus = true) {
+        this._mode = 'gtk';
+        this.accessible_name = label;
+        this._labelWidget.set_text(_cleanLabel(label));
+        this._menuModel = menuModel;
+        this._actionDispatcher = actionDispatcher;
+        this._useHoverSubmenus = useHoverSubmenus;
+        this._itemsBuilt = false;
+        if (this.menu) {
+            this.menu.removeAll();
+        }
+        this.show();
+    }
+
+    setActionsMenu(label, actionItems, busName, appObjectPath, winObjectPath, metaWindow = null, dispatcher = null) {
+        this._mode = 'actions';
+        this.accessible_name = label;
+        this._labelWidget.set_text(_cleanLabel(label));
+        this._actionItems = actionItems;
+        this._busName = busName;
+        this._appObjectPath = appObjectPath;
+        this._winObjectPath = winObjectPath;
+        this._metaWindow = metaWindow;
+        this._dispatcher = dispatcher;
+        this._itemsBuilt = false;
+        if (this.menu) {
+            this.menu.removeAll();
+        }
+        this.show();
+    }
+
+    setDBusMenu(label, children, proxy, useHoverSubmenus = true) {
+        this._mode = 'dbus';
+        this.accessible_name = label;
+        this._labelWidget.set_text(_cleanLabel(label));
+        this._children = children;
+        this._proxy = proxy;
+        this._useHoverSubmenus = useHoverSubmenus;
+        this._itemsBuilt = false;
+        if (this.menu) {
+            this.menu.removeAll();
+        }
+        this.show();
+    }
+
+    reset() {
+        this._mode = null;
+        this._itemsBuilt = false;
+        this._rawItems = null;
+        this._menuModel = null;
+        this._actionDispatcher = null;
+        this._children = null;
+        this._proxy = null;
+        this._actionItems = null;
+        this._metaWindow = null;
+        this._dispatcher = null;
+        this._profile = null;
+        this.accessible_name = '';
+        if (this._labelWidget) {
+            this._labelWidget.set_text('');
+        }
+        if (this.menu) {
+            this.menu.removeAll();
+        }
+        this.hide();
+    }
+
+    _ensureItemsBuilt() {
+        if (this._itemsBuilt) return;
+        this._itemsBuilt = true;
+
+        if (this.menu) {
+            this.menu.removeAll();
+        }
+
+        if (this._mode === 'declarative' && Array.isArray(this._rawItems)) {
+            this._buildItems(this._rawItems, this.menu);
+        } else if (this._mode === 'gtk' && this._menuModel) {
+            this._buildSubmenu(this.menu, this._menuModel, this._actionDispatcher);
+        } else if (this._mode === 'actions' && Array.isArray(this._actionItems)) {
+            this._buildItems(this._actionItems);
+        } else if (this._mode === 'dbus' && Array.isArray(this._children)) {
+            this._buildSubmenu(this.menu, this._children, this._proxy);
+        }
+    }
+
+    _buildCurrentItems() {
+        if (typeof this.menu?.removeAll === 'function') {
+            this.menu.removeAll();
+        }
+        if (typeof getBookmarksCacheMtime === 'function' && this._profile) {
+            this._lastMtime = getBookmarksCacheMtime(this._profile.id);
+        }
+        this._buildItems(this._rawItems, this.menu);
+    }
+
+    _buildItems(items, targetMenu = this.menu) {
+        if (this._mode === 'actions') {
+            return ActionsMenuButton.prototype._buildItems.call(this, items);
+        }
+        return DeclarativeMenuButton.prototype._buildItems.call(this, items, targetMenu);
+    }
+
+    _buildSubmenu(...args) {
+        if (this._mode === 'gtk') {
+            return GtkMenuButton.prototype._buildSubmenu.apply(this, args);
+        } else if (this._mode === 'dbus') {
+            return DBusMenuButton.prototype._buildSubmenu.apply(this, args);
+        }
+    }
+});
+
 // ── Action Dispatcher ────────────────────────────────────────────────────────
 //
 // Splits prefixed action names (app.*, win.*, unity.*, etc.) and dispatches
@@ -1697,9 +1988,6 @@ class FUHGlobeGlobalMenu {
         // Monotonically increasing counter for unique status area names
         this._nextId = 0;
 
-        // Currently displayed buttons
-        this._menuButtons = [];
-
         // Active DBusMenu proxy + signal
         this._activeProxy = null;
         this._layoutUpdatedId = 0;
@@ -1713,6 +2001,20 @@ class FUHGlobeGlobalMenu {
 
         // Debounce timer for _updateMenu
         this._updatePendingId = 0;
+
+        // Active window tracking
+        this._currentWindow = null;
+        this._winTitleId = 0;
+        this._winUnmanagedId = 0;
+
+        // Fallback chain helpers
+        this._virtualKeyboard = new VirtualKeyboardDispatcher();
+        this._profileManager = new ProfileManager(this._extensionPath, Shell.WindowTracker.get_default());
+        this._profileManager.loadProfiles();
+        this._atspiScanner = new AtspiScanner();
+
+        // Initialize persistent zero-churn button pool
+        this._initButtonPool();
 
         // Start the registrar service
         this._registrar = new DBusMenuRegistrar(() => this._scheduleUpdate());
@@ -1735,15 +2037,106 @@ class FUHGlobeGlobalMenu {
                 () => this._updateSystemMenu()
             );
         }
-        // Fallback chain helpers
-        this._virtualKeyboard = new VirtualKeyboardDispatcher();
-        this._profileManager = new ProfileManager(this._extensionPath, Shell.WindowTracker.get_default());
-        this._profileManager.loadProfiles();
-        this._atspiScanner = new AtspiScanner();
         this._updateSystemMenu();
 
         this._log('FUHGlobeGlobalMenu initialized');
         this._updateMenu();
+    }
+
+    _initButtonPool() {
+        // AppMenuButton allocated permanently at position 1 (after Activities at 0)
+        this._appMenuButton = new AppMenuButton(null, null, this._virtualKeyboard);
+        try {
+            Main.panel.addToStatusArea('fuhgawz-app-menu', this._appMenuButton, 1, 'left');
+        } catch (e) {
+            console.error(`FUHGlobe: Failed to register AppMenuButton: ${e}`);
+        }
+
+        // Pre-allocated menu button pool (positions 2..11)
+        this._buttonPool = [];
+        this._POOL_SIZE = 10;
+        for (let i = 0; i < this._POOL_SIZE; i++) {
+            const slot = new PooledMenuButton(i);
+            this._buttonPool.push(slot);
+            try {
+                Main.panel.addToStatusArea(`fuhgawz-menu-slot-${i}`, slot, 2 + i, 'left');
+            } catch (e) {
+                console.error(`FUHGlobe: Failed to register PooledMenuButton ${i}: ${e}`);
+            }
+        }
+        this._activeSlotIndex = 0;
+        this._overflowButtons = [];
+    }
+
+    _acquireSlot() {
+        if (this._activeSlotIndex < this._buttonPool.length) {
+            return this._buttonPool[this._activeSlotIndex++];
+        }
+        const overflowSlot = new PooledMenuButton(this._activeSlotIndex);
+        const pos = 2 + this._activeSlotIndex;
+        this._activeSlotIndex++;
+        this._overflowButtons.push(overflowSlot);
+        try {
+            Main.panel.addToStatusArea(`fuhgawz-menu-overflow-${this._nextId++}`, overflowSlot, pos, 'left');
+        } catch (e) {
+            console.error(`FUHGlobe: Failed to add overflow slot: ${e}`);
+        }
+        return overflowSlot;
+    }
+
+    _finalizeSlots() {
+        if (this._buttonPool) {
+            for (let i = this._activeSlotIndex; i < this._buttonPool.length; i++) {
+                this._buttonPool[i].reset();
+            }
+        }
+        if (this._overflowButtons && this._overflowButtons.length > 0) {
+            const activeOverflowCount = Math.max(0, this._activeSlotIndex - this._buttonPool.length);
+            while (this._overflowButtons.length > activeOverflowCount) {
+                const btn = this._overflowButtons.pop();
+                try { btn.destroy(); } catch (e) {}
+            }
+        }
+    }
+
+    _resetSlots() {
+        this._activeSlotIndex = 0;
+        if (this._buttonPool) {
+            for (const slot of this._buttonPool) {
+                slot.reset();
+            }
+        }
+        if (this._overflowButtons) {
+            for (const btn of this._overflowButtons) {
+                try { btn.destroy(); } catch (e) {}
+            }
+            this._overflowButtons = [];
+        }
+    }
+
+    _untrackCurrentWindow() {
+        if (this._currentWindow) {
+            if (this._winTitleId) {
+                try { this._currentWindow.disconnect(this._winTitleId); } catch (e) {}
+                this._winTitleId = 0;
+            }
+            if (this._winUnmanagedId) {
+                try { this._currentWindow.disconnect(this._winUnmanagedId); } catch (e) {}
+                this._winUnmanagedId = 0;
+            }
+            this._currentWindow = null;
+        }
+    }
+
+    _clearButtons() {
+        this._resetSlots();
+        if (this._appMenuButton) {
+            this._appMenuButton.hide();
+        }
+    }
+
+    _removeMenuItemButtons() {
+        this._resetSlots();
     }
 
     _updateSystemMenu() {
@@ -1777,22 +2170,6 @@ class FUHGlobeGlobalMenu {
         });
     }
 
-    // ── Cleanup helpers ──────────────────────────────────────────────────
-
-    _clearButtons() {
-        for (const btn of this._menuButtons) {
-            try {
-                if (btn && !btn._destroyed) {
-                    btn.destroy();
-                }
-            } catch (e) {
-                // GObject already finalized
-            }
-        }
-        this._menuButtons = [];
-        this._nextId = 0;
-    }
-
     _disconnectSources() {
         if (this._activeProxy && this._layoutUpdatedId) {
             try {
@@ -1818,55 +2195,32 @@ class FUHGlobeGlobalMenu {
     _isDesktopOverlayWindow(win) {
         if (!win) return false;
 
-        const title = win.get_title() || '';
-        const appId = win.gtk_application_id || '';
-        const wmClass = win.get_wm_class() || '';
-        const busName = win.gtk_unique_bus_name || '';
-
-        this._log(`Checking window: title="${title}" app="${appId}" wmclass="${wmClass}" bus="${busName}"`);
-
-        // Desktop Icons NG (DING) detection — check title first (most reliable)
-        const titleLower = title.toLowerCase();
-        if (titleLower.includes('desktop icon') || titleLower.includes('ding')) {
-            this._log('Detected desktop overlay by title');
-            return true;
-        }
-
-        // Check app ID and WM class for desktop-related patterns
-        const combined = (appId + ' ' + wmClass).toLowerCase();
-        if (combined.includes('desktopicon') || combined.includes('ding') ||
-            combined.includes('desktop-icons') || combined.includes('rastersoft')) {
-            this._log('Detected desktop overlay by app/wmclass');
-            return true;
-        }
-
-        // Check for windows that claim to be the desktop
+        // 1. Mutter / Meta window type DESKTOP
         try {
-            const windowType = win.get_window_type();
-            if (windowType === Meta.WindowType.DESKTOP) {
-                this._log('Detected desktop overlay by window type');
-                return true;
-            }
-        } catch (e) { /* get_window_type may not exist */ }
-
-        // If the window has NO gtk_unique_bus_name, it's not a regular GTK app
-        // that would export menus. Skip it to avoid showing "Desktop Icon" etc.
-        if (!busName && !appId) {
-            // No bus name AND no app ID — very unlikely to have menus
-            // Check if it's a full-screen overlay (typical for desktop icons)
-            try {
-                const frame = win.get_frame_rect();
-                const monitor = win.get_monitor();
-                if (monitor >= 0) {
-                    const monitorGeometry = global.display.get_monitor_geometry(monitor);
-                    if (frame.x <= 0 && frame.y <= 0 &&
-                        frame.width >= monitorGeometry.width - 10 &&
-                        frame.height >= monitorGeometry.height - 10) {
-                        this._log('Detected desktop overlay by geometry (no bus/app)');
-                        return true;
-                    }
+            if (typeof win.get_window_type === 'function') {
+                if (win.get_window_type() === Meta.WindowType.DESKTOP) {
+                    this._log('Detected desktop overlay by Meta.WindowType.DESKTOP');
+                    return true;
                 }
-            } catch (e) { /* ignore */ }
+            }
+        } catch (e) {}
+
+        // 2. Desktop Icons NG (DING) WM class / App ID exact or known variants
+        const wmClass = (win.get_wm_class ? (win.get_wm_class() || '') : '').toLowerCase();
+        const wmInstance = (win.get_wm_class_instance ? (win.get_wm_class_instance() || '') : '').toLowerCase();
+        const appId = (win.gtk_application_id || '').toLowerCase();
+
+        const dingClasses = ['ding', 'desktop-icons', 'com.rastersoft.ding', 'org.gnome.shell.extensions.ding'];
+        if (dingClasses.includes(wmClass) || dingClasses.includes(wmInstance) || dingClasses.includes(appId)) {
+            this._log(`Detected desktop overlay by WM class/App ID: ${wmClass || wmInstance || appId}`);
+            return true;
+        }
+
+        // 3. Exact title checks for DING (no loose substring checks like 'ding' which false-positive on 'bindings')
+        const titleLower = (win.get_title ? (win.get_title() || '') : '').toLowerCase().trim();
+        if (titleLower === 'desktop icons ng' || titleLower === 'ding' || titleLower === 'desktop_icons_ng') {
+            this._log(`Detected desktop overlay by exact title: "${titleLower}"`);
+            return true;
         }
 
         return false;
@@ -1877,10 +2231,6 @@ class FUHGlobeGlobalMenu {
     _updateMenu() {
         this._updateCycleId = (this._updateCycleId || 0) + 1;
         const currentCycle = this._updateCycleId;
-
-        // 1. Tear down everything from the previous cycle
-        this._clearButtons();
-        this._disconnectSources();
 
         const win = global.display.get_focus_window();
 
@@ -1901,32 +2251,51 @@ class FUHGlobeGlobalMenu {
             this._log('Focus → Desktop (no window)');
         }
 
-        // 2. If no focused window (desktop), show nothing
-        if (!win) {
-            this._log('No focused window — hiding global menu');
+        // 1. If no focused window (desktop) or desktop overlay window (DING), clear & hide
+        if (!win || this._isDesktopOverlayWindow(win)) {
+            this._log(win ? `Skipping desktop overlay window "${win.get_title()}"` : 'No focused window — hiding global menu');
+            this._untrackCurrentWindow();
+            if (this._appMenuButton) this._appMenuButton.hide();
+            this._resetSlots();
+            this._disconnectSources();
             return;
         }
 
-        // 3. Filter out desktop overlay windows (DING, etc.)
-        if (this._isDesktopOverlayWindow(win)) {
-            this._log(`Skipping desktop overlay window "${win.get_title()}"`);
+        // 2. If same window is still focused, only update title if changed and return
+        if (win === this._currentWindow) {
+            if (this._appMenuButton) {
+                this._appMenuButton.updateTitle(win);
+            }
             return;
         }
 
-        // 3. Match declarative profile if available
+        // 3. New window focused: switch window tracking
+        this._untrackCurrentWindow();
+        this._currentWindow = win;
+        this._winTitleId = win.connect('notify::title', () => {
+            if (this._appMenuButton && this._currentWindow === win) {
+                this._appMenuButton.updateTitle(win);
+            }
+        });
+        this._winUnmanagedId = win.connect('unmanaged', () => {
+            if (this._currentWindow === win) {
+                this._scheduleUpdate();
+            }
+        });
+
+        // 4. Disconnect previous D-Bus / GTK model sources
+        this._disconnectSources();
+        this._activeSlotIndex = 0;
+
+        // 5. Match declarative profile if available
         const profile = this._profileManager ? this._profileManager.getProfileForWindow(win) : null;
         if (profile) {
             this._log(`Matched Declarative Profile "${profile.id}" for window "${win.get_title()}"`);
         }
 
-        // 4. Add the App Menu Button after the Activities button (position 1)
-        const appMenuBtn = new AppMenuButton(win, profile, this._virtualKeyboard);
-        const appMenuId = 'fuhgawz-app-menu';
-        this._menuButtons.push(appMenuBtn);
-        try {
-            Main.panel.addToStatusArea(appMenuId, appMenuBtn, 1, 'left');
-        } catch (e) {
-            console.error(`FUHGlobe: Failed to add AppMenuButton: ${e}`);
+        // 6. Update the persistent AppMenuButton for this window
+        if (this._appMenuButton) {
+            this._appMenuButton.updateForWindow(win, profile, this._virtualKeyboard);
         }
 
         // ── Fallback 1: GTK menu model (org.gtk.Menus) ──────────────────
@@ -2025,13 +2394,14 @@ class FUHGlobeGlobalMenu {
         if (this._atspiScanner && !this._atspiScanner.isBlacklisted(win)) {
             this._log(`Attempting restricted AT-SPI query for "${win.get_title()}"`);
             this._atspiScanner.getMenuBar(win).then(atspiBar => {
-                if (atspiBar && this._menuButtons.length <= 1) {
+                if (atspiBar && this._activeSlotIndex === 0) {
                     this._log('Found legacy AT-SPI menu bar');
                 }
             }).catch(() => {});
         }
 
-        // ── Fallback 6: built-in (app name + basic controls) ────────────
+        // ── Fallback 6: built-in (app name only, hide menu slots) ───────
+        this._finalizeSlots();
         this._log('Using built-in fallback menu (no GTK model, DBusMenu, profile, or GTK actions found)');
     }
 
@@ -2050,12 +2420,14 @@ class FUHGlobeGlobalMenu {
 
         const useHover = !this._settings || this._settings.get_boolean('enable-hover-submenus');
         let addedAny = false;
-        let position = 2; // after Activities(0) and AppMenu(1)
+        this._activeSlotIndex = 0;
+
         for (const menuDef of profile.menus) {
             if (!menuDef.label || !Array.isArray(menuDef.items) || menuDef.items.length === 0) {
                 continue;
             }
-            const btn = new DeclarativeMenuButton(
+            const slot = this._acquireSlot();
+            slot.setDeclarative(
                 menuDef.label,
                 menuDef.items,
                 win,
@@ -2063,15 +2435,10 @@ class FUHGlobeGlobalMenu {
                 useHover,
                 profile
             );
-            const btnId = `fuhgawz-menu-slot-${this._nextId++}`;
-            this._menuButtons.push(btn);
-            try {
-                Main.panel.addToStatusArea(btnId, btn, position++, 'left');
-                addedAny = true;
-            } catch (e) {
-                console.error(`FUHGlobe: Failed to add DeclarativeMenuButton "${menuDef.label}": ${e}`);
-            }
+            addedAny = true;
         }
+
+        this._finalizeSlots();
         return addedAny;
     }
 
@@ -2148,8 +2515,6 @@ class FUHGlobeGlobalMenu {
     _reloadGtkMenu(win = null) {
         if (!this._gtkMenuModel) return;
 
-        this._removeMenuItemButtons();
-
         const nItems = this._gtkMenuModel.get_n_items();
         console.log(`FUHGlobe: GTK menu model has ${nItems} top-level items`);
 
@@ -2158,7 +2523,8 @@ class FUHGlobeGlobalMenu {
             this._winActionGroup
         );
 
-        let position = 2;  // Start after Activities(0) + AppMenu(1)
+        this._activeSlotIndex = 0;
+        let addedCount = 0;
         for (let i = 0; i < nItems; i++) {
             const submenu = this._gtkMenuModel.get_item_link(i, Gio.MENU_LINK_SUBMENU);
             const labelVal = this._gtkMenuModel.get_item_attribute_value(
@@ -2168,20 +2534,16 @@ class FUHGlobeGlobalMenu {
 
             if (label && submenu) {
                 const useHover = !this._settings || this._settings.get_boolean('enable-hover-submenus');
-                const btn = new GtkMenuButton(label, submenu, actionDispatcher, useHover);
-                const btnId = `fuhgawz-menu-slot-${this._nextId++}`;
-                this._menuButtons.push(btn);
-                try {
-                    Main.panel.addToStatusArea(btnId, btn, position++, 'left');
-                } catch (e) {
-                    console.error(`FUHGlobe: Failed to add GTK menu button "${label}": ${e}`);
-                }
+                const slot = this._acquireSlot();
+                slot.setGtkMenu(label, submenu, actionDispatcher, useHover);
+                addedCount++;
             }
         }
 
-        console.log(`FUHGlobe: Added ${position - 1} GTK menu buttons`);
+        this._finalizeSlots();
+        console.log(`FUHGlobe: Added ${addedCount} GTK menu buttons`);
 
-        if (position <= 2) {
+        if (addedCount === 0) {
             console.log('FUHGlobe: 0 GTK menu buttons added from model, attempting declarative profile fallback');
             const targetWin = win || (typeof global !== 'undefined' && global.display?.get_focus_window ? global.display.get_focus_window() : null);
             const profile = (this._profileManager && targetWin) ? this._profileManager.getProfileForWindow(targetWin) : null;
@@ -2480,37 +2842,28 @@ class FUHGlobeGlobalMenu {
             grouped['App'].push(...ungrouped);
         }
 
-        // Remove menu item buttons (keep app menu at index 0)
-        this._removeMenuItemButtons();
-
+        this._activeSlotIndex = 0;
         const groupOrder = ['File', 'Edit', 'View', 'Go', 'Media', 'Tools', 'App', 'Help'];
-        let position = 2;  // Start after Activities(0) + AppMenu(1)
         let addedCount = 0;
 
         for (const groupName of groupOrder) {
             const items = grouped[groupName];
             if (!items || items.length === 0) continue;
 
-            const btn = new ActionsMenuButton(
+            const slot = this._acquireSlot();
+            slot.setActionsMenu(
                 groupName, items, busName, appObjectPath, winObjectPath, win, this._virtualKeyboard
             );
-            const btnId = `fuhgawz-menu-slot-${this._nextId++}`;
-            this._menuButtons.push(btn);
-            try {
-                Main.panel.addToStatusArea(btnId, btn, position++, 'left');
-                addedCount++;
-            } catch (e) {
-                console.error(`FUHGlobe: Failed to add Actions menu button "${groupName}": ${e}`);
-            }
+            addedCount++;
         }
 
+        this._finalizeSlots();
         console.log(`FUHGlobe: Added ${addedCount} action-based menu buttons`);
         const profileToUse = profile || (this._profileManager && win ? this._profileManager.getProfileForWindow(win) : null);
         const enableDeclarative = !this._settings || this._settings.get_boolean('enable-declarative-profiles');
         if (addedCount === 0 || (addedCount < 3 && !grouped['File'] && profileToUse)) {
             console.log('FUHGlobe: GTK actions empty or incomplete, falling back to declarative profile');
             if (enableDeclarative && profileToUse && win) {
-                this._removeMenuItemButtons();
                 this._loadDeclarativeProfile(profileToUse, win);
             }
         }
@@ -2596,34 +2949,30 @@ class FUHGlobeGlobalMenu {
             const [_revision, layoutVariant] = result;
             const root = this._parseLayout(layoutVariant);
 
-            this._removeMenuItemButtons();
-
             if (!root || !root.children || root.children.length === 0) {
                 console.log('FUHGlobe: DBusMenu layout is empty');
+                this._resetSlots();
                 return;
             }
 
             console.log(`FUHGlobe: DBusMenu root has ${root.children.length} top-level items`);
 
-            let position = 2;  // Start after Activities(0) + AppMenu(1)
+            this._activeSlotIndex = 0;
+            let addedCount = 0;
             for (const topItem of root.children) {
                 const props = topItem.properties || {};
                 const label = props.label || '';
 
                 if (label && topItem.children && topItem.children.length > 0) {
                     const useHover = !this._settings || this._settings.get_boolean('enable-hover-submenus');
-                    const btn = new DBusMenuButton(label, topItem.children, this._activeProxy, useHover);
-                    const btnId = `fuhgawz-menu-slot-${this._nextId++}`;
-                    this._menuButtons.push(btn);
-                    try {
-                        Main.panel.addToStatusArea(btnId, btn, position++, 'left');
-                    } catch (e) {
-                        console.error(`FUHGlobe: Failed to add DBusMenu button "${label}": ${e}`);
-                    }
+                    const slot = this._acquireSlot();
+                    slot.setDBusMenu(label, topItem.children, this._activeProxy, useHover);
+                    addedCount++;
                 }
             }
 
-            console.log(`FUHGlobe: Added ${position - 1} DBusMenu buttons`);
+            this._finalizeSlots();
+            console.log(`FUHGlobe: Added ${addedCount} DBusMenu buttons`);
         });
     }
 
@@ -2693,22 +3042,6 @@ class FUHGlobeGlobalMenu {
         return { id, properties, children };
     }
 
-    // ── Helper: remove menu-item buttons (keep app menu at index 0) ─────
-
-    _removeMenuItemButtons() {
-        for (let i = this._menuButtons.length - 1; i >= 1; i--) {
-            try {
-                const btn = this._menuButtons[i];
-                if (btn) btn.destroy();
-            } catch (e) {
-                // already destroyed
-            }
-        }
-        if (this._menuButtons.length > 0) {
-            this._menuButtons = [this._menuButtons[0]];
-        }
-    }
-
     // ── Teardown ─────────────────────────────────────────────────────────
 
     destroy() {
@@ -2717,8 +3050,27 @@ class FUHGlobeGlobalMenu {
             this._updatePendingId = 0;
         }
 
-        this._clearButtons();
+        this._untrackCurrentWindow();
         this._disconnectSources();
+
+        if (this._appMenuButton) {
+            try { this._appMenuButton.destroy(); } catch (e) {}
+            this._appMenuButton = null;
+        }
+
+        if (this._buttonPool) {
+            for (const slot of this._buttonPool) {
+                try { slot.destroy(); } catch (e) {}
+            }
+            this._buttonPool = [];
+        }
+
+        if (this._overflowButtons) {
+            for (const btn of this._overflowButtons) {
+                try { btn.destroy(); } catch (e) {}
+            }
+            this._overflowButtons = [];
+        }
 
         if (this._userSwitcherController) {
             this._userSwitcherController.destroy();
