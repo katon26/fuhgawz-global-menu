@@ -7,7 +7,8 @@
   <meta name="description" content="FUHGAWZ Global Menu is a native global application menu for GNOME Shell. File, Edit, View, and Help from every app, in one top bar. GNOME 45–50." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/svg+xml" href="fuhgawz-logo.svg" />
   <link rel="stylesheet" href="tokens.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -18,22 +19,45 @@
   <header class="nav">
     <div class="nav__inner">
       <a class="wordmark" href="#top">
-        <svg class="wordmark__mark" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
-          <circle cx="8" cy="8" r="6.2" />
-          <ellipse cx="8" cy="8" rx="2.7" ry="6.2" />
-          <path d="M1.8 8h12.4" />
+        <svg class="wordmark__mark" viewBox="0 0 128 128" width="24" height="24" aria-hidden="true">
+          <defs>
+            <linearGradient id="wmGradNav" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#3584e4"/>
+              <stop offset="100%" stop-color="#1c71d8"/>
+            </linearGradient>
+            <linearGradient id="wmPanelNav" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+              <stop offset="100%" stop-color="#ffffff" stop-opacity="0.10"/>
+            </linearGradient>
+            <filter id="wmShadowNav" x="-10%" y="-10%" width="120%" height="125%" filterUnits="userSpaceOnUse">
+              <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.25"/>
+            </filter>
+          </defs>
+          <rect x="12" y="12" width="104" height="104" rx="26" fill="url(#wmGradNav)" filter="url(#wmShadowNav)"/>
+          <rect x="22" y="24" width="84" height="18" rx="7" fill="url(#wmPanelNav)"/>
+          <circle cx="32" cy="33" r="3.5" fill="#ffffff" fill-opacity="0.95"/>
+          <rect x="42" y="31" width="14" height="4" rx="2" fill="#ffffff" fill-opacity="0.95"/>
+          <rect x="60" y="31" width="12" height="4" rx="2" fill="#ffffff" fill-opacity="0.75"/>
+          <rect x="76" y="31" width="12" height="4" rx="2" fill="#ffffff" fill-opacity="0.75"/>
+          <rect x="36" y="48" width="56" height="54" rx="10" fill="#ffffff" fill-opacity="0.95" filter="url(#wmShadowNav)"/>
+          <rect x="44" y="58" width="28" height="4" rx="2" fill="#1c71d8"/>
+          <rect x="76" y="58" width="10" height="4" rx="2" fill="#9a9996"/>
+          <rect x="44" y="68" width="34" height="4" rx="2" fill="#241f31"/>
+          <rect x="44" y="78" width="24" height="4" rx="2" fill="#241f31"/>
+          <line x1="42" y1="87" x2="86" y2="87" stroke="#e1e1e1" stroke-width="1.5"/>
+          <rect x="44" y="92" width="20" height="4" rx="2" fill="#e01b24"/>
         </svg>
         <span>FUHGAWZ Global Menu</span>
       </a>
       <ul class="nav__links">
         <li><a class="nav__link" href="#menu">Menu</a></li>
-        <li><a class="nav__link" href="#fallbacks">Fallbacks</a></li>
+        <li><a class="nav__link" href="#fallbacks">Architecture</a></li>
         <li><a class="nav__link" href="#install">Install</a></li>
       </ul>
       <div class="nav__actions">
         <button class="cmdk" id="cmd-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="palette">
           <span class="cmdk__label">Command</span>
-          <kbd class="cmdk__hint" aria-hidden="true">⌘K</kbd>
+          <kbd class="cmdk__hint" aria-hidden="true">Ctrl+K</kbd>
         </button>
         <a class="btn btn--primary" href="#install">Install</a>
       </div>
@@ -41,151 +65,524 @@
   </header>
 
   <main id="top">
-    <!-- Hero — statement left, live terminal right -->
-    <section class="hero">
-      <div data-reveal>
-        <p class="hero__meta">GNOME 45–50 · GPL-3.0-or-later</p>
-        <h1 class="hero__title">Your app menus, back in one bar.</h1>
-        <p class="hero__lede">
-          FUHGAWZ Global Menu moves File, Edit, View, and Help out of every window and into a
-          single native top bar, with a system menu, user switcher, recent items, and force quit
-          on the same key. GTK 3, GTK 4, Qt, and dbusmenu apps, one place.
-        </p>
-        <div class="hero__cta">
-          <a class="btn btn--primary btn--lg" href="#install">Install the extension</a>
-          <a class="btn btn--ghost btn--lg" href="https://github.com/katon26/fuhgawz-global-menu" rel="noopener">View on GitHub</a>
+    <!-- Hero — Left: Interactive Display Mockup, Right: Copy & CTAs -->
+    <section class="hero" id="hero">
+      <!-- Left side: Live Global Menu Visualization in Desktop Frame -->
+      <div class="hero-mockup-wrap is-in" data-reveal>
+        <div class="mockup-glow" aria-hidden="true"></div>
+        <div class="desktop-frame">
+          <div class="desktop-bezel">
+            <span class="desktop-camera" aria-hidden="true"></span>
+
+            <!-- Desktop Screen Content -->
+            <div class="desktop-screen">
+              <!-- GNOME Shell Top Panel -->
+              <div class="gnome-panel" role="region" aria-label="GNOME Shell top bar simulation">
+                <div class="gnome-panel__left">
+                  <!-- OS / Distributor mark (Fedora Linux) -->
+                  <div class="gnome-os-mark" title="Fedora Linux" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
+                      <path d="M8.004.15C3.586.15.01 3.661.001 7.996H0v6.074h.001c.002.984.816 1.78 1.818 1.78h6.186C12.424 15.847 16 12.336 16 8.004 16 3.668 12.42.157 7.997.157zM9.63 3.38c1.343 0 2.612 1.01 2.612 2.402 0 .129 0 .258-.021.404a.665.665 0 01-.758.585.657.657 0 01-.561-.77c.006-.04.008-.107.008-.22 0-.789-.658-1.093-1.28-1.093-.623 0-1.184.513-1.184 1.094.01.671 0 1.338 0 2.008L9.6 7.782c.901-.019.912 1.313.01 1.307l-1.165.009c-.003.54.004.442.001.714 0 0 .01.661-.01 1.162-.14 1.47-1.416 2.646-2.95 2.646-1.627 0-2.966-1.304-2.966-2.903.049-1.644 1.385-2.937 3.07-2.923l.939-.007v1.306l-.94.008h-.004c-.926.027-1.719.643-1.734 1.615 0 .886.73 1.596 1.635 1.596.904 0 1.628-.646 1.628-1.594l-.001-4.943c0-.092.003-.165.013-.266.153-1.209 1.256-2.13 2.504-2.13z"/>
+                    </svg>
+                  </div>
+
+                  <!-- Active App Pill (Code) -->
+                  <div class="gnome-app-pill">
+                    <svg class="app-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="m5 4.5-3.5 3.5 3.5 3.5"/>
+                      <path d="m11 4.5 3.5 3.5-3.5 3.5"/>
+                      <path d="m9.5 3-3 10"/>
+                    </svg>
+                    <span>Code</span>
+                  </div>
+
+                  <!-- FUHGAWZ Global Menu items -->
+                  <nav class="gnome-global-menu" aria-label="Global application menu">
+                    <button class="gmenu-item is-active" type="button" aria-haspopup="menu" aria-expanded="true" aria-controls="mockup-file-menu" data-menu="file">File</button>
+                    <button class="gmenu-item" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="mockup-file-menu" data-menu="edit">Edit</button>
+                    <button class="gmenu-item" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="mockup-file-menu" data-menu="selection">Selection</button>
+                    <button class="gmenu-item" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="mockup-file-menu" data-menu="view">View</button>
+                    <button class="gmenu-item" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="mockup-file-menu" data-menu="go">Go</button>
+                    <button class="gmenu-item" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="mockup-file-menu" data-menu="terminal">Terminal</button>
+                    <button class="gmenu-item" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="mockup-file-menu" data-menu="help">Help</button>
+                  </nav>
+                </div>
+
+                <div class="gnome-panel__right">
+                  <span class="gnome-tray-icon" aria-hidden="true" title="Network">
+                    <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M8 2.5a8.7 8.7 0 0 0-5.7 2.1l-.8-.8a9.8 9.8 0 0 1 13 0l-.8.8A8.7 8.7 0 0 0 8 2.5zm0 3.8a5.2 5.2 0 0 0-3.4 1.3l-.8-.8a6.3 6.3 0 0 1 8.4 0l-.8.8A5.2 5.2 0 0 0 8 6.3zm0 3.8a1.7 1.7 0 0 0-1.1.4L8 12.1l1.1-1.6a1.7 1.7 0 0 0-1.1-.4z"/></svg>
+                  </span>
+                  <span class="gnome-tray-icon" aria-hidden="true" title="Audio">
+                    <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M9 2.5 5.5 5.5H2v5h3.5L9 13.5v-11zM11.5 8c0-1.7-.9-3.1-2.2-3.8v7.6c1.3-.7 2.2-2.1 2.2-3.8z"/></svg>
+                  </span>
+                  <span class="gnome-panel-clock">Sep 10 09:41</span>
+                </div>
+              </div>
+
+              <!-- Main Desktop Workspace Area -->
+              <div class="desktop-workspace">
+                <!-- Underneath Window: Application window with GNOME controls -->
+                <div class="mockup-app-window">
+                  <div class="mockup-window-header">
+                    <div class="mockup-window-tabs">
+                      <span class="mockup-tab is-active">
+                        <svg viewBox="0 0 16 16" width="11" height="11" fill="#e5a00d" aria-hidden="true"><circle cx="8" cy="8" r="6"/></svg>
+                        <span>extension.js</span>
+                      </span>
+                      <span class="mockup-tab">systemMenu.js</span>
+                    </div>
+
+                    <!-- GNOME Window Controls matching media_1788985350616.png -->
+                    <div class="gnome-window-controls" aria-hidden="true">
+                      <div class="gnome-ctrl-menu">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                          <rect x="1" y="1.5" width="2.5" height="1.8" rx="0.5"/>
+                          <rect x="5.2" y="1.5" width="9.8" height="1.8" rx="0.5"/>
+                          <rect x="1" y="5.5" width="2.5" height="1.8" rx="0.5"/>
+                          <rect x="5.2" y="5.5" width="9.8" height="1.8" rx="0.5"/>
+                          <rect x="1" y="9.5" width="2.5" height="1.8" rx="0.5"/>
+                          <rect x="5.2" y="9.5" width="9.8" height="1.8" rx="0.5"/>
+                          <rect x="1" y="13.5" width="2.5" height="1.8" rx="0.5"/>
+                          <rect x="5.2" y="13.5" width="9.8" height="1.8" rx="0.5"/>
+                        </svg>
+                        <span class="gnome-ctrl-sep"></span>
+                        <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor">
+                          <path d="M3.2 5.5a1 1 0 0 1 1.4 0L8 8.9l3.4-3.4a1 1 0 1 1 1.4 1.4l-4.1 4.1a1 1 0 0 1-1.4 0L3.2 6.9a1 1 0 0 1 0-1.4z"/>
+                        </svg>
+                      </div>
+                      <span class="gnome-btn-circle" title="Minimize">
+                        <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor">
+                          <rect x="3" y="7.25" width="10" height="1.5" rx="0.75"/>
+                        </svg>
+                      </span>
+                      <span class="gnome-btn-circle gnome-btn-close" title="Close">
+                        <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor">
+                          <path d="M3.5 3.5a1 1 0 0 1 1.4 0L8 6.6l3.1-3.1a1 1 0 1 1 1.4 1.4L9.4 8l3.1 3.1a1 1 0 0 1-1.4 1.4L8 9.4l-3.1 3.1a1 1 0 0 1-1.4-1.4L6.6 8 3.5 4.9a1 1 0 0 1 0-1.4z"/>
+                        </svg>
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Window Body: Activity bar + Code buffer -->
+                  <div class="mockup-window-body">
+                    <div class="mockup-window-sidebar" aria-hidden="true">
+                      <span class="sidebar-icon is-active">
+                        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="12" height="12" rx="1.5"/><path d="M2 6h12"/></svg>
+                      </span>
+                      <span class="sidebar-icon">
+                        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4"/><path d="m10 10 4 4"/></svg>
+                      </span>
+                      <span class="sidebar-icon">
+                        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5" cy="4" r="2"/><circle cx="11" cy="6" r="2"/><circle cx="5" cy="12" r="2"/><path d="M5 6v4M5 6c2 0 4 0 6 2"/></svg>
+                      </span>
+                      <span class="sidebar-icon">
+                        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+                      </span>
+                    </div>
+                    <div class="mockup-window-code" aria-hidden="true">
+                      <div class="mockup-code-line"><span class="c-dim">1</span> <span class="c-kw">import</span> { Extension } <span class="c-kw">from</span> <span class="c-str">'resource:///org/gnome/shell/extensions/extension.js'</span>;</div>
+                      <div class="mockup-code-line"><span class="c-dim">2</span> <span class="c-kw">import</span> { GlobalMenu } <span class="c-kw">from</span> <span class="c-str">'./src/hoverSubMenu.js'</span>;</div>
+                      <div class="mockup-code-line"><span class="c-dim">3</span> </div>
+                      <div class="mockup-code-line"><span class="c-dim">4</span> <span class="c-kw">export default class</span> <span class="c-cls">FuhgawzGlobalMenu</span> <span class="c-kw">extends</span> <span class="c-cls">Extension</span> {</div>
+                      <div class="mockup-code-line"><span class="c-dim">5</span>   <span class="c-fn">enable</span>() {</div>
+                      <div class="mockup-code-line"><span class="c-dim">6</span>     <span class="c-kw">this</span>._menu = <span class="c-kw">new</span> <span class="c-cls">GlobalMenu</span>({ target: <span class="c-str">'top-bar'</span>, registrar: <span class="c-bool">true</span> });</div>
+                      <div class="mockup-code-line"><span class="c-dim">7</span>     <span class="c-kw">this</span>._menu.<span class="c-fn">attach</span>();</div>
+                      <div class="mockup-code-line"><span class="c-dim">8</span>   }</div>
+                      <div class="mockup-code-line"><span class="c-dim">9</span> }</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Dropped Down Global Menu (Adwaita popover) directly below File -->
+                <div class="mockup-popover-menu" id="mockup-file-menu" role="menu" aria-label="Active global menu">
+                  <div class="popover-item" role="menuitem">
+                    <span>New Text File</span>
+                    <kbd>Ctrl+N</kbd>
+                  </div>
+                  <div class="popover-item" role="menuitem">
+                    <span>New Window</span>
+                    <kbd>Ctrl+Shift+N</kbd>
+                  </div>
+                  <div class="popover-divider" role="separator"></div>
+                  <div class="popover-item" role="menuitem">
+                    <span>Open File...</span>
+                    <kbd>Ctrl+O</kbd>
+                  </div>
+                  <div class="popover-divider" role="separator"></div>
+                  <div class="popover-item" role="menuitem">
+                    <span>Save</span>
+                    <kbd>Ctrl+S</kbd>
+                  </div>
+                  <div class="popover-item" role="menuitem">
+                    <span>Save As...</span>
+                    <kbd>Ctrl+Shift+S</kbd>
+                  </div>
+                  <div class="popover-divider" role="separator"></div>
+                  <div class="popover-item" role="menuitem">
+                    <span>Close Editor</span>
+                    <kbd>Ctrl+W</kbd>
+                  </div>
+                  <div class="popover-item" role="menuitem">
+                    <span>Close Window</span>
+                    <kbd>Ctrl+Shift+W</kbd>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <figure class="code-card" data-reveal>
-        <div class="code-card__bar">
-          <div class="code-card__title">
-            <span class="code-card__dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="chip chip--ok">extension.js</span>
-          </div>
-          <button class="copy-mini" type="button"
-            data-copy="gnome-extensions enable fuhgawzglbmenu@katon26.github.io">copy</button>
+
+      <!-- Right side: Hero Copy, Badges, CTAs, and Quick Command Pill -->
+      <div class="hero__content is-in" data-reveal>
+        <div class="hero__badge">
+          <span class="badge-dot" aria-hidden="true"></span>
+          <span>GNOME 45–50 · GPL-3.0 · Native D-Bus</span>
         </div>
-        <pre class="code" aria-label="What enabling the extension looks like"><code><span class="tok-accent">$</span> gnome-extensions enable fuhgawzglbmenu@katon26.github.io
-<span class="code__result">✓</span> app menus live in the top bar
-<span class="code__result">✓</span> system menu · user switcher · force quit
-<span class="code__result">✓</span> <span class="type-line" data-type="GNOME 45–50 · GPL-3.0-or-later"></span><span class="caret" aria-hidden="true"></span></code></pre>
-      </figure>
+        <h1 class="hero__title">Your app menus, back in one bar.</h1>
+        <p class="hero__lede">
+          FUHGAWZ Global Menu brings application menubars directly into the GNOME Shell top bar. Powered by a 6-tier fallback engine, it extracts and renders menus across Wayland, GTK 4 / Libadwaita apps, GTK 3, Qt, and browser windows. Also include with system logo menu with user switcher, recent items, and force quit on the same key.
+        </p>
+        <div class="hero__cta">
+          <a class="btn btn--primary btn--lg" href="#install">Install extension</a>
+          <a class="btn btn--ghost btn--lg" href="https://github.com/katon26/fuhgawz-global-menu" rel="noopener" target="_blank">
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+              <path d="M8 .2a8 8 0 0 0-2.5 15.6c.4.1.6-.2.6-.4v-1.5c-2.2.5-2.7-1.1-2.7-1.1-.4-.9-.9-1.2-.9-1.2-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.9.9 2.4.7.1-.5.3-.9.5-1.1-1.8-.2-3.7-.9-3.7-4a3.1 3.1 0 0 1 .8-2.2c-.1-.2-.4-1 .1-2.2 0 0 .7-.2 2.2.8a7.7 7.7 0 0 1 4 0c1.5-1 2.2-.8 2.2-.8.5 1.2.2 2 .1 2.2.6.7.8 1.5.8 2.2 0 3.1-1.9 3.8-3.7 4 .3.3.6.8.6 1.6v2.4c0 .2.2.5.6.4A8 8 0 0 0 8 .2z"/>
+            </svg>
+            <span>View on GitHub</span>
+          </a>
+          <div class="ego-btn-wrap">
+            <button class="btn btn--ghost btn--lg btn--ego" id="ego-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="ego-popover" title="Pending review on extensions.gnome.org · Click for status">
+              <svg class="gnome-foot-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+                <path d="M13.136 0c-3.328 0-3.953 4.74-2.08 4.74 1.872 0 5.409-4.74 2.08-4.74zM7.61 4.153C8.605 4.214 9.7.35 7.825.592c-1.873.243-1.214 3.5-.217 3.561zM3.04 6.555c.71-.312.091-3.365-1.114-2.532-1.206.833.405 2.844 1.114 2.532zM5.038 4.957c.844-.172.89-3.634-.615-3.013s-.228 3.186.615 3.013zM9.446 12.706c.15 1.144-.84 1.709-1.808.971-3.083-2.347 5.105-3.518 4.565-6.725-.448-2.662-8.615-1.842-9.545 2.323C2.028 12.092 5.249 16 8.61 16c1.653 0 3.56-1.493 3.917-3.384.273-1.442-3.206-.864-3.081.09z"/>
+              </svg>
+              <span>View on GNOME Extension</span>
+              <span class="btn-badge btn-badge--pending">In Review</span>
+            </button>
+
+            <!-- Status Popover informing user about pending review -->
+            <div class="ego-popover" id="ego-popover" role="dialog" aria-modal="false" aria-label="GNOME Extensions review status" hidden>
+              <div class="ego-popover__arrow" aria-hidden="true"></div>
+              <div class="ego-popover__header">
+                <span class="ego-status-dot" aria-hidden="true"></span>
+                <div class="ego-popover__title-wrap">
+                  <span class="ego-popover__title">In Review on extensions.gnome.org</span>
+                  <span class="ego-popover__badge">Available Soon</span>
+                </div>
+                <button class="ego-popover__close" id="ego-close" type="button" aria-label="Close notification">&times;</button>
+              </div>
+              <p class="ego-popover__body">
+                FUHGAWZ Global Menu has been submitted to <strong>extensions.gnome.org</strong> and is currently awaiting approval. Once published, one-click install will be enabled directly from the browser.
+              </p>
+              <div class="ego-popover__footer">
+                <a class="ego-popover__action" href="#install">Install now via terminal script below &darr;</a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick one-line terminal enable pill -->
+        <div class="hero-quick-pill">
+          <div class="quick-pill__body">
+            <span class="quick-pill__prompt" aria-hidden="true">$</span>
+            <code class="quick-pill__cmd">gnome-extensions enable fuhgawzglbmenu@katon26.github.io</code>
+          </div>
+          <button class="copy-mini" type="button" data-copy="gnome-extensions enable fuhgawzglbmenu@katon26.github.io" aria-label="Copy enable command">copy</button>
+        </div>
+
+        <div class="hero__proof">
+          <span class="proof-tag"><span class="proof-check">✓</span> Zero window clutter</span>
+          <span class="proof-tag"><span class="proof-check">✓</span> Automatic fallback</span>
+          <span class="proof-tag"><span class="proof-check">✓</span> Wayland &amp; X11</span>
+        </div>
+      </div>
     </section>
 
     <hr class="rule" />
 
-    <!-- Spec sheet — the menu, section by section -->
+    <!-- Spec sheet — Bento Feature Grid -->
     <section class="spec" id="menu" aria-labelledby="spec-head">
-      <h2 class="spec__head" id="spec-head" data-reveal>One bar. Every menu.</h2>
-      <dl class="spec__rows" data-reveal>
-        <div class="spec-row">
-          <dt>App Menu</dt>
-          <dd>File, Edit, View, and Help from the focused application, rendered in the top bar.</dd>
-          <dd class="spec-row__note">gtk3 · appmenu-gtk-module</dd>
+      <div class="spec__header-row" data-reveal>
+        <div>
+          <h2 class="spec__head" id="spec-head">One bar. Every menu.</h2>
+          <p class="spec__subhead">Engineered for pure speed, zero configuration, and consistent desktop ergonomics.</p>
         </div>
-        <div class="spec-row">
-          <dt>GTK 4 Fallback</dt>
-          <dd>Reads <code>org.gtk.Actions</code> from modern headerbar-driven apps and groups them logically.</dd>
-          <dd class="spec-row__note">gtk4 · org.gtk.Actions</dd>
-        </div>
-        <div class="spec-row">
-          <dt>D-Bus Registrar</dt>
-          <dd>A session-wide registrar for Qt and compatible applications exporting <code>com.canonical.dbusmenu</code>.</dd>
-          <dd class="spec-row__note">qt · com.canonical.dbusmenu</dd>
-        </div>
-        <div class="spec-row">
-          <dt>System Menu</dt>
-          <dd>User switcher, recent items, force quit, and quick-settings hiders on the same key as the app menu.</dd>
-          <dd class="spec-row__note">built-in · src/systemMenu.js</dd>
-        </div>
-        <div class="spec-row">
-          <dt>GNOME Coverage</dt>
-          <dd>Supported on GNOME 45 through 50, with an extension preferences page for layout and shortcuts.</dd>
-          <dd class="spec-row__note">45 · 46 · 47 · 48 · 49 · 50</dd>
-        </div>
-      </dl>
-    </section>
+      </div>
 
-    <!-- Dark graphite band — the one dark beat -->
-    <section class="band" id="fallbacks" aria-labelledby="band-head">
-      <div class="band__inner">
-        <h2 class="band__head" id="band-head" data-reveal>How menus reach the bar</h2>
-        <ol class="tiers" data-reveal>
-          <li>
-            <span class="tiers__num">01</span>
-            <span>
-              <span class="tiers__label">GTK 3 apps</span>
-              <span class="tiers__proto">gtk-modules=appmenu-gtk-module</span>
-            </span>
-            <span class="tiers__desc">Classic D-Bus menu export, restored on modern distros where it is no longer the default.</span>
-          </li>
-          <li>
-            <span class="tiers__num">02</span>
-            <span>
-              <span class="tiers__label">GTK 4 apps</span>
-              <span class="tiers__proto">org.gtk.Actions</span>
-            </span>
-            <span class="tiers__desc">Modern headerbar-driven apps are read directly and grouped into the same menu.</span>
-          </li>
-          <li>
-            <span class="tiers__num">03</span>
-            <span>
-              <span class="tiers__label">Qt &amp; others</span>
-              <span class="tiers__proto">com.canonical.dbusmenu</span>
-            </span>
-            <span class="tiers__desc">A session registrar lets compatible apps export menus without per-app configuration.</span>
-          </li>
-        </ol>
-        <p class="band__note" data-reveal>
-          The extension probes every source and shows the first menu that answers. Apps with no
-          exported menu fall back to the system menu, so the bar never goes empty.
-        </p>
+      <div class="spec__grid" data-reveal>
+        <!-- Card 1: Featured App Menu -->
+        <div class="spec-card spec-card--featured">
+          <div class="spec-card__top">
+            <span class="spec-card__tag">Core Engine</span>
+            <span class="chip chip--ok">gtk-modules=appmenu-gtk-module</span>
+          </div>
+          <h3 class="spec-card__title">Direct App Menu Integration</h3>
+          <p class="spec-card__body">
+            File, Edit, View, and Help from the focused application are extracted and rendered directly into GNOME's top panel. Hovering between menus triggers instant submenus with full keyboard accelerator support.
+          </p>
+          <div class="spec-card__preview" aria-hidden="true">
+            <span class="spec-preview-pill">File</span>
+            <span class="spec-preview-pill">Edit</span>
+            <span class="spec-preview-pill">View</span>
+            <span class="spec-preview-pill">Terminal</span>
+            <span class="spec-preview-pill">Help</span>
+          </div>
+        </div>
+
+        <!-- Card 2: GTK 4 Fallback -->
+        <div class="spec-card">
+          <div class="spec-card__top">
+            <span class="spec-card__tag">Modern Apps</span>
+            <span class="chip chip--ok">org.gtk.Actions</span>
+          </div>
+          <h3 class="spec-card__title">GTK 4 Action Grouping</h3>
+          <p class="spec-card__body">
+            Modern libadwaita apps (such as GNOME Text Editor and GNOME Builder) don't export classic menus by default. The extension inspects <code>org.gtk.Actions</code> from active headerbars and groups them logically so modern apps never feel missing.
+          </p>
+        </div>
+
+        <!-- Card 3: D-Bus Registrar -->
+        <div class="spec-card">
+          <div class="spec-card__top">
+            <span class="spec-card__tag">Qt &amp; Electron</span>
+            <span class="chip chip--ok">com.canonical.dbusmenu</span>
+          </div>
+          <h3 class="spec-card__title">Session-Wide Registrar</h3>
+          <p class="spec-card__body">
+            A background D-Bus registrar lets Qt 5/6, KDE, and open-source editor applications like VSCodium broadcast their menu structures automatically without per-application launcher overrides.
+          </p>
+        </div>
+
+        <!-- Card 4: System Menu -->
+        <div class="spec-card">
+          <div class="spec-card__top">
+            <span class="spec-card__tag">System Tools</span>
+            <span class="chip chip--ok">src/systemMenu.js</span>
+          </div>
+          <h3 class="spec-card__title">Integrated System Menu</h3>
+          <p class="spec-card__body">
+            User switcher, recent documents, force quit, and quick-settings hiders live on the exact same shortcut key as the app menu. Fast access when you need it, invisible when you don't.
+          </p>
+        </div>
+
+        <!-- Card 5: GNOME Compatibility -->
+        <div class="spec-card">
+          <div class="spec-card__top">
+            <span class="spec-card__tag">Compatibility</span>
+            <span class="chip chip--ok">GNOME 45–50</span>
+          </div>
+          <h3 class="spec-card__title">Modern GNOME Shell</h3>
+          <p class="spec-card__body">
+            Maintained and verified across GNOME 45, 46, 47, 48, 49, and 50. Ships with a full libadwaita preferences dialog for menu placement, padding, and hotkey binding.
+          </p>
+        </div>
+
+        <!-- Card 6: Distro Agnostic Banner (Spans full grid width to balance the Bento layout) -->
+        <div class="spec-card spec-card--wide">
+          <div class="spec-card__top">
+            <span class="spec-card__tag">Universal Ecosystem</span>
+            <span class="chip chip--ok">Zero Distro Lock-in</span>
+          </div>
+          <div class="spec-card__wide-content">
+            <div>
+              <h3 class="spec-card__title">Distro-Agnostic &amp; Wayland-First</h3>
+              <p class="spec-card__body">
+                Engineered for seamless compatibility across every major Linux distribution and custom desktop session. Installs purely in user space with no external package repositories, PPAs, or system tampering required.
+              </p>
+            </div>
+            <div class="distro-pills" aria-label="Supported Linux distributions">
+              <span class="distro-pill"><span class="distro-pill__dot"></span>Fedora</span>
+              <span class="distro-pill"><span class="distro-pill__dot"></span>Arch Linux</span>
+              <span class="distro-pill"><span class="distro-pill__dot"></span>Ubuntu</span>
+              <span class="distro-pill"><span class="distro-pill__dot"></span>Debian</span>
+              <span class="distro-pill"><span class="distro-pill__dot"></span>Bazzite</span>
+              <span class="distro-pill"><span class="distro-pill__dot"></span>openSUSE</span>
+              <span class="distro-pill"><span class="distro-pill__dot"></span>Wayland &amp; X11</span>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
-    <!-- Install -->
+    <!-- Dark graphite band — Architectural Pipeline -->
+    <section class="band" id="fallbacks" aria-labelledby="band-head">
+      <div class="band__inner">
+        <div class="band__header" data-reveal>
+          <h2 class="band__head" id="band-head">How menus reach the bar</h2>
+          <p class="band__subhead">A resilient 3-layer pipeline guarantees your panel always has a menu ready.</p>
+        </div>
+
+        <div class="tiers" data-reveal>
+          <article class="tier-card">
+            <div class="tier-card__head">
+              <span class="tier-card__num">01</span>
+              <span class="tier-card__badge">Source</span>
+            </div>
+            <h3 class="tier-card__title">Application Layer</h3>
+            <code class="tier-card__proto">gtk-modules=appmenu-gtk-module</code>
+            <p class="tier-card__desc">
+              Classic GTK 3 and compatible applications export their native menu trees over D-Bus automatically.
+            </p>
+          </article>
+
+          <article class="tier-card">
+            <div class="tier-card__head">
+              <span class="tier-card__num">02</span>
+              <span class="tier-card__badge">Bridge</span>
+            </div>
+            <h3 class="tier-card__title">Resolution Engine</h3>
+            <code class="tier-card__proto">org.gtk.Actions &amp; dbusmenu</code>
+            <p class="tier-card__desc">
+              When an app uses GTK 4 or Qt, the fallback engine queries action groups and session registrars to build menu structures dynamically.
+            </p>
+          </article>
+
+          <article class="tier-card">
+            <div class="tier-card__head">
+              <span class="tier-card__num">03</span>
+              <span class="tier-card__badge">Shell</span>
+            </div>
+            <h3 class="tier-card__title">GNOME Top Bar</h3>
+            <code class="tier-card__proto">Clutter + systemMenu fallback</code>
+            <p class="tier-card__desc">
+              Rendered natively inside GNOME Shell with hover submenus, keyboard shortcuts, and a system menu fallback if no app menu answers.
+            </p>
+          </article>
+        </div>
+
+        <div class="band__callout" data-reveal>
+          <span class="band__callout-icon" aria-hidden="true">✓</span>
+          <p class="band__note">
+            The extension probes every source and renders the highest fidelity menu that answers. Apps with no exported menu fall back gracefully to the system menu, so the bar never goes empty.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Install CTA with GNOME Terminal window (Titlebar linuxgnome-like matching media_1788985350616.png) -->
     <section class="cta" id="install" aria-labelledby="cta-head">
-      <h2 class="cta__head" id="cta-head" data-reveal>Install in two steps</h2>
-      <p class="cta__text" data-reveal>
-        Clone the repository, run <code>./install.sh</code>, then enable the extension. The script
-        copies the modules, compiles the schema, and configures the GTK 3 and GTK 2 modules for
-        menu export, so no distro packaging is required.
-      </p>
-      <figure class="code-card" data-reveal>
-        <div class="code-card__bar">
-          <div class="code-card__title">
-            <span class="code-card__dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="chip chip--ok">install.sh</span>
+      <div class="cta__layout">
+        <div class="cta__copy" data-reveal>
+          <h2 class="cta__head" id="cta-head">Install in two steps</h2>
+          <p class="cta__text">
+            Clone the repository, run <code>./install.sh</code>, then enable the extension. The installer
+            copies the modules, compiles the GSettings schema, and configures the GTK 3 and GTK 2 modules for
+            menu export, with zero distro packaging required.
+          </p>
+          <div class="cta__steps">
+            <div class="cta-step">
+              <span class="cta-step__num">1</span>
+              <div>
+                <strong>Clone &amp; Run Installer</strong>
+                <p>Configures GTK modules and schemas automatically in user space.</p>
+              </div>
+            </div>
+            <div class="cta-step">
+              <span class="cta-step__num">2</span>
+              <div>
+                <strong>Enable in GNOME Shell</strong>
+                <p>Activate via CLI or the GNOME Extensions app without restarting your desktop.</p>
+              </div>
+            </div>
           </div>
-          <button class="copy-mini" type="button" data-copy="git clone https://github.com/katon26/fuhgawz-global-menu
+        </div>
+
+        <!-- Terminal Card with Linux GNOME Titlebar Controls -->
+        <figure class="code-card gnome-window-card" data-reveal>
+          <div class="gnome-headerbar">
+            <div class="gnome-headerbar__left">
+              <svg class="gnome-term-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <polyline points="3 4.5 7 8 3 11.5"></polyline>
+                <line x1="8" y1="12" x2="13" y2="12"></line>
+              </svg>
+              <span class="gnome-headerbar__tab">install.sh</span>
+              <span class="chip chip--ok">bash</span>
+            </div>
+
+            <div class="gnome-headerbar__right">
+              <button class="copy-mini" type="button" data-copy="git clone https://github.com/katon26/fuhgawz-global-menu
 cd fuhgawz-global-menu
 ./install.sh
-gnome-extensions enable fuhgawzglbmenu@katon26.github.io">copy</button>
-        </div>
-        <pre class="code" aria-label="Installation commands"><code><span class="tok-accent">$</span> git clone https://github.com/katon26/fuhgawz-global-menu
+gnome-extensions enable fuhgawzglbmenu@katon26.github.io" aria-label="Copy install script commands">copy</button>
+
+              <!-- Authentic GNOME titlebar controls matching media_1788985350616.png -->
+              <div class="gnome-ctrl-menu" aria-hidden="true">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <rect x="1" y="1.5" width="2.5" height="1.8" rx="0.5"/>
+                  <rect x="5.2" y="1.5" width="9.8" height="1.8" rx="0.5"/>
+                  <rect x="1" y="5.5" width="2.5" height="1.8" rx="0.5"/>
+                  <rect x="5.2" y="5.5" width="9.8" height="1.8" rx="0.5"/>
+                  <rect x="1" y="9.5" width="2.5" height="1.8" rx="0.5"/>
+                  <rect x="5.2" y="9.5" width="9.8" height="1.8" rx="0.5"/>
+                  <rect x="1" y="13.5" width="2.5" height="1.8" rx="0.5"/>
+                  <rect x="5.2" y="13.5" width="9.8" height="1.8" rx="0.5"/>
+                </svg>
+                <span class="gnome-ctrl-sep"></span>
+                <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M3.2 5.5a1 1 0 0 1 1.4 0L8 8.9l3.4-3.4a1 1 0 1 1 1.4 1.4l-4.1 4.1a1 1 0 0 1-1.4 0L3.2 6.9a1 1 0 0 1 0-1.4z"/>
+                </svg>
+              </div>
+
+              <span class="gnome-btn-circle" aria-hidden="true" title="Minimize">
+                <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor">
+                  <rect x="3" y="7.25" width="10" height="1.5" rx="0.75"/>
+                </svg>
+              </span>
+              <span class="gnome-btn-circle gnome-btn-close" aria-hidden="true" title="Close">
+                <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M3.5 3.5a1 1 0 0 1 1.4 0L8 6.6l3.1-3.1a1 1 0 1 1 1.4 1.4L9.4 8l3.1 3.1a1 1 0 0 1-1.4 1.4L8 9.4l-3.1 3.1a1 1 0 0 1-1.4-1.4L6.6 8 3.5 4.9a1 1 0 0 1 0-1.4z"/>
+                </svg>
+              </span>
+            </div>
+          </div>
+          <pre class="code" aria-label="Installation commands"><code><span class="tok-accent">$</span> git clone https://github.com/katon26/fuhgawz-global-menu
 <span class="tok-accent">$</span> cd fuhgawz-global-menu
 <span class="tok-accent">$</span> ./install.sh
 <span class="tok-accent">$</span> gnome-extensions enable fuhgawzglbmenu@katon26.github.io</code></pre>
-      </figure>
+        </figure>
+      </div>
     </section>
   </main>
 
-  <!-- Footer — Ft5 statement -->
+  <!-- Footer -->
   <footer class="foot">
     <p class="foot__line">One bar for the whole desktop.</p>
     <div class="foot__meta">
       <span class="wordmark">
-        <svg class="wordmark__mark" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
-          <circle cx="8" cy="8" r="6.2" />
-          <ellipse cx="8" cy="8" rx="2.7" ry="6.2" />
-          <path d="M1.8 8h12.4" />
+        <svg class="wordmark__mark" viewBox="0 0 128 128" width="22" height="22" aria-hidden="true">
+          <defs>
+            <linearGradient id="wmGradFoot" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#3584e4"/>
+              <stop offset="100%" stop-color="#1c71d8"/>
+            </linearGradient>
+            <linearGradient id="wmPanelFoot" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+              <stop offset="100%" stop-color="#ffffff" stop-opacity="0.10"/>
+            </linearGradient>
+            <filter id="wmShadowFoot" x="-10%" y="-10%" width="120%" height="125%" filterUnits="userSpaceOnUse">
+              <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.25"/>
+            </filter>
+          </defs>
+          <rect x="12" y="12" width="104" height="104" rx="26" fill="url(#wmGradFoot)" filter="url(#wmShadowFoot)"/>
+          <rect x="22" y="24" width="84" height="18" rx="7" fill="url(#wmPanelFoot)"/>
+          <circle cx="32" cy="33" r="3.5" fill="#ffffff" fill-opacity="0.95"/>
+          <rect x="42" y="31" width="14" height="4" rx="2" fill="#ffffff" fill-opacity="0.95"/>
+          <rect x="60" y="31" width="12" height="4" rx="2" fill="#ffffff" fill-opacity="0.75"/>
+          <rect x="76" y="31" width="12" height="4" rx="2" fill="#ffffff" fill-opacity="0.75"/>
+          <rect x="36" y="48" width="56" height="54" rx="10" fill="#ffffff" fill-opacity="0.95" filter="url(#wmShadowFoot)"/>
+          <rect x="44" y="58" width="28" height="4" rx="2" fill="#1c71d8"/>
+          <rect x="76" y="58" width="10" height="4" rx="2" fill="#9a9996"/>
+          <rect x="44" y="68" width="34" height="4" rx="2" fill="#241f31"/>
+          <rect x="44" y="78" width="24" height="4" rx="2" fill="#241f31"/>
+          <line x1="42" y1="87" x2="86" y2="87" stroke="#e1e1e1" stroke-width="1.5"/>
+          <rect x="44" y="92" width="20" height="4" rx="2" fill="#e01b24"/>
         </svg>
         <span>FUHGAWZ Global Menu</span>
       </span>
       <span class="foot__links">
-        <a class="foot__link" href="https://github.com/katon26/fuhgawz-global-menu" rel="noopener">GitHub</a>
+        <a class="foot__link" href="https://github.com/katon26/fuhgawz-global-menu" rel="noopener" target="_blank">GitHub</a>
         <span aria-hidden="true"> · </span>
-        <a class="foot__link" href="https://github.com/katon26/fuhgawz-global-menu/issues" rel="noopener">Issues</a>
+        <a class="foot__link" href="https://github.com/katon26/fuhgawz-global-menu/issues" rel="noopener" target="_blank">Issues</a>
       </span>
       <span>© 2026 katon26 · GPL-3.0-or-later · GNOME 45–50</span>
     </div>
@@ -205,10 +602,10 @@ gnome-extensions enable fuhgawzglbmenu@katon26.github.io">copy</button>
           <span>Install the extension</span><kbd aria-hidden="true">↵</kbd>
         </li>
         <li class="palette__item" role="option" data-action="goto" data-target="menu">
-          <span>Menu contents</span><kbd aria-hidden="true">↵</kbd>
+          <span>Menu features</span><kbd aria-hidden="true">↵</kbd>
         </li>
         <li class="palette__item" role="option" data-action="goto" data-target="fallbacks">
-          <span>How menus reach the bar</span><kbd aria-hidden="true">↵</kbd>
+          <span>Architecture pipeline</span><kbd aria-hidden="true">↵</kbd>
         </li>
         <li class="palette__item" role="option" data-action="copy" data-copy="git clone https://github.com/katon26/fuhgawz-global-menu
 cd fuhgawz-global-menu
@@ -217,7 +614,10 @@ gnome-extensions enable fuhgawzglbmenu@katon26.github.io">
           <span>Copy install command</span><kbd aria-hidden="true">↵</kbd>
         </li>
         <li class="palette__item" role="option" data-action="link" data-href="https://github.com/katon26/fuhgawz-global-menu">
-          <span>Open the repository</span><kbd aria-hidden="true">↵</kbd>
+          <span>Open repository on GitHub</span><kbd aria-hidden="true">↵</kbd>
+        </li>
+        <li class="palette__item" role="option" data-action="custom" data-custom="ego-status">
+          <span>GNOME Extensions status (In review · Available soon)</span><kbd aria-hidden="true">↵</kbd>
         </li>
       </ul>
       <p class="palette__empty" id="palette-empty" hidden>No commands match.</p>

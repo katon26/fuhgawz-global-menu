@@ -61,6 +61,8 @@
   /* radius — drawn with a ruler */
   --radius-sm: 6px;
   --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
 
   /* rules */
   --rule-hair: 1px;
@@ -73,9 +75,11 @@
   --dur-short: 220ms;
   --dur-long:  420ms;
 
-  /* shadow — the only two on the page */
-  --shadow-card:  0 1px 2px oklch(24% 0.02 258 / 0.06);
-  --shadow-modal: 0 24px 64px -24px oklch(20% 0.02 260 / 0.4);
+  /* shadow */
+  --shadow-card:    0 1px 2px oklch(24% 0.02 258 / 0.06);
+  --shadow-modal:   0 24px 64px -24px oklch(20% 0.02 260 / 0.4);
+  --shadow-popover: 0 16px 36px -6px rgba(0, 0, 0, 0.65), 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-frame:   0 24px 64px -12px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.2);
 
   /* z — named scale */
   --z-base:     1;
@@ -86,5 +90,5 @@
 
   /* layout */
   --page-gutter: clamp(1rem, 4vw, 4rem);
-  --content-max: 72rem;
+  --content-max: 78rem;
 }
