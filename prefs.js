@@ -159,8 +159,8 @@ function createAboutPage(window, extensionPath, metadata, gettextFunc) {
 
     headerBox.append(
         new Gtk.Label({
-            label: 'Katon (katon26)',
-            url: 'https://katon26.github.io',
+            label: '<a href="https://katon26.github.io">Katon (katon26)</a>',
+            use_markup: true,
             halign: Gtk.Align.CENTER,
         })
     );
@@ -254,8 +254,9 @@ function createAboutPage(window, extensionPath, metadata, gettextFunc) {
         tooltip_text: gettextFunc('Buy Me a Coffee'),
     });
     qrButton.add_css_class('flat');
+    const qrFile = Gio.File.new_for_path(`${extensionPath}/src/qr-code-fuhg.svg`);
     const qrImage = new Gtk.Image({
-        gicon: new Gio.FileIcon({ file: Gio.File.new_for_path(`${extensionPath}/src/qr-code-fuhg.svg`) }),
+        gicon: new Gio.FileIcon({ file: qrFile }),
         pixel_size: 128,
     });
     qrButton.set_child(qrImage);
