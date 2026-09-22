@@ -137,3 +137,110 @@
   border-color: lightgray;
 }
 
+/* ── Live Task Indicator & Telemetry Widget ────────────────────────────────── */
+.fuhgawz-task-indicator {
+  padding: 0 4px;
+  spacing: 4px;
+}
+
+.fuhgawz-task-indicator-box {
+  spacing: 6px;
+  padding: 2px 6px;
+  border-radius: 99px;
+  background-color: rgba(255, 255, 255, 0.08);
+  transition: background-color 0.2s ease;
+}
+
+.fuhgawz-task-indicator-box:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.fuhgawz-task-pill {
+  padding: 2px 8px;
+  border-radius: 99px;
+  background-color: -st-accent-color;
+  color: -st-accent-fg-color;
+  font-size: 0.85em;
+  font-weight: bold;
+}
+
+.fuhgawz-task-separator {
+  width: 1px;
+  height: 14px;
+  background-color: rgba(255, 255, 255, 0.25);
+  margin: 0 2px;
+}
+
+.fuhgawz-task-indicator-label {
+  font-size: 0.9em;
+  font-weight: 600;
+  color: inherit;
+}
+
+.fuhgawz-task-telemetry-label {
+  font-size: 0.85em;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.fuhgawz-task-slider-toggle,
+.fuhgawz-task-toggle-btn {
+  padding: 0 4px;
+  border-radius: 4px;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.7);
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.fuhgawz-task-slider-toggle:hover,
+.fuhgawz-task-toggle-btn:hover {
+  color: -st-accent-fg-color;
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.fuhgawz-task-action-button {
+  padding: 0 4px;
+  border-radius: 4px;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.fuhgawz-task-action-button:hover {
+  color: -st-accent-fg-color;
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Hairline Progress Bar */
+.fuhgawz-task-progress-bar {
+  height: 2px;
+  margin: 0;
+  padding: 0;
+}
+
+/* Recent Tasks Actions inside Recent Items Submenu */
+.fuhgawz-task-actions-box {
+  spacing: 4px;
+}
+
+.fuhgawz-task-action-btn {
+  padding: 2px 6px;
+  margin-left: 4px;
+  border-radius: 6px;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.fuhgawz-task-action-btn:hover {
+  background-color: -st-accent-color;
+  color: -st-accent-fg-color;
+}
+
+.fuhgawz-dropdown-progress-box {
+  spacing: 4px;
+  padding: 6px 0;
+}
+
+.fuhgawz-card-percent-label {
+  font-size: 0.85em;
+  font-weight: bold;
+  color: -st-accent-color;
+}
+

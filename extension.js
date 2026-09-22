@@ -19,6 +19,8 @@ import { VirtualKeyboardDispatcher } from './src/virtualKeyboard.js';
 import { ProfileManager, expandDynamicProfileItems, getBookmarksCacheMtime, loadBrowserBookmarksAsync } from './src/profileManager.js';
 import { AtspiScanner } from './src/atspiScanner.js';
 import { HoverSubMenuMenuItem } from './src/hoverSubMenu.js';
+import { TaskManager } from './src/taskManager.js';
+import { TaskIndicatorButton } from './src/taskIndicatorButton.js';
 
 // ── D-Bus Interface XML ──────────────────────────────────────────────────────
 
@@ -2013,6 +2015,9 @@ class FUHGlobeGlobalMenu {
         this._profileManager.loadProfiles();
         this._atspiScanner = new AtspiScanner();
 
+        // Headless desktop task ingestion engine
+        this._taskManager = new TaskManager(this._settings);
+
         // Initialize persistent zero-churn button pool
         this._initButtonPool();
 
@@ -2051,6 +2056,10 @@ class FUHGlobeGlobalMenu {
         } catch (e) {
             console.error(`FUHGlobe: Failed to register AppMenuButton: ${e}`);
         }
+
+        // Live task indicator permanently bound to AppMenuButton at position 1
+        this._taskIndicator = new TaskIndicatorButton(this._settings, this._taskManager);
+        this._taskIndicator.bindToAppMenu(this._appMenuButton);
 
         // Pre-allocated menu button pool (positions 2..11)
         this._buttonPool = [];
@@ -2143,7 +2152,7 @@ class FUHGlobeGlobalMenu {
         const enabled = this._settings ? this._settings.get_boolean('enable-system-menu') : true;
 
         if (enabled && !this._systemMenu) {
-            this._systemMenu = new SystemMenu(this._settings, this._extensionPath, this._extension);
+            this._systemMenu = new SystemMenu(this._settings, this._extensionPath, this._extension, this._taskManager);
             Main.panel.addToStatusArea('FUHGlobeSystemMenuButton', this._systemMenu, 0, 'left');
         } else if (!enabled && this._systemMenu) {
             this._systemMenu.destroy();
@@ -3053,6 +3062,11 @@ class FUHGlobeGlobalMenu {
         this._untrackCurrentWindow();
         this._disconnectSources();
 
+        if (this._taskIndicator) {
+            try { this._taskIndicator.destroy(); } catch (e) {}
+            this._taskIndicator = null;
+        }
+
         if (this._appMenuButton) {
             try { this._appMenuButton.destroy(); } catch (e) {}
             this._appMenuButton = null;
@@ -3115,6 +3129,11 @@ class FUHGlobeGlobalMenu {
         if (this._atspiScanner) {
             this._atspiScanner.destroy();
             this._atspiScanner = null;
+        }
+
+        if (this._taskManager) {
+            try { this._taskManager.destroy(); } catch (e) {}
+            this._taskManager = null;
         }
 
         console.log('FUHGlobe: FUHGlobeGlobalMenu destroyed');

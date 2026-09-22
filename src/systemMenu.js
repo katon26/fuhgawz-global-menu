@@ -132,7 +132,7 @@ async function loadJsonFileAsync(basePath, segments, cancellable) {
 export const SystemMenu = GObject.registerClass(
   { GTypeName: 'FUHGlobeSystemMenuButton' },
   class SystemMenu extends PanelMenu.Button {
-    _init(settings, extensionPath, extension) {
+    _init(settings, extensionPath, extension, taskManager = null) {
       super._init(0.0, 'FUHGlobeSystemMenu');
       this.add_style_class_name('fuhgawz-panel-button');
       this.accessible_name = this._gettext('System Menu');
@@ -140,6 +140,7 @@ export const SystemMenu = GObject.registerClass(
       this._settings = settings;
       this._extensionPath = extensionPath;
       this._extension = extension;
+      this._taskManager = taskManager;
       this._settingsSignalIds = [];
       this._menuOpenSignalId = 0;
       this._recentMenuManager = new PopupMenu.PopupMenuManager(this);
@@ -252,6 +253,10 @@ export const SystemMenu = GObject.registerClass(
       }
     }
 
+    setTaskManager(taskManager) {
+      this._taskManager = taskManager;
+    }
+
     destroy() {
       this._isDestroyed = true;
 
@@ -280,6 +285,7 @@ export const SystemMenu = GObject.registerClass(
       this._systemActions = null;
       this._mediaKeysSettings = null;
       this._settings = null;
+      this._taskManager = null;
 
       super.destroy();
     }
@@ -546,7 +552,14 @@ export const SystemMenu = GObject.registerClass(
     }
 
     _makeRecentItemsMenu(title, iconName) {
-      const submenuItem = new RecentItemsSubmenu(title, this.menu, this._recentMenuManager, this._extension, iconName);
+      const submenuItem = new RecentItemsSubmenu(
+        title,
+        this.menu,
+        this._recentMenuManager,
+        this._extension,
+        iconName,
+        this._taskManager
+      );
       this.menu.addMenuItem(submenuItem);
     }
 

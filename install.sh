@@ -20,20 +20,41 @@ UUID="fuhgawzglbmenu@katon26.github.io"
 EXT_DIR="${HOME}/.local/share/gnome-shell/extensions/${UUID}"
 
 info "Installing FUHGAWZ Global Menu to ${EXT_DIR}..."
-mkdir -p "${EXT_DIR}"
-cp -f metadata.json extension.js prefs.js prefs.css stylesheet.css "${EXT_DIR}/"
-for dir in src app icons sysmenu profiles; do
-    if [[ -d "${dir}" ]]; then
-        mkdir -p "${EXT_DIR}/${dir}"
-        cp -rf "${dir}"/* "${EXT_DIR}/${dir}/"
+
+# Check if EXT_DIR points to the current directory (development symlink)
+SRC_DIR="$(pwd -P)"
+TARGET_DIR="$(realpath "${EXT_DIR}" 2>/dev/null || echo "")"
+
+if [[ "${SRC_DIR}" == "${TARGET_DIR}" ]]; then
+    info "Detected development symlink (${EXT_DIR} -> ${SRC_DIR}). Skipping self-copy."
+    if [[ -d schemas ]]; then
+        glib-compile-schemas schemas/
+        success "Schemas recompiled in place."
     fi
-done
-if [[ -d schemas ]]; then
-    mkdir -p "${EXT_DIR}/schemas"
-    cp -f schemas/* "${EXT_DIR}/schemas/"
-    glib-compile-schemas "${EXT_DIR}/schemas"
+else
+    mkdir -p "${EXT_DIR}"
+    cp -f metadata.json extension.js prefs.js prefs.css stylesheet.css "${EXT_DIR}/"
+    for dir in src app icons sysmenu profiles; do
+        if [[ -d "${dir}" ]]; then
+            mkdir -p "${EXT_DIR}/${dir}"
+            cp -rf "${dir}"/* "${EXT_DIR}/${dir}/"
+        fi
+    done
+    if [[ -d schemas ]]; then
+        mkdir -p "${EXT_DIR}/schemas"
+        cp -f schemas/* "${EXT_DIR}/schemas/"
+        glib-compile-schemas "${EXT_DIR}/schemas"
+    fi
+    success "Extension files, preferences, modules, icons, and compiled schemas copied."
 fi
-success "Extension files, preferences, modules, icons, and compiled schemas copied."
+
+# Install gm-run CLI helper if present
+if [[ -f "bin/gm-run" ]]; then
+    mkdir -p "${HOME}/.local/bin"
+    cp -f bin/gm-run "${HOME}/.local/bin/gm-run"
+    chmod +x "${HOME}/.local/bin/gm-run"
+    success "Installed gm-run CLI helper to ${HOME}/.local/bin/gm-run."
+fi
 
 # Configure GTK 3 settings.ini to load appmenu-gtk-module
 GTK3_CONF_DIR="${HOME}/.config/gtk-3.0"

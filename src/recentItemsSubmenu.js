@@ -53,7 +53,7 @@ async function loadFileTextAsync(file, cancellable) {
 export const RecentItemsSubmenu = GObject.registerClass(
   { GTypeName: 'FUHGlobeRecentItemsSubmenu' },
   class RecentItemsSubmenu extends PopupMenu.PopupBaseMenuItem {
-    _init(title, parentMenu, recentMenuManager, extension, iconName) {
+    _init(title, parentMenu, recentMenuManager, extension, iconName, taskManager = null) {
       super._init({
         reactive: true,
         can_focus: true,
@@ -63,6 +63,7 @@ export const RecentItemsSubmenu = GObject.registerClass(
       this._parentMenu = parentMenu;
       this._recentMenuManager = recentMenuManager;
       this._extension = extension;
+      this._taskManager = taskManager;
 
     // State tracking
     this._recentMenu = null;
@@ -141,8 +142,13 @@ export const RecentItemsSubmenu = GObject.registerClass(
     });
   }
 
+  setTaskManager(taskManager) {
+    this._taskManager = taskManager;
+  }
+
   destroy() {
     this._isDestroyed = true;
+    this._taskManager = null;
 
     if (this._cancellable) {
       this._cancellable.cancel();
@@ -200,7 +206,23 @@ export const RecentItemsSubmenu = GObject.registerClass(
     const hasFiles = files.length > 0;
     const hasApplications = recentApplications.length > 0;
 
-    if (!hasFiles && !hasApplications) {
+    let syncRecentTasks = true;
+    if (this._extension?.getSettings) {
+      try {
+        syncRecentTasks = this._extension.getSettings().get_boolean('task-sync-recent-items');
+      } catch (e) {}
+    } else if (this._taskManager?._settings?.get_boolean) {
+      try {
+        syncRecentTasks = this._taskManager._settings.get_boolean('task-sync-recent-items');
+      } catch (e) {}
+    }
+
+    const recentTasks = (syncRecentTasks && this._taskManager?.getRecentTasks)
+      ? (this._taskManager.getRecentTasks() || []).slice(0, 5)
+      : [];
+    const hasRecentTasks = recentTasks.length > 0;
+
+    if (!hasFiles && !hasApplications && !hasRecentTasks) {
       const placeholder = new PopupMenu.PopupMenuItem(this._gettext('No recent items'));
       placeholder.setSensitive(false);
       menu.addMenuItem(placeholder);
@@ -225,6 +247,22 @@ export const RecentItemsSubmenu = GObject.registerClass(
         );
         appMenuItem.connect('activate', () => this._launchRecentApplication(appInfo, desktopId));
         menu.addMenuItem(appMenuItem);
+      });
+
+      hasEntries = true;
+    }
+
+    if (hasRecentTasks) {
+      if (hasEntries) {
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+      }
+
+      const tasksHeader = this._createSectionHeader(this._gettext('Recent Tasks'));
+      menu.addMenuItem(tasksHeader);
+
+      recentTasks.forEach((task) => {
+        const taskItem = this._createRecentTaskMenuItem(task);
+        menu.addMenuItem(taskItem);
       });
 
       hasEntries = true;
@@ -275,6 +313,14 @@ export const RecentItemsSubmenu = GObject.registerClass(
 
     if (CLEAR_APPLICATION_MENU) {
       this._clearApplicationUsage();
+    }
+
+    if (this._taskManager && typeof this._taskManager.clearRecentTasks === 'function') {
+      try {
+        this._taskManager.clearRecentTasks();
+      } catch (error) {
+        logError(error, 'Failed to clear recent tasks');
+      }
     }
 
     if (this._recentMenu) {
@@ -756,6 +802,87 @@ export const RecentItemsSubmenu = GObject.registerClass(
     return menuItem;
   }
 
+  _createRecentTaskMenuItem(task) {
+    const menuItem = new PopupMenu.PopupBaseMenuItem({
+      reactive: true,
+      can_focus: true,
+      hover: true,
+    });
+
+    const icon = new St.Icon({
+      icon_name: 'emblem-ok-symbolic',
+      style_class: 'popup-menu-icon',
+      y_align: Clutter.ActorAlign.CENTER,
+    });
+    menuItem.add_child(icon);
+
+    const taskTitle = task.title || task.summary || this._gettext('Task');
+    const label = new St.Label({
+      text: taskTitle,
+      x_expand: true,
+      y_align: Clutter.ActorAlign.CENTER,
+    });
+    menuItem.add_child(label);
+
+    const actionsBox = new St.BoxLayout({
+      style_class: 'fuhgawz-task-actions-box',
+      y_align: Clutter.ActorAlign.CENTER,
+    });
+
+    if (task.uri) {
+      const showInFilesBtn = new St.Button({
+        style_class: 'button icon-button fuhgawz-task-action-btn fuhgawz-task-show-files-btn',
+        child: new St.Icon({
+          icon_name: 'folder-symbolic',
+          style_class: 'popup-menu-icon',
+          y_align: Clutter.ActorAlign.CENTER,
+        }),
+        can_focus: true,
+        reactive: true,
+        track_hover: true,
+      });
+      showInFilesBtn.connect('button-press-event', () => Clutter.EVENT_STOP);
+      showInFilesBtn.connect('clicked', () => {
+        this._showInFiles(task.uri);
+      });
+      actionsBox.add_child(showInFilesBtn);
+      menuItem.showInFilesBtn = showInFilesBtn;
+    }
+
+    const openBtn = new St.Button({
+      style_class: 'button icon-button fuhgawz-task-action-btn fuhgawz-task-open-btn',
+      child: new St.Icon({
+        icon_name: 'document-open-symbolic',
+        style_class: 'popup-menu-icon',
+        y_align: Clutter.ActorAlign.CENTER,
+      }),
+      can_focus: true,
+      reactive: true,
+      track_hover: true,
+    });
+    openBtn.connect('button-press-event', () => Clutter.EVENT_STOP);
+    openBtn.connect('clicked', () => {
+      this._openRecentTask(task);
+    });
+    actionsBox.add_child(openBtn);
+    menuItem.openBtn = openBtn;
+
+    menuItem.add_child(actionsBox);
+
+    // Default activate on row: Open
+    menuItem.connect('activate', () => {
+      this._openRecentTask(task);
+    });
+
+    // Expose direct methods & properties for programmatic and testing use
+    menuItem.task = task;
+    menuItem.showInFiles = () => this._showInFiles(task.uri);
+    menuItem.open = () => this._openRecentTask(task);
+    menuItem.openTask = () => this._openRecentTask(task);
+
+    return menuItem;
+  }
+
   _attachDocumentTooltip(menuItem, uri) {
     const actor = menuItem?.actor ?? null;
     const tooltipText = this._formatDocumentTooltip(uri);
@@ -864,6 +991,74 @@ export const RecentItemsSubmenu = GObject.registerClass(
       logError(error, `Failed to launch application: ${fallbackId}`);
     } finally {
       this._parentMenu.close(true);
+      this._closeAndDestroyRecentMenu();
+    }
+  }
+
+  _showInFiles(uriOrPath) {
+    if (!uriOrPath || this._isDestroyed) return false;
+    const uri = uriOrPath.startsWith('file://') ? uriOrPath : GLib.filename_to_uri(uriOrPath, null);
+
+    try {
+      const bus = Gio.DBus.session;
+      if (bus) {
+        bus.call(
+          'org.freedesktop.FileManager1',
+          '/org/freedesktop/FileManager1',
+          'org.freedesktop.FileManager1',
+          'ShowItems',
+          new GLib.Variant('(ass)', [[uri], '']),
+          null,
+          Gio.DBusCallFlags.NONE,
+          -1,
+          null,
+          null
+        );
+      } else {
+        const file = Gio.File.new_for_uri(uri);
+        const parent = file.get_parent();
+        if (parent) {
+          Gio.AppInfo.launch_default_for_uri(parent.get_uri(), null);
+        }
+      }
+    } catch (e) {
+      try {
+        const file = Gio.File.new_for_uri(uri);
+        const parent = file.get_parent();
+        if (parent) {
+          Gio.AppInfo.launch_default_for_uri(parent.get_uri(), null);
+        }
+      } catch (err) {
+        logError(err, `Failed to show in files: ${uri}`);
+      }
+    } finally {
+      if (this._parentMenu?.close) {
+        this._parentMenu.close(true);
+      }
+      this._closeAndDestroyRecentMenu();
+    }
+    return true;
+  }
+
+  _openRecentTask(task) {
+    if (!task || this._isDestroyed) return;
+    if (task.uri) {
+      this._launchRecentUri(task.uri);
+    } else if (task.desktopId || task.appId) {
+      const id = task.desktopId || (task.appId.endsWith('.desktop') ? task.appId : `${task.appId}.desktop`);
+      const appInfo = Gio.DesktopAppInfo.new(id);
+      if (appInfo) {
+        this._launchRecentApplication(appInfo, id);
+      } else {
+        if (this._parentMenu?.close) {
+          this._parentMenu.close(true);
+        }
+        this._closeAndDestroyRecentMenu();
+      }
+    } else {
+      if (this._parentMenu?.close) {
+        this._parentMenu.close(true);
+      }
       this._closeAndDestroyRecentMenu();
     }
   }
