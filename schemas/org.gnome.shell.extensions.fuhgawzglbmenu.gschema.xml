@@ -111,5 +111,30 @@
       <summary>Force Quit shortcut</summary>
       <description>Keyboard shortcut that opens the Force Quit window</description>
     </key>
+    <key name="enable-task-indicator" type="b">
+      <default>true</default>
+      <summary>Enable dynamic live task indicator</summary>
+      <description>Show real-time progress indicator for active desktop tasks inside the application header.</description>
+    </key>
+    <key name="task-indicator-mode" type="s">
+      <choices>
+        <choice value="compact"/>
+        <choice value="hover"/>
+        <choice value="slider"/>
+      </choices>
+      <default>'compact'</default>
+      <summary>Indicator expansion mode</summary>
+      <description>Interaction mode for live indicator: compact default, hover expand, or slider button toggle.</description>
+    </key>
+    <key name="task-auto-hide-seconds" type="i">
+      <default>4</default>
+      <summary>Completion badge auto-hide delay</summary>
+      <description>Seconds before auto-hiding the completed task badge.</description>
+    </key>
+    <key name="task-sync-recent-items" type="b">
+      <default>true</default>
+      <summary>Sync completed tasks with Recent Items</summary>
+      <description>Automatically append completed operations to the Global Menu Recent Items submenu.</description>
+    </key>
   </schema>
 </schemalist>

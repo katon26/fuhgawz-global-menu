@@ -417,6 +417,94 @@ function createGlobalMenuPage(settings, gettextFunc) {
     });
     compatGroup.add(xwaylandRow);
 
+    // Group 4: Live Task Indicator
+    const taskIndicatorGroup = new Adw.PreferencesGroup({
+        title: gettextFunc('Live Task Indicator'),
+        description: gettextFunc('Configure real-time desktop task progress and interaction mode.'),
+    });
+    page.add(taskIndicatorGroup);
+
+    // Switch row for enable-task-indicator
+    const taskIndicatorRow = new Adw.SwitchRow({
+        title: gettextFunc('Enable Live Task Indicator'),
+        subtitle: gettextFunc('Show real-time progress indicator for active desktop tasks inside the application header.'),
+    });
+    settings.bind(
+        'enable-task-indicator',
+        taskIndicatorRow,
+        'active',
+        Gio.SettingsBindFlags.DEFAULT
+    );
+    taskIndicatorGroup.add(taskIndicatorRow);
+
+    // Combo row for task-indicator-mode
+    const modeList = new Gtk.StringList();
+    modeList.append(gettextFunc('Compact (Default)'));
+    modeList.append(gettextFunc('Hover Expand'));
+    modeList.append(gettextFunc('Click Toggle (>>)'));
+
+    const indicatorModes = ['compact', 'hover', 'slider'];
+    const currentMode = settings.get_string('task-indicator-mode');
+    const initialModeIndex = Math.max(0, indicatorModes.indexOf(currentMode));
+
+    const modeRow = new Adw.ComboRow({
+        title: gettextFunc('Indicator Mode'),
+        subtitle: gettextFunc('Compact indicator, expand on mouse hover, or toggle with slider button.'),
+        model: modeList,
+        selected: initialModeIndex,
+    });
+    modeRow.connect('notify::selected', (widget) => {
+        if (widget.selected < 0 || widget.selected >= indicatorModes.length) {
+            return;
+        }
+        const mode = indicatorModes[widget.selected];
+        if (settings.get_string('task-indicator-mode') !== mode) {
+            settings.set_string('task-indicator-mode', mode);
+        }
+    });
+    settings.connect('changed::task-indicator-mode', () => {
+        const mode = settings.get_string('task-indicator-mode');
+        const idx = indicatorModes.indexOf(mode);
+        if (idx !== -1 && modeRow.selected !== idx) {
+            modeRow.selected = idx;
+        }
+    });
+    taskIndicatorGroup.add(modeRow);
+
+    // Spin row for task-auto-hide-seconds (1 to 10 seconds)
+    const autoHideAdjustment = new Gtk.Adjustment({
+        lower: 1,
+        upper: 10,
+        step_increment: 1,
+        page_increment: 2,
+        value: settings.get_int('task-auto-hide-seconds'),
+    });
+    const autoHideRow = new Adw.SpinRow({
+        title: gettextFunc('Completion Auto-Hide Delay'),
+        subtitle: gettextFunc('Seconds before auto-hiding the completed task badge (1 to 10 seconds).'),
+        adjustment: autoHideAdjustment,
+    });
+    settings.bind(
+        'task-auto-hide-seconds',
+        autoHideAdjustment,
+        'value',
+        Gio.SettingsBindFlags.DEFAULT
+    );
+    taskIndicatorGroup.add(autoHideRow);
+
+    // Switch row for task-sync-recent-items
+    const syncRecentRow = new Adw.SwitchRow({
+        title: gettextFunc('Sync Completed Tasks with Recent Items'),
+        subtitle: gettextFunc('Automatically append completed operations to the Global Menu Recent Items submenu.'),
+    });
+    settings.bind(
+        'task-sync-recent-items',
+        syncRecentRow,
+        'active',
+        Gio.SettingsBindFlags.DEFAULT
+    );
+    taskIndicatorGroup.add(syncRecentRow);
+
     return page;
 }
 
