@@ -143,16 +143,39 @@
   spacing: 4px;
 }
 
-.fuhgawz-task-indicator-box {
-  spacing: 6px;
-  padding: 2px 6px;
-  border-radius: 99px;
-  background-color: rgba(255, 255, 255, 0.08);
-  transition: background-color 0.2s ease;
+/* Standalone panel button styling when indicator is in slot 2 */
+.fuhgawz-task-indicator-standalone,
+.fuhgawz-task-indicator.standalone,
+.panel-button.fuhgawz-task-indicator {
+  padding-left: 10px;
+  padding-right: 10px;
+  font-weight: 500;
+  border-radius: 4px;
+  transition-duration: 150ms;
 }
 
-.fuhgawz-task-indicator-box:hover {
-  background-color: rgba(255, 255, 255, 0.15);
+.fuhgawz-task-indicator-standalone:hover,
+.fuhgawz-task-indicator.standalone:hover,
+.panel-button.fuhgawz-task-indicator:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.fuhgawz-task-indicator-standalone:active,
+.fuhgawz-task-indicator-standalone:checked,
+.fuhgawz-task-indicator.standalone:active,
+.fuhgawz-task-indicator.standalone:checked,
+.panel-button.fuhgawz-task-indicator:active,
+.panel-button.fuhgawz-task-indicator:checked {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+/* Anti-Slop: Clean inline flow without nested grey capsule pill */
+.fuhgawz-task-indicator-box {
+  spacing: 6px;
+  padding: 0 2px;
+  background-color: transparent;
+  border-radius: 0;
 }
 
 .fuhgawz-task-pill {
@@ -164,11 +187,16 @@
   font-weight: bold;
 }
 
+.fuhgawz-task-pill.completed {
+  background-color: #2ec27e;
+  color: #ffffff;
+}
+
+/* Subtle dot separator replacing harsh vertical bar line */
 .fuhgawz-task-separator {
-  width: 1px;
-  height: 14px;
-  background-color: rgba(255, 255, 255, 0.25);
-  margin: 0 2px;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: bold;
+  padding: 0 4px;
 }
 
 .fuhgawz-task-indicator-label {
@@ -177,43 +205,54 @@
   color: inherit;
 }
 
+.fuhgawz-task-indicator.completed .fuhgawz-task-indicator-label,
+.fuhgawz-task-indicator-label.completed {
+  color: #2ec27e;
+  font-weight: bold;
+}
+
 .fuhgawz-task-telemetry-label {
   font-size: 0.85em;
   color: rgba(255, 255, 255, 0.75);
 }
 
+/* Subtle Adwaita hover states and active tactile depression */
 .fuhgawz-task-slider-toggle,
-.fuhgawz-task-toggle-btn {
-  padding: 0 4px;
-  border-radius: 4px;
-  font-weight: bold;
-  color: rgba(255, 255, 255, 0.7);
-  transition: color 0.15s ease, background-color 0.15s ease;
-}
-
-.fuhgawz-task-slider-toggle:hover,
-.fuhgawz-task-toggle-btn:hover {
-  color: -st-accent-fg-color;
-  background-color: rgba(255, 255, 255, 0.12);
-}
-
+.fuhgawz-task-toggle-btn,
 .fuhgawz-task-action-button {
   padding: 0 4px;
   border-radius: 4px;
   font-weight: bold;
   color: rgba(255, 255, 255, 0.7);
+  transition-duration: 150ms;
 }
 
+.fuhgawz-task-slider-toggle:hover,
+.fuhgawz-task-toggle-btn:hover,
 .fuhgawz-task-action-button:hover {
   color: -st-accent-fg-color;
   background-color: rgba(255, 255, 255, 0.12);
 }
 
-/* Hairline Progress Bar */
+.fuhgawz-task-slider-toggle:active,
+.fuhgawz-task-toggle-btn:active,
+.fuhgawz-task-action-button:active,
+.fuhgawz-task-action-button:checked {
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+/* Hairline Progress Bar: crisp 2px height, Adwaita blue accent (#3584e4) and completed green (#2ec27e) */
 .fuhgawz-task-progress-bar {
   height: 2px;
   margin: 0;
   padding: 0;
+  color: #3584e4;
+}
+
+.fuhgawz-task-progress-bar.completed {
+  color: #2ec27e;
+  background-color: #2ec27e;
 }
 
 /* Recent Tasks Actions inside Recent Items Submenu */
@@ -226,11 +265,16 @@
   margin-left: 4px;
   border-radius: 6px;
   background-color: rgba(255, 255, 255, 0.08);
+  transition-duration: 150ms;
 }
 
 .fuhgawz-task-action-btn:hover {
   background-color: -st-accent-color;
   color: -st-accent-fg-color;
+}
+
+.fuhgawz-task-action-btn:active {
+  background-color: rgba(255, 255, 255, 0.22);
 }
 
 .fuhgawz-dropdown-progress-box {
@@ -242,5 +286,9 @@
   font-size: 0.85em;
   font-weight: bold;
   color: -st-accent-color;
+}
+
+.fuhgawz-card-percent-label.completed {
+  color: #2ec27e;
 }
 

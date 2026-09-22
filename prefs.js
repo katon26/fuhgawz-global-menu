@@ -437,6 +437,39 @@ function createGlobalMenuPage(settings, gettextFunc) {
     );
     taskIndicatorGroup.add(taskIndicatorRow);
 
+    // Combo row for task-indicator-placement
+    const placementList = new Gtk.StringList();
+    placementList.append(gettextFunc('Unified Capsule (Inside AppMenu)'));
+    placementList.append(gettextFunc('Dedicated Slot (Beside AppMenu)'));
+
+    const indicatorPlacements = ['unified', 'standalone'];
+    const currentPlacement = settings.get_string('task-indicator-placement');
+    const initialPlacementIndex = Math.max(0, indicatorPlacements.indexOf(currentPlacement));
+
+    const placementRow = new Adw.ComboRow({
+        title: gettextFunc('Indicator Placement'),
+        subtitle: gettextFunc('Choose between embedding inside the application menu or placing in a dedicated top bar slot.'),
+        model: placementList,
+        selected: initialPlacementIndex,
+    });
+    placementRow.connect('notify::selected', (widget) => {
+        if (widget.selected < 0 || widget.selected >= indicatorPlacements.length) {
+            return;
+        }
+        const placement = indicatorPlacements[widget.selected];
+        if (settings.get_string('task-indicator-placement') !== placement) {
+            settings.set_string('task-indicator-placement', placement);
+        }
+    });
+    settings.connect('changed::task-indicator-placement', () => {
+        const placement = settings.get_string('task-indicator-placement');
+        const idx = indicatorPlacements.indexOf(placement);
+        if (idx !== -1 && placementRow.selected !== idx) {
+            placementRow.selected = idx;
+        }
+    });
+    taskIndicatorGroup.add(placementRow);
+
     // Combo row for task-indicator-mode
     const modeList = new Gtk.StringList();
     modeList.append(gettextFunc('Compact (Default)'));

@@ -18,6 +18,7 @@ test-menu.py
 
 # ignore SKILL directory and files
 SKILLS
+.agents/
 
 # ignore compiled schema
 schemas/gschemas.compiled

@@ -206,6 +206,168 @@ assert(indFormatting.getLabelText() === '⏳ Transferring files', `Expected '⏳
 indFormatting.destroy();
 
 // ---------------------------------------------------------------------
+// 2b. Deterministic Label Deduplication & Anti-Slop Formatting
+// ---------------------------------------------------------------------
+console.log('2b. Verifying label deduplication, anti-slop formatting & strict telemetry visibility...');
+const indDedup = new TaskIndicatorButton(null, null, { appLabel: 'Files' });
+
+// 1. Indeterminate task with appLabel="Files", summary="Deleting Files", title="Files"
+// Must display "⏳ Deleting..." (NOT "⏳ Deleting Files Files" or "⏳ Deleting Files")
+indDedup.updateTask({
+    title: 'Files',
+    summary: 'Deleting Files',
+    indeterminate: true,
+}, 'Files');
+
+assert(
+    indDedup.getLabelText() === '⏳ Deleting...',
+    `Expected compact label '⏳ Deleting...', got '${indDedup.getLabelText()}'`
+);
+
+// Format compact label method directly with appLabel
+assert(
+    indDedup.formatCompactLabel({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files') === '⏳ Deleting...',
+    `formatCompactLabel direct check failed, got '${indDedup.formatCompactLabel({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files')}'`
+);
+
+// 2. Telemetry label widget must be strictly hidden when collapsed (_isExpanded === false)
+assert(indDedup.isExpanded() === false, 'Indicator should be collapsed by default');
+assert(indDedup._telemetryLabelWidget.visible === false, '_telemetryLabelWidget must be strictly hidden when _isExpanded is false');
+assert(indDedup.getDisplayedTelemetryText() === '', 'getDisplayedTelemetryText must be empty string when not expanded');
+
+// 3. Expanded telemetry filters out redundant app name
+// When expanded, redundant app name "Files" in title must be filtered out
+indDedup.setExpanded(true);
+assert(indDedup.isExpanded() === true, 'Indicator should be expanded');
+assert(indDedup._telemetryLabelWidget.visible === true, '_telemetryLabelWidget must be visible when expanded');
+const expandedRunningText = indDedup.getExpandedText();
+assert(
+    !expandedRunningText.includes('Files Files'),
+    `Expanded telemetry must not duplicate app name: '${expandedRunningText}'`
+);
+assert(
+    !expandedRunningText.endsWith('Files'),
+    `Expanded telemetry should filter out redundant app title: '${expandedRunningText}'`
+);
+assert(
+    indDedup.formatExpandedTelemetry({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files') === 'Deleting...',
+    `Expected formatExpandedTelemetry to filter redundant title 'Files' and return 'Deleting...', got '${indDedup.formatExpandedTelemetry({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files')}'`
+);
+
+// Telemetry with bytes and speed also filters out redundant app title
+assert(
+    indDedup.formatExpandedTelemetry({ title: 'Files', bytesText: '1.2 GB / 3.0 GB', speedText: '15 MB/s' }, 'Files') === '1.2 GB / 3.0 GB • 15 MB/s',
+    `Expected redundant title 'Files' to be filtered out of telemetry parts, got '${indDedup.formatExpandedTelemetry({ title: 'Files', bytesText: '1.2 GB / 3.0 GB', speedText: '15 MB/s' }, 'Files')}'`
+);
+
+// Collapse back: verify strictly hidden again
+indDedup.setExpanded(false);
+assert(indDedup._telemetryLabelWidget.visible === false, '_telemetryLabelWidget must be strictly hidden after collapse');
+
+// 4. Completed state: compact label displays "✓ Done" (NOT "✓ Done ✓ Files")
+indDedup.setCompleted({ title: 'Files', summary: 'Deleting Files' }, 'Files');
+assert(
+    indDedup.getLabelText() === '✓ Done',
+    `Expected compact label '✓ Done' on completion, got '${indDedup.getLabelText()}'`
+);
+assert(
+    !indDedup.getLabelText().includes('Files'),
+    `Compact label on completion must not append app name: '${indDedup.getLabelText()}'`
+);
+
+// Expanded telemetry on completed state returns "✓ Completed" (NOT "✓ Files" or "✓ Done ✓ Files")
+const completedExpanded = indDedup.getExpandedText();
+assert(
+    completedExpanded === '✓ Completed',
+    `Expected expanded telemetry '✓ Completed', got '${completedExpanded}'`
+);
+assert(
+    !completedExpanded.includes('Files'),
+    `Expanded telemetry on completion must not contain app name 'Files': '${completedExpanded}'`
+);
+assert(
+    indDedup.formatExpandedTelemetry({ state: 'completed', title: 'Files' }, 'Files') === '✓ Completed',
+    `formatExpandedTelemetry direct completion check failed: got '${indDedup.formatExpandedTelemetry({ state: 'completed', title: 'Files' }, 'Files')}'`
+);
+
+// _telemetryLabelWidget must remain strictly hidden when completed in compact mode
+assert(indDedup._telemetryLabelWidget.visible === false, '_telemetryLabelWidget must be strictly hidden on completion when collapsed');
+
+indDedup.destroy();
+
+// ---------------------------------------------------------------------
+// 2c. Telemetry Ease Animation Flicker Guard
+// ---------------------------------------------------------------------
+console.log('2c. Verifying telemetry ease animation does not flicker on periodic updates...');
+
+const indFlicker = new TaskIndicatorButton(mockSettings, null);
+let easeCallCount = 0;
+indFlicker._telemetryLabelWidget.ease = function (params) {
+    easeCallCount++;
+    this.opacity = params.opacity;
+};
+indFlicker._telemetryLabelWidget.opacity = 0;
+
+// Update task with initial payload while collapsed
+indFlicker.updateTask({
+    id: 'org.gnome.Nautilus',
+    appName: 'Files',
+    progress: 0.20,
+    bytesText: '200 MB / 1.0 GB',
+    speedText: '10 MB/s',
+}, 'Files');
+
+assert(indFlicker.isExpanded() === false, 'Indicator starts collapsed');
+assert(easeCallCount === 0, 'No ease animation when collapsed');
+
+// Expand telemetry -> transitions from collapsed, triggers ease animation
+indFlicker.setExpanded(true);
+assert(indFlicker.isExpanded() === true, 'Indicator expanded');
+assert(easeCallCount === 1, 'Ease animation must trigger on initial expansion');
+assert(indFlicker._telemetryLabelWidget.opacity === 255, 'Opacity eased to 255');
+assert(indFlicker._telemetryLabelWidget.text.includes('200 MB'), 'Telemetry text displayed');
+
+// Periodic progress update 1: 40% (bytes update)
+indFlicker.updateTask({
+    id: 'org.gnome.Nautilus',
+    appName: 'Files',
+    progress: 0.40,
+    bytesText: '400 MB / 1.0 GB',
+    speedText: '12 MB/s',
+}, 'Files');
+
+assert(easeCallCount === 1, 'Ease animation MUST NOT retrigger on periodic progress update');
+assert(indFlicker._telemetryLabelWidget.opacity === 255, 'Opacity must NOT reset to 0');
+assert(indFlicker._telemetryLabelWidget.text.includes('400 MB'), 'Telemetry text must update directly');
+
+// Periodic progress update 2: 60% (bytes update)
+indFlicker.updateTask({
+    id: 'org.gnome.Nautilus',
+    appName: 'Files',
+    progress: 0.60,
+    bytesText: '600 MB / 1.0 GB',
+    speedText: '15 MB/s',
+}, 'Files');
+
+assert(easeCallCount === 1, 'Ease animation count must remain 1');
+assert(indFlicker._telemetryLabelWidget.opacity === 255, 'Opacity must remain 255');
+assert(indFlicker._telemetryLabelWidget.text.includes('600 MB'), 'Telemetry text must update directly');
+
+// Collapse: opacity resets to 0 and widget hidden
+indFlicker.setExpanded(false);
+assert(indFlicker.isExpanded() === false, 'Indicator collapsed');
+assert(indFlicker._telemetryLabelWidget.visible === false, 'Widget hidden when collapsed');
+assert(indFlicker._telemetryLabelWidget.opacity === 0, 'Opacity reset to 0 on collapse');
+
+// Re-expand: transitions from collapsed, triggers ease animation again
+indFlicker.setExpanded(true);
+assert(easeCallCount === 2, 'Ease animation triggers again on re-expansion');
+assert(indFlicker._telemetryLabelWidget.opacity === 255, 'Opacity eased to 255 on re-expansion');
+
+indFlicker.destroy();
+console.log('-> Telemetry ease animation flicker guard checks PASSED.');
+
+// ---------------------------------------------------------------------
 // 3. Mode Switching and Interactive Behaviors ('compact', 'hover', 'slider')
 // ---------------------------------------------------------------------
 console.log('3. Verifying mode switching and interactive behaviors...');
@@ -618,4 +780,166 @@ assert(formatRelativeTime(Date.now() - 120000) === '2m ago', 'Relative time 2m a
 assert(formatRelativeTime(Date.now() - 7200000) === '2h ago', 'Relative time 2h ago check');
 assert(formatRelativeTime(Date.now() - 86400000 * 3) === '3d ago', 'Relative time 3d ago check');
 
+// ---------------------------------------------------------------------
+// 9. Click Reactivity for `>>` Expander, `•••` Popover & AppMenu Event Isolation
+// ---------------------------------------------------------------------
+console.log('9. Verifying click reactivity for _sliderToggleWidget, _actionButton & AppMenu event isolation...');
+const indClick = new TaskIndicatorButton(mockSettings, null);
+
+// 1. Verify buttons exist and have reactive properties
+assert(indClick._sliderToggleWidget !== undefined && indClick._sliderToggleWidget !== null,
+    '_sliderToggleWidget must exist');
+assert(indClick._actionButton !== undefined && indClick._actionButton !== null,
+    '_actionButton must exist');
+
+assert(indClick._sliderToggleWidget.reactive === true,
+    '_sliderToggleWidget must have reactive: true');
+assert(indClick._sliderToggleWidget.can_focus === true,
+    '_sliderToggleWidget must have can_focus: true');
+assert(indClick._sliderToggleWidget.track_hover === true,
+    '_sliderToggleWidget must have track_hover: true');
+
+assert(indClick._actionButton.reactive === true,
+    '_actionButton must have reactive: true');
+assert(indClick._actionButton.can_focus === true,
+    '_actionButton must have can_focus: true');
+assert(indClick._actionButton.track_hover === true,
+    '_actionButton must have track_hover: true');
+
+// 2. Set mode to slider and provide an active task
+indClick.setMode('slider');
+assert(indClick.getMode() === 'slider', 'Mode must be slider');
+assert(indClick.isExpanded() === false, 'Initially collapsed');
+
+indClick.updateTask({
+    title: 'Download.tar.gz',
+    progress: 0.6,
+    bytesText: '600 MB / 1 GB',
+});
+
+// 3. Test _sliderToggleWidget click reactivity
+// Directly clicking _sliderToggleWidget must toggle isExpanded()
+assert(typeof indClick._sliderToggleWidget.click === 'function' || typeof indClick._sliderToggleWidget.emit === 'function',
+    '_sliderToggleWidget must support click event simulation');
+
+// Simulate click on _sliderToggleWidget
+if (typeof indClick._sliderToggleWidget.click === 'function') {
+    indClick._sliderToggleWidget.click();
+} else {
+    indClick._sliderToggleWidget.emit('clicked');
+}
+assert(indClick.isExpanded() === true, 'Clicking _sliderToggleWidget must expand indicator');
+assert(indClick.getSliderToggleLabel() === '<<', 'Label must be << when expanded');
+assert(indClick._telemetryLabelWidget.visible === true, 'Telemetry must be visible when expanded');
+
+// Click again to collapse
+if (typeof indClick._sliderToggleWidget.click === 'function') {
+    indClick._sliderToggleWidget.click();
+} else {
+    indClick._sliderToggleWidget.emit('clicked');
+}
+assert(indClick.isExpanded() === false, 'Clicking _sliderToggleWidget again must collapse indicator');
+assert(indClick.getSliderToggleLabel() === '>>', 'Label must be >> when collapsed');
+assert(indClick._telemetryLabelWidget.visible === false, 'Telemetry must be hidden when collapsed');
+
+// 4. Test _actionButton click reactivity and dropdown-toggled signal
+let dropdownToggledSignalVal = null;
+const dropSigId = indClick.connect('dropdown-toggled', (btn, isOpen) => {
+    dropdownToggledSignalVal = isOpen;
+});
+
+assert(indClick.isDropdownOpen() === false, 'Initially dropdown is closed');
+
+// Simulate click on _actionButton
+if (typeof indClick._actionButton.click === 'function') {
+    indClick._actionButton.click();
+} else {
+    indClick._actionButton.emit('clicked');
+}
+assert(indClick.isDropdownOpen() === true, 'Clicking _actionButton must open dropdown');
+assert(dropdownToggledSignalVal === true, 'dropdown-toggled signal must be emitted with true');
+
+// Click again to close
+if (typeof indClick._actionButton.click === 'function') {
+    indClick._actionButton.click();
+} else {
+    indClick._actionButton.emit('clicked');
+}
+assert(indClick.isDropdownOpen() === false, 'Clicking _actionButton again must close dropdown');
+assert(dropdownToggledSignalVal === false, 'dropdown-toggled signal must be emitted with false');
+
+indClick.disconnect(dropSigId);
+
+// 5. Test AppMenuButton event isolation: child clicks do NOT trigger AppMenu popup toggle
+class MockAppMenuWithPopup extends MockActor {
+    constructor() {
+        super();
+        this._box = new MockActor();
+        this._box._parent = this;
+        this.add_child(this._box);
+        this.menuToggled = false;
+        this.menu = {
+            isOpen: false,
+            toggle: () => {
+                this.menuToggled = true;
+                this.menu.isOpen = !this.menu.isOpen;
+            },
+        };
+        this._handlers = new Map();
+    }
+    connect(sig, handler) {
+        if (!this._handlers.has(sig)) this._handlers.set(sig, []);
+        const id = this._handlers.get(sig).length + 1;
+        this._handlers.get(sig).push({ id, handler });
+        return id;
+    }
+    disconnect(id) {
+        for (const list of this._handlers.values()) {
+            const idx = list.findIndex(h => h.id === id);
+            if (idx >= 0) {
+                list.splice(idx, 1);
+                return;
+            }
+        }
+    }
+    emit(sig, ...args) {
+        const list = this._handlers.get(sig) || [];
+        let res = undefined;
+        for (const { handler } of list) {
+            res = handler(this, ...args);
+        }
+        return res;
+    }
+}
+
+const mockAppMenuWithPopup = new MockAppMenuWithPopup();
+indClick.bindToAppMenu(mockAppMenuWithPopup);
+
+// Simulate click on _sliderToggleWidget while bound to AppMenu
+mockAppMenuWithPopup.menuToggled = false;
+if (typeof indClick._sliderToggleWidget.click === 'function') {
+    indClick._sliderToggleWidget.click();
+} else {
+    indClick._sliderToggleWidget.emit('clicked');
+}
+assert(indClick.isExpanded() === true, '_sliderToggleWidget click must still expand');
+assert(mockAppMenuWithPopup.menuToggled === false,
+    'Clicking _sliderToggleWidget must NOT toggle AppMenuButton menu');
+
+// Simulate click on _actionButton while bound to AppMenu
+mockAppMenuWithPopup.menuToggled = false;
+if (typeof indClick._actionButton.click === 'function') {
+    indClick._actionButton.click();
+} else {
+    indClick._actionButton.emit('clicked');
+}
+assert(indClick.isDropdownOpen() === true, '_actionButton click must still open task dropdown');
+assert(mockAppMenuWithPopup.menuToggled === false,
+    'Clicking _actionButton must NOT toggle AppMenuButton menu');
+
+// Clean up
+indClick.destroy();
+assert(mockAppMenuWithPopup.menuToggled === false);
+
 console.log('TaskIndicatorButton test suite passed with 100% success!');
+

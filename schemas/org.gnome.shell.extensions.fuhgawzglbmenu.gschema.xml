@@ -126,6 +126,15 @@
       <summary>Indicator expansion mode</summary>
       <description>Interaction mode for live indicator: compact default, hover expand, or slider button toggle.</description>
     </key>
+    <key name="task-indicator-placement" type="s">
+      <choices>
+        <choice value="unified"/>
+        <choice value="standalone"/>
+      </choices>
+      <default>'unified'</default>
+      <summary>Task indicator placement mode</summary>
+      <description>'unified' embeds into AppMenu at pos=1; 'standalone' uses dedicated slot at pos=2.</description>
+    </key>
     <key name="task-auto-hide-seconds" type="i">
       <default>4</default>
       <summary>Completion badge auto-hide delay</summary>

@@ -23,6 +23,7 @@ const requiredKeys = {
     'task-indicator-mode': { type: 's', defaultVal: 'compact', choices: ['compact', 'hover', 'slider'] },
     'task-auto-hide-seconds': { type: 'i', defaultVal: 4 },
     'task-sync-recent-items': { type: 'b', defaultVal: true },
+    'task-indicator-placement': { type: 's', defaultVal: 'unified', choices: ['unified', 'standalone'] },
 };
 
 // 1. Validate schema keys, types, defaults, and choices
@@ -75,6 +76,9 @@ if (settings.get_int('task-auto-hide-seconds') !== 4) {
 if (settings.get_boolean('task-sync-recent-items') !== true) {
     throw new Error('Initial task-sync-recent-items read mismatch');
 }
+if (settings.get_string('task-indicator-placement') !== 'unified') {
+    throw new Error('Initial task-indicator-placement read mismatch');
+}
 
 // Test write/read cycles
 settings.set_boolean('enable-task-indicator', false);
@@ -86,6 +90,13 @@ for (const mode of ['hover', 'slider', 'compact']) {
     settings.set_string('task-indicator-mode', mode);
     if (settings.get_string('task-indicator-mode') !== mode) {
         throw new Error(`Failed to update task-indicator-mode to ${mode}`);
+    }
+}
+
+for (const placement of ['standalone', 'unified']) {
+    settings.set_string('task-indicator-placement', placement);
+    if (settings.get_string('task-indicator-placement') !== placement) {
+        throw new Error(`Failed to update task-indicator-placement to ${placement}`);
     }
 }
 
@@ -111,6 +122,9 @@ if (settings.get_boolean('enable-task-indicator') !== true) {
 if (settings.get_string('task-indicator-mode') !== 'compact') {
     throw new Error('Reset failed for task-indicator-mode');
 }
+if (settings.get_string('task-indicator-placement') !== 'unified') {
+    throw new Error('Reset failed for task-indicator-placement');
+}
 if (settings.get_int('task-auto-hide-seconds') !== 4) {
     throw new Error('Reset failed for task-auto-hide-seconds');
 }
@@ -130,6 +144,10 @@ const expectedPrefsTokens = [
     'task-indicator-mode',
     'task-auto-hide-seconds',
     'task-sync-recent-items',
+    'task-indicator-placement',
+    'Indicator Placement',
+    'Unified Capsule (Inside AppMenu)',
+    'Dedicated Slot (Beside AppMenu)',
     'Compact (Default)',
     'Hover Expand',
     'Click Toggle (>>)',

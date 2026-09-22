@@ -2057,10 +2057,6 @@ class FUHGlobeGlobalMenu {
             console.error(`FUHGlobe: Failed to register AppMenuButton: ${e}`);
         }
 
-        // Live task indicator permanently bound to AppMenuButton at position 1
-        this._taskIndicator = new TaskIndicatorButton(this._settings, this._taskManager);
-        this._taskIndicator.bindToAppMenu(this._appMenuButton);
-
         // Pre-allocated menu button pool (positions 2..11)
         this._buttonPool = [];
         this._POOL_SIZE = 10;
@@ -2075,6 +2071,14 @@ class FUHGlobeGlobalMenu {
         }
         this._activeSlotIndex = 0;
         this._overflowButtons = [];
+
+        // Live task indicator initialized according to configured placement (after button pool)
+        const placement = this._settings?.get_string('task-indicator-placement') || 'unified';
+        this._taskIndicator = new TaskIndicatorButton(this._settings, this._taskManager);
+        this._taskIndicator.bindToAppMenu(this._appMenuButton);
+        if (placement !== 'unified') {
+            this._taskIndicator.setPlacement(placement);
+        }
     }
 
     _acquireSlot() {
@@ -3065,6 +3069,9 @@ class FUHGlobeGlobalMenu {
         if (this._taskIndicator) {
             try { this._taskIndicator.destroy(); } catch (e) {}
             this._taskIndicator = null;
+        }
+        if (Main?.panel?.statusArea?.['fuhgawz-task-indicator']) {
+            try { delete Main.panel.statusArea['fuhgawz-task-indicator']; } catch (e) {}
         }
 
         if (this._appMenuButton) {

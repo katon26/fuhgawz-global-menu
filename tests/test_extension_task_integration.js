@@ -26,6 +26,7 @@ class MockSettings extends GObject.Object {
         this._values = new Map([
             ['enable-task-indicator', true],
             ['task-indicator-mode', 'compact'],
+            ['task-indicator-placement', 'unified'],
             ['task-auto-hide-seconds', 1],
             ['task-sync-recent-items', true],
             ['enable-system-menu', true],
@@ -147,6 +148,19 @@ assert(stylesheetCode.includes('.fuhgawz-task-toggle-btn') || stylesheetCode.inc
     'stylesheet.css must contain .fuhgawz-task-toggle-btn');
 assert(stylesheetCode.includes('.fuhgawz-task-progress-bar'),
     'stylesheet.css must contain .fuhgawz-task-progress-bar');
+assert(stylesheetCode.includes('.fuhgawz-task-indicator-standalone'),
+    'stylesheet.css must contain .fuhgawz-task-indicator-standalone for standalone mode consistency');
+assert(!stylesheetCode.includes('transform: scale('),
+    'stylesheet.css must NOT contain transform: scale() as St engine does not support CSS transforms');
+
+// Verify src/taskIndicatorButton.js implements placement methods
+const indicatorButtonCode = readTextFile('./src/taskIndicatorButton.js');
+assert(indicatorButtonCode.includes('setPlacement('),
+    'taskIndicatorButton.js must implement setPlacement');
+assert(indicatorButtonCode.includes('getPlacement('),
+    'taskIndicatorButton.js must implement getPlacement');
+assert(indicatorButtonCode.includes('task-indicator-placement'),
+    'taskIndicatorButton.js must wire task-indicator-placement setting');
 
 console.log('-> Static codebase wiring checks PASSED.');
 
@@ -196,8 +210,12 @@ class MockClutterActor {
         this.visible = false;
     }
 
-    add_style_class_name(cls) {
-        this._styleClasses.add(cls);
+    remove_style_class_name(cls) {
+        this._styleClasses.delete(cls);
+    }
+
+    has_style_class_name(cls) {
+        return this._styleClasses.has(cls);
     }
 
     destroy() {
@@ -208,6 +226,38 @@ class MockClutterActor {
         this._parent = null;
     }
 }
+
+class MockPanel {
+    constructor() {
+        this._leftBox = new MockClutterActor('Panel._leftBox');
+        this._centerBox = new MockClutterActor('Panel._centerBox');
+        this._rightBox = new MockClutterActor('Panel._rightBox');
+        this.statusArea = {};
+    }
+
+    addToStatusArea(role, indicator, position = 0, box = 'left') {
+        this.statusArea[role] = indicator;
+        const targetBox = box === 'right' ? this._rightBox : (box === 'center' ? this._centerBox : this._leftBox);
+        if (position < targetBox.children.length) {
+            targetBox.insert_child_at_index(indicator, position);
+        } else {
+            targetBox.add_child(indicator);
+        }
+        indicator._rolePosition = position;
+        indicator._statusAreaRole = role;
+        if (typeof indicator.connect === 'function') {
+            indicator.connect('destroy', () => {
+                delete this.statusArea[role];
+                targetBox.remove_child(indicator);
+            });
+        }
+        return indicator;
+    }
+}
+
+globalThis.Main = {
+    panel: new MockPanel(),
+};
 
 // ---------------------------------------------------------------------
 // 3. Extension Initialization & AppMenu Binding (`pos = 1`)
@@ -411,18 +461,173 @@ assert(taskManager.getRecentTasks().length === 0, 'clearRecentTasks must empty T
 console.log('-> Recent Items Bridge and 1-click action checks PASSED.');
 
 // ---------------------------------------------------------------------
+// 5. Dynamic Dual Placement (`unified` vs `standalone`) & Auto-Hide
+// ---------------------------------------------------------------------
+console.log('5. Verifying Dynamic Dual Placement (unified vs standalone), Reparenting & Auto-Hide...');
+
+// 1. Initial state: placement is 'unified'
+assert(typeof taskIndicator.getPlacement === 'function', 'taskIndicator must implement getPlacement()');
+assert(typeof taskIndicator.setPlacement === 'function', 'taskIndicator must implement setPlacement()');
+assert(taskIndicator.getPlacement() === 'unified', 'Initial placement must be "unified"');
+assert(mockAppMenuButton._box.children.includes(taskIndicator),
+    'In unified mode, taskIndicator must be a child of AppMenuButton._box');
+assert(mockAppMenuButton.children.some(c => c === taskIndicator._progressBar),
+    'In unified mode, TaskProgressBar must be attached to AppMenuButton');
+
+// 2. Change placement to 'standalone' via settings
+mockSettings.set_string('task-indicator-placement', 'standalone');
+assert(taskIndicator.getPlacement() === 'standalone', 'Placement must update to "standalone"');
+
+// Must be unparented from AppMenuButton._box
+assert(!mockAppMenuButton._box.children.includes(taskIndicator),
+    'In standalone mode, taskIndicator must be removed from AppMenuButton._box');
+
+// Must be registered in status area slot 2
+assert(globalThis.Main.panel.statusArea['fuhgawz-task-indicator'] === taskIndicator,
+    'In standalone mode, taskIndicator must be registered in statusArea["fuhgawz-task-indicator"]');
+assert(globalThis.Main.panel._leftBox.children.includes(taskIndicator),
+    'In standalone mode, taskIndicator must be placed in Main.panel._leftBox');
+assert(globalThis.Main.panel._leftBox.children.indexOf(taskIndicator) === 2 || taskIndicator._rolePosition === 2,
+    'In standalone mode, taskIndicator must be registered at status area slot 2');
+
+// Progress bar must be attached to taskIndicator itself in standalone mode
+assert(!mockAppMenuButton.children.some(c => c === taskIndicator._progressBar),
+    'In standalone mode, progress bar must be unparented from AppMenuButton');
+const indicatorChildren = taskIndicator.get_children ? taskIndicator.get_children() : taskIndicator.children;
+assert(indicatorChildren.includes(taskIndicator._progressBar),
+    'In standalone mode, progress bar must be attached to taskIndicator directly');
+
+// 3. Change placement back to 'unified' via settings
+mockSettings.set_string('task-indicator-placement', 'unified');
+assert(taskIndicator.getPlacement() === 'unified', 'Placement must update back to "unified"');
+
+// Must be moved cleanly back into AppMenuButton._box
+assert(mockAppMenuButton._box.children.includes(taskIndicator),
+    'When changed back to unified, taskIndicator must be a child of AppMenuButton._box');
+assert(!globalThis.Main.panel._leftBox.children.includes(taskIndicator),
+    'When changed back to unified, taskIndicator must be removed from Main.panel._leftBox');
+assert(globalThis.Main.panel.statusArea['fuhgawz-task-indicator'] === undefined,
+    'When changed back to unified, statusArea entry must be removed');
+assert(mockAppMenuButton.children.some(c => c === taskIndicator._progressBar),
+    'When changed back to unified, progress bar must be re-attached to AppMenuButton');
+
+// 4. Standalone Auto-Hide behavior:
+// In standalone mode, indicator is hidden when idle and shown when active
+// Dismiss previous completion badge so indicator enters idle state
+taskIndicator._autoCollapseCompletion();
+
+mockSettings.set_string('task-indicator-placement', 'standalone');
+assert(taskIndicator.getPlacement() === 'standalone', 'Switched back to standalone for auto-hide test');
+
+// Currently idle (no active tasks running, previous nautilus completed):
+// Must be hidden when idle
+assert(taskIndicator.visible === false, 'In standalone mode, indicator must be hidden when idle');
+
+// Ingest active task -> Must reveal/show
+taskManager._handleUnityProgress('application://org.gnome.Calculator.desktop', {
+    'progress': 0.45,
+    'progress-visible': true,
+    'count': 1,
+});
+assert(taskIndicator.visible === true, 'In standalone mode, indicator must reveal when a task is active');
+
+// Complete task -> Must show completed badge
+taskManager._handleUnityProgress('application://org.gnome.Calculator.desktop', {
+    'progress': 1.0,
+    'progress-visible': false,
+    'count': 0,
+});
+assert(taskIndicator.visible === true, 'In standalone mode, indicator must stay visible displaying completed badge');
+
+// Trigger auto-collapse completion -> Must hide when idle again
+taskIndicator._autoCollapseCompletion();
+assert(taskIndicator.visible === false, 'In standalone mode, indicator must auto-hide after completion badge collapses');
+
+console.log('-> Dynamic Dual Placement & Auto-Hide checks PASSED.');
+
+// ---------------------------------------------------------------------
+// 5b. Cold-Boot Standalone Slot Push / Ordering Desync Prevention
+// ---------------------------------------------------------------------
+console.log('5b. Verifying Cold-Boot Standalone Slot Push & Ordering Desync Prevention...');
+
+// Fresh simulated panel
+const coldBootPanel = new MockPanel();
+const activitiesActor = new MockClutterActor('ActivitiesButton');
+coldBootPanel._leftBox.add_child(activitiesActor); // pos 0
+
+const coldBootAppMenu = new MockClutterActor('AppMenuButton');
+coldBootAppMenu._box = new MockClutterActor('AppMenuButton._box');
+coldBootAppMenu.add_child(coldBootAppMenu._box);
+coldBootPanel.addToStatusArea('fuhgawz-app-menu', coldBootAppMenu, 1, 'left'); // pos 1
+
+// Cold boot settings set to 'standalone'
+const coldBootSettings = new MockSettingsClass();
+coldBootSettings.set_string('task-indicator-placement', 'standalone');
+
+// In extension.js _initButtonPool(), buttonPool is created BEFORE taskIndicator
+const POOL_SIZE = 10;
+const coldBootSlots = [];
+for (let i = 0; i < POOL_SIZE; i++) {
+    const slotActor = new MockClutterActor(`slot-${i}`);
+    coldBootSlots.push(slotActor);
+    coldBootPanel.addToStatusArea(`fuhgawz-menu-slot-${i}`, slotActor, 2 + i, 'left');
+}
+
+// Ensure at this point slots are at positions 2..11 in leftBox
+assert(coldBootPanel._leftBox.children[0] === activitiesActor, 'Index 0 is Activities');
+assert(coldBootPanel._leftBox.children[1] === coldBootAppMenu, 'Index 1 is AppMenu');
+assert(coldBootPanel._leftBox.children[2] === coldBootSlots[0], 'Index 2 is Slot 0 before indicator');
+
+// Now initialize TaskIndicator with Main pointed to coldBootPanel
+const origMain = globalThis.Main;
+globalThis.Main = { panel: coldBootPanel };
+try {
+    const coldBootIndicator = new TaskIndicatorButton(coldBootSettings, taskManager);
+    coldBootIndicator.bindToAppMenu(coldBootAppMenu);
+    coldBootIndicator.setPlacement('standalone');
+
+    // Indicator must be at index 2 in _leftBox (NOT pushed to index 12 after all slots!)
+    const indicatorIndex = coldBootPanel._leftBox.children.indexOf(coldBootIndicator);
+    assert(indicatorIndex === 2, `Cold-boot indicator must be at index 2 (got ${indicatorIndex})`);
+
+    // Slot 0 must now be shifted to index 3
+    const slot0Index = coldBootPanel._leftBox.children.indexOf(coldBootSlots[0]);
+    assert(slot0Index === 3, `Slot 0 must be shifted to index 3 after indicator (got ${slot0Index})`);
+
+    // Clean teardown of cold boot indicator
+    coldBootIndicator.destroy();
+    assert(!coldBootPanel._leftBox.children.includes(coldBootIndicator), 'Cold boot indicator cleaned up');
+} finally {
+    globalThis.Main = origMain;
+}
+console.log('-> Cold-Boot Standalone Slot Push Prevention checks PASSED.');
+
+// ---------------------------------------------------------------------
 // 6. Clean Teardown & Zero Dangling Actors/Signals
 // ---------------------------------------------------------------------
-console.log('5. Verifying clean teardown, actor unparenting, and signal unhooking...');
+console.log('6. Verifying clean teardown, actor unparenting, and signal unhooking...');
 
-// Destroy TaskIndicatorButton
+// Destroy while in standalone mode
 taskIndicator.destroy();
 
-// Verify actors cleanly unparented
+// Verify zero leaks in standalone mode
+assert(globalThis.Main.panel.statusArea['fuhgawz-task-indicator'] === undefined,
+    'Destroyed indicator must remove statusArea registration');
+assert(!globalThis.Main.panel._leftBox.children.includes(taskIndicator),
+    'Destroyed indicator must be removed from Main.panel._leftBox');
 assert(!mockAppMenuButton._box.children.includes(taskIndicator),
-    'TaskIndicator must be removed from AppMenuButton._box on destroy');
-assert(!mockAppMenuButton.children.some(c => c === taskIndicator._progressBar),
-    'Hairline TaskProgressBar must be removed from AppMenuButton on destroy');
+    'Destroyed indicator must not remain in AppMenuButton._box');
+
+// Create a second indicator in unified mode to verify clean teardown in unified mode as well
+mockSettings.set_string('task-indicator-placement', 'unified');
+const unifiedIndicator = new TaskIndicatorButton(mockSettings, taskManager);
+unifiedIndicator.bindToAppMenu(mockAppMenuButton);
+assert(mockAppMenuButton._box.children.includes(unifiedIndicator), 'unifiedIndicator bound inside _box');
+unifiedIndicator.destroy();
+assert(!mockAppMenuButton._box.children.includes(unifiedIndicator),
+    'Destroyed unified indicator must be unparented from AppMenuButton._box');
+assert(!mockAppMenuButton.children.some(c => c === unifiedIndicator._progressBar),
+    'Destroyed unified progress bar must be unparented from AppMenuButton');
 
 // Destroy TaskManager
 taskManager.destroy();

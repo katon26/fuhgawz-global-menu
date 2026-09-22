@@ -30,6 +30,12 @@ const ACCENT_R = 53 / 255;
 const ACCENT_G = 132 / 255;
 const ACCENT_B = 228 / 255;
 
+// GNOME Libadwaita success color: #2ec27e (rgb: 46, 194, 126)
+export const SUCCESS_COLOR = '#2ec27e';
+const SUCCESS_R = 46 / 255;
+const SUCCESS_G = 194 / 255;
+const SUCCESS_B = 126 / 255;
+
 export const BAR_HEIGHT = 2; // 2px high hairline along bottom edge
 export const CORNER_RADIUS = 1; // 1px corner radius for rounded hairline ends
 const PULSE_INTERVAL_MS = 30; // ~33 FPS smooth indeterminate pulse
@@ -57,6 +63,7 @@ class BaseProgressBarLogic {
     _initLogic(params = {}) {
         this._progress = 0.0;
         this._indeterminate = false;
+        this._completed = false;
         this._pulseOffset = 0.0;
         this._pulseTimerId = 0;
         this._destroyed = false;
@@ -74,6 +81,9 @@ class BaseProgressBarLogic {
         if (params.indeterminate !== undefined) {
             this.setIndeterminate(params.indeterminate);
         }
+        if (params.completed !== undefined) {
+            this.setCompleted(params.completed);
+        }
     }
 
     get progress() {
@@ -90,6 +100,30 @@ class BaseProgressBarLogic {
 
     set indeterminate(value) {
         this.setIndeterminate(value);
+    }
+
+    get completed() {
+        return this._completed;
+    }
+
+    set completed(value) {
+        this.setCompleted(value);
+    }
+
+    /**
+     * Sets whether progress bar is in completed state (drawing success green).
+     * @param {boolean} completed
+     */
+    setCompleted(completed) {
+        if (this._destroyed) return;
+        const flag = Boolean(completed);
+        if (this._completed === flag) return;
+
+        this._completed = flag;
+        if (typeof this.notify === 'function') {
+            this.notify('completed');
+        }
+        this.queue_repaint();
     }
 
     /**
@@ -203,9 +237,12 @@ class BaseProgressBarLogic {
         cr.restore();
 
         const y = Math.max(0, height - BAR_HEIGHT);
+        const r = this._completed ? SUCCESS_R : ACCENT_R;
+        const g = this._completed ? SUCCESS_G : ACCENT_G;
+        const b = this._completed ? SUCCESS_B : ACCENT_B;
 
         // 1. Draw subtle background track along the bottom edge
-        cr.setSourceRGBA(ACCENT_R, ACCENT_G, ACCENT_B, 0.20);
+        cr.setSourceRGBA(r, g, b, 0.20);
         drawRoundedHairline(cr, 0, y, width, BAR_HEIGHT, CORNER_RADIUS);
         cr.fill();
 
@@ -221,9 +258,9 @@ class BaseProgressBarLogic {
             cr.clip();
 
             const grad = new cairo.LinearGradient(pulseStart, 0, pulseEnd, 0);
-            grad.addColorStopRGBA(0.0, ACCENT_R, ACCENT_G, ACCENT_B, 0.0);
-            grad.addColorStopRGBA(0.5, ACCENT_R, ACCENT_G, ACCENT_B, 1.0);
-            grad.addColorStopRGBA(1.0, ACCENT_R, ACCENT_G, ACCENT_B, 0.0);
+            grad.addColorStopRGBA(0.0, r, g, b, 0.0);
+            grad.addColorStopRGBA(0.5, r, g, b, 1.0);
+            grad.addColorStopRGBA(1.0, r, g, b, 0.0);
 
             cr.setSource(grad);
             cr.paint();
@@ -231,7 +268,7 @@ class BaseProgressBarLogic {
         } else if (this._progress > 0) {
             const barWidth = Math.min(width, Math.max(0, width * this._progress));
             if (barWidth > 0) {
-                cr.setSourceRGBA(ACCENT_R, ACCENT_G, ACCENT_B, 1.0);
+                cr.setSourceRGBA(r, g, b, 1.0);
                 drawRoundedHairline(cr, 0, y, barWidth, BAR_HEIGHT, CORNER_RADIUS);
                 cr.fill();
             }
@@ -275,11 +312,18 @@ if (hasStDrawingArea) {
                     GObject.ParamFlags.READWRITE,
                     false
                 ),
+                'completed': GObject.ParamSpec.boolean(
+                    'completed',
+                    'Completed',
+                    'Whether the task is in a completed state',
+                    GObject.ParamFlags.READWRITE,
+                    false
+                ),
             },
         },
         class TaskProgressBar extends St.DrawingArea {
             _init(params = {}) {
-                const { progress, indeterminate, ...actorParams } = params;
+                const { progress, indeterminate, completed, ...actorParams } = params;
                 const cleanParams = { ...actorParams };
                 if (Clutter) {
                     if (!('reactive' in cleanParams)) cleanParams.reactive = false;
@@ -331,6 +375,13 @@ if (hasStDrawingArea) {
                     'indeterminate',
                     'Indeterminate',
                     'Whether the task is in an indeterminate pulsing state',
+                    GObject.ParamFlags.READWRITE,
+                    false
+                ),
+                'completed': GObject.ParamSpec.boolean(
+                    'completed',
+                    'Completed',
+                    'Whether the task is in a completed state',
                     GObject.ParamFlags.READWRITE,
                     false
                 ),
