@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# bin/gm-run - Developer Task Runner Helper for FUHGAWZ Global Menu Dynamic Live Indicator
+
+set -u
+
+print_usage() {
+    cat << "EOF"
+Usage: gm-run [--title <name>] [--app-id <id>] <command> [args...]
+
+Runs a command in the foreground while registering a live task indicator
+in FUHGAWZ Global Menu over D-Bus.
+
+Options:
+  --title <name>   Task title displayed in the global menu (defaults to command name)
+  --app-id <id>    Application ID associated with the task (defaults to org.gnome.Terminal)
+  -h, --help       Show this help message and exit
+EOF
+}
+
+# -----------------------------------------------------------------------------
+# Argument Parsing
+# -----------------------------------------------------------------------------
+title=""
+app_id="org.gnome.Terminal"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --title)
+            if [ $# -lt 2 ]; then
+                echo "Error: --title requires an argument" >&2
+                exit 1
+            fi
+            title="$2"
+            shift 2
+            ;;
+        --title=*)
+            title="${1#--title=}"
+            shift 1
+            ;;
+        --app-id)
+            if [ $# -lt 2 ]; then
+                echo "Error: --app-id requires an argument" >&2
+                exit 1
+            fi
+            app_id="$2"
+            shift 2
+            ;;
+        --app-id=*)
+            app_id="${1#--app-id=}"
+            shift 1
+            ;;
+        -h|--help)
+            print_usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "Error: Unknown option $1" >&2
+            print_usage >&2
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [ $# -eq 0 ]; then
+    print_usage >&2
+    exit 1
+fi
+
+cmd="$1"
+if [ -z "$title" ]; then
+    title="${cmd##*/}"
+fi
+if [ -z "$app_id" ]; then
+    app_id="org.gnome.Terminal"
+fi
+
+# -----------------------------------------------------------------------------
+# D-Bus Registration & State
+# -----------------------------------------------------------------------------
+task_id=""
+active_dest=""
+
+register_task() {
+    # If gdbus tool is missing or D-Bus session socket is unset, skip gracefully
+    command -v gdbus >/dev/null 2>&1 || return 1
+    [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && return 1
+
+    local t="$1"
+    local a="$2"
+    local out=""
+
+    local destinations=()
+    if [ -n "${GM_RUN_DEST:-}" ]; then
+        destinations+=("$GM_RUN_DEST")
+    else
+        destinations+=("org.gnome.Shell.Extensions.FUHGlobeGlobalMenu.TaskManager" "org.gnome.Shell")
+    fi
+
+    for dest in "${destinations[@]}"; do
+        out=$(gdbus call --session --dest "$dest" \
+            --object-path /org/gnome/Shell/Extensions/FUHGlobeGlobalMenu/TaskManager \
+            --method org.gnome.Shell.Extensions.FUHGlobeGlobalMenu.TaskManager.RegisterTask \
+            --timeout 2 \
+            "$t" "$a" 2>/dev/null)
+        if [ $? -eq 0 ] && [ -n "$out" ]; then
+            # Clean up ('cli-...',) into bare taskId
+            task_id=$(echo "$out" | sed -e "s/^[('\" ]*//" -e "s/['\"), ]*$//")
+            if [ -n "$task_id" ]; then
+                active_dest="$dest"
+                return 0
+            fi
+        fi
+    done
+
+    return 1
+}
+
+complete_task() {
+    local success="$1"
+    [ -z "$task_id" ] && return 0
+    [ -z "$active_dest" ] && return 0
+
+    gdbus call --session --dest "$active_dest" \
+        --object-path /org/gnome/Shell/Extensions/FUHGlobeGlobalMenu/TaskManager \
+        --method org.gnome.Shell.Extensions.FUHGlobeGlobalMenu.TaskManager.CompleteTask \
+        --timeout 2 \
+        "$task_id" "$success" >/dev/null 2>&1 || true
+    task_id=""
+}
+
+# -----------------------------------------------------------------------------
+# Signal Traps & Exit Cleanup
+# -----------------------------------------------------------------------------
+child_pid=0
+incoming_sig=""
+cleanup_called=0
+
+terminate_child() {
+    if [ "$child_pid" -gt 0 ] && kill -0 "$child_pid" 2>/dev/null; then
+        local sig="${incoming_sig:-TERM}"
+        pkill -"$sig" -P "$child_pid" 2>/dev/null || true
+        kill -"$sig" "$child_pid" 2>/dev/null || true
+
+        local count=0
+        while kill -0 "$child_pid" 2>/dev/null && [ "$count" -lt 10 ]; do
+            sleep 0.05
+            count=$((count + 1))
+        done
+
+        if kill -0 "$child_pid" 2>/dev/null; then
+            pkill -KILL -P "$child_pid" 2>/dev/null || true
+            kill -KILL "$child_pid" 2>/dev/null || true
+        fi
+        wait "$child_pid" 2>/dev/null || true
+    fi
+    child_pid=0
+}
+
+cleanup() {
+    local code=$?
+    if [ "$cleanup_called" -eq 1 ]; then
+        return
+    fi
+    cleanup_called=1
+
+    trap - EXIT INT TERM HUP QUIT
+
+    terminate_child
+
+    local success="false"
+    if [ "$code" -eq 0 ]; then
+        success="true"
+    fi
+
+    complete_task "$success"
+    exit "$code"
+}
+
+on_sigint() {
+    trap - INT
+    incoming_sig="INT"
+    exit 130
+}
+
+on_sigterm() {
+    trap - TERM
+    incoming_sig="TERM"
+    exit 143
+}
+
+on_sighup() {
+    trap - HUP
+    incoming_sig="HUP"
+    exit 129
+}
+
+on_sigquit() {
+    trap - QUIT
+    incoming_sig="QUIT"
+    exit 131
+}
+
+trap cleanup EXIT
+trap on_sigint INT
+trap on_sigterm TERM
+trap on_sighup HUP
+trap on_sigquit QUIT
+
+# -----------------------------------------------------------------------------
+# Execution
+# -----------------------------------------------------------------------------
+register_task "$title" "$app_id" || true
+
+(
+    trap - INT TERM HUP QUIT
+    exec "$@"
+) <&0 &
+child_pid=$!
+
+set +e
+wait "$child_pid"
+child_status=$?
+set -e
+
+child_pid=0
+exit "$child_status"
