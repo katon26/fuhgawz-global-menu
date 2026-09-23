@@ -915,7 +915,7 @@ class BaseIndicatorLogic {
             parts.push(task.etaText);
         }
 
-        return parts.join(' • ');
+        return parts.join(' · ');
     }
 
     /**
@@ -1299,85 +1299,227 @@ class BaseIndicatorLogic {
 
         const data = this.getDropdownData();
 
-        // 1. Active Task Card
-        if (data.activeCard) {
-            const card = data.activeCard;
-            if (PopupMenu?.PopupMenuItem) {
-                const headerText = card.fileName || card.summary || 'Active Task';
-                let titleItem;
-                if (PopupMenu.PopupImageMenuItem) {
-                    titleItem = new PopupMenu.PopupImageMenuItem(headerText, 'text-x-generic-symbolic', { reactive: false });
-                } else {
-                    titleItem = new PopupMenu.PopupMenuItem(headerText, { reactive: false });
-                }
-                this.menu.addMenuItem(titleItem);
+        if (PopupMenu?.PopupBaseMenuItem) {
+            const cardMenuItem = new PopupMenu.PopupBaseMenuItem({
+                reactive: false,
+                can_focus: false,
+                style_class: 'fuhgawz-popover-card-item',
+            });
 
-                // Hairline Progress Bar row
-                try {
-                    const progressItem = new (PopupMenu.PopupBaseMenuItem || PopupMenu.PopupMenuItem)({ reactive: false });
-                    const progressBox = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'fuhgawz-dropdown-progress-box' });
-                    const percentText = card.indeterminate ? 'In progress...' : `${Math.round((card.progress ?? 0) * 100)}%`;
-                    const percentLabel = new St.Label({ text: percentText, style_class: 'fuhgawz-card-percent-label' });
-                    const cardProgressBar = new TaskProgressBar({ progress: card.progress, indeterminate: card.indeterminate });
-                    progressBox.add_child(percentLabel);
-                    progressBox.add_child(cardProgressBar);
-                    progressItem.add_child(progressBox);
-                    this.menu.addMenuItem(progressItem);
-                } catch (e) {
-                    const percentText = card.indeterminate ? 'In progress...' : `${Math.round((card.progress ?? 0) * 100)}%`;
-                    const progressItem = new PopupMenu.PopupMenuItem(percentText, { reactive: false });
-                    this.menu.addMenuItem(progressItem);
-                }
+            const cardBox = new St.BoxLayout({
+                vertical: true,
+                style_class: 'fuhgawz-popover-card',
+            });
 
-                // Stats line: ETA, Speed, Bytes
-                const statsText = [card.etaText, card.speedText, card.bytesText].filter(Boolean).join(' · ');
-                if (statsText) {
-                    const statsItem = new PopupMenu.PopupMenuItem(statsText, { reactive: false });
-                    this.menu.addMenuItem(statsItem);
-                }
+            // 1. Active Task Card
+            if (data.activeCard) {
+                const card = data.activeCard;
 
-                // Action buttons row: Pause/Resume, Cancel, Reveal
-                const pauseLabel = card.paused ? 'Resume' : 'Pause';
-                const pauseIcon = card.paused ? 'media-playback-start-symbolic' : 'media-playback-pause-symbolic';
-                let pauseItem;
-                if (PopupMenu.PopupImageMenuItem) {
-                    pauseItem = new PopupMenu.PopupImageMenuItem(pauseLabel, pauseIcon);
-                } else {
-                    pauseItem = new PopupMenu.PopupMenuItem(pauseLabel);
+                // Header: doc icon + filename or title
+                const headerBox = new St.BoxLayout({
+                    vertical: false,
+                    style_class: 'fuhgawz-popover-header',
+                });
+                const headerIcon = new St.Icon({
+                    icon_name: 'text-x-generic-symbolic',
+                    style_class: 'fuhgawz-popover-header-icon',
+                    y_align: Clutter?.ActorAlign?.CENTER ?? 0,
+                });
+                const headerLabel = new St.Label({
+                    text: card.fileName || card.title || 'File Operation',
+                    style_class: 'fuhgawz-popover-title',
+                    y_align: Clutter?.ActorAlign?.CENTER ?? 0,
+                });
+                headerBox.add_child(headerIcon);
+                headerBox.add_child(headerLabel);
+                cardBox.add_child(headerBox);
+
+                // Progress Bar: 6px rounded wrapper
+                const progressWrapper = new St.BoxLayout({
+                    vertical: true,
+                    style_class: 'fuhgawz-popover-progress-wrapper',
+                });
+                const cardProgressBar = new TaskProgressBar({
+                    progress: card.progress,
+                    indeterminate: card.indeterminate,
+                });
+                if (card.state === 'completed' && typeof cardProgressBar.setCompleted === 'function') {
+                    cardProgressBar.setCompleted(true);
                 }
-                pauseItem.connect('activate', () => {
+                progressWrapper.add_child(cardProgressBar);
+                cardBox.add_child(progressWrapper);
+
+                // Stats row (3 columns: time/ETA, speed, bytes)
+                const statsBox = new St.BoxLayout({
+                    vertical: false,
+                    style_class: 'fuhgawz-popover-stats',
+                });
+                let timeStr = '';
+                if (card.state === 'completed') {
+                    timeStr = 'Completed';
+                } else if (card.etaText) {
+                    timeStr = card.etaText;
+                } else if (card.indeterminate) {
+                    timeStr = 'In progress';
+                }
+                const timeLabel = new St.Label({
+                    text: timeStr,
+                    style_class: 'fuhgawz-popover-stat-time',
+                    x_expand: true,
+                    x_align: Clutter?.ActorAlign?.START ?? 0,
+                });
+                const speedLabel = new St.Label({
+                    text: card.speedText || '',
+                    style_class: 'fuhgawz-popover-stat-speed',
+                    x_expand: true,
+                    x_align: Clutter?.ActorAlign?.CENTER ?? 0,
+                });
+                const bytesStr = card.bytesText || (card.progress != null ? `${Math.round(card.progress * 100)}%` : '');
+                const bytesLabel = new St.Label({
+                    text: bytesStr,
+                    style_class: 'fuhgawz-popover-stat-bytes',
+                    x_expand: true,
+                    x_align: Clutter?.ActorAlign?.END ?? 0,
+                });
+                statsBox.add_child(timeLabel);
+                statsBox.add_child(speedLabel);
+                statsBox.add_child(bytesLabel);
+                cardBox.add_child(statsBox);
+
+                // Action buttons row (3 side-by-side buttons)
+                const actionsBox = new St.BoxLayout({
+                    vertical: false,
+                    style_class: 'fuhgawz-popover-actions',
+                });
+
+                // Pause Button
+                const pauseBtn = new St.Button({
+                    style_class: 'fuhgawz-pop-btn',
+                    reactive: true,
+                    can_focus: true,
+                    x_expand: true,
+                });
+                const pauseContent = new St.BoxLayout({ vertical: true, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
+                const pauseIcon = new St.Icon({
+                    icon_name: card.paused ? 'media-playback-start-symbolic' : 'media-playback-pause-symbolic',
+                    style_class: 'fuhgawz-pop-btn-icon',
+                });
+                const pauseText = new St.Label({ text: card.paused ? 'Resume' : 'Pause' });
+                pauseContent.add_child(pauseIcon);
+                pauseContent.add_child(pauseText);
+                pauseBtn.set_child(pauseContent);
+                pauseBtn.connect('clicked', () => {
                     this.pauseTask(card.id);
                     this._buildDropdownMenu();
                 });
-                this.menu.addMenuItem(pauseItem);
+                actionsBox.add_child(pauseBtn);
 
-                let cancelItem;
-                if (PopupMenu.PopupImageMenuItem) {
-                    cancelItem = new PopupMenu.PopupImageMenuItem('Cancel', 'process-stop-symbolic');
-                } else {
-                    cancelItem = new PopupMenu.PopupMenuItem('Cancel');
-                }
-                cancelItem.connect('activate', () => {
+                // Cancel Button
+                const cancelBtn = new St.Button({
+                    style_class: 'fuhgawz-pop-btn fuhgawz-pop-btn-cancel cancel',
+                    reactive: true,
+                    can_focus: true,
+                    x_expand: true,
+                });
+                const cancelContent = new St.BoxLayout({ vertical: true, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
+                const cancelIcon = new St.Icon({
+                    icon_name: 'process-stop-symbolic',
+                    style_class: 'fuhgawz-pop-btn-icon',
+                });
+                const cancelText = new St.Label({ text: 'Cancel' });
+                cancelContent.add_child(cancelIcon);
+                cancelContent.add_child(cancelText);
+                cancelBtn.set_child(cancelContent);
+                cancelBtn.connect('clicked', () => {
                     this.cancelTask(card.id);
                     this.closeDropdown();
                 });
-                this.menu.addMenuItem(cancelItem);
+                actionsBox.add_child(cancelBtn);
 
-                if (card.uri || this._taskManager?.revealTask) {
-                    let revealItem;
-                    if (PopupMenu.PopupImageMenuItem) {
-                        revealItem = new PopupMenu.PopupImageMenuItem('Show in Files', 'folder-symbolic');
-                    } else {
-                        revealItem = new PopupMenu.PopupMenuItem('Show in Files');
-                    }
-                    revealItem.connect('activate', () => {
-                        this.revealTask(card.id);
+                // Show in Files Button
+                const revealBtn = new St.Button({
+                    style_class: 'fuhgawz-pop-btn',
+                    reactive: true,
+                    can_focus: true,
+                    x_expand: true,
+                });
+                const revealContent = new St.BoxLayout({ vertical: true, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
+                const revealIcon = new St.Icon({
+                    icon_name: 'folder-symbolic',
+                    style_class: 'fuhgawz-pop-btn-icon',
+                });
+                const revealText = new St.Label({ text: 'Show in Files' });
+                revealContent.add_child(revealIcon);
+                revealContent.add_child(revealText);
+                revealBtn.set_child(revealContent);
+                revealBtn.connect('clicked', () => {
+                    this.revealTask(card.id);
+                    this.closeDropdown();
+                });
+                actionsBox.add_child(revealBtn);
+
+                cardBox.add_child(actionsBox);
+            }
+
+            // 2. Recent Tasks inside the Card
+            if (data.recentItems.length > 0) {
+                const recentTitle = new St.Label({
+                    text: 'RECENT TASKS',
+                    style_class: 'fuhgawz-popover-recent-title',
+                });
+                cardBox.add_child(recentTitle);
+
+                for (const item of data.recentItems) {
+                    const recentBtn = new St.Button({
+                        style_class: 'fuhgawz-popover-recent-item',
+                        reactive: true,
+                        can_focus: true,
+                        x_expand: true,
+                    });
+                    const itemBox = new St.BoxLayout({
+                        vertical: false,
+                        x_expand: true,
+                    });
+                    const checkIcon = new St.Icon({
+                        icon_name: 'object-select-symbolic',
+                        style_class: 'fuhgawz-popover-recent-icon',
+                        y_align: Clutter?.ActorAlign?.CENTER ?? 0,
+                    });
+                    const itemLabel = new St.Label({
+                        text: item.title,
+                        style_class: 'fuhgawz-popover-recent-label',
+                        x_expand: true,
+                        y_align: Clutter?.ActorAlign?.CENTER ?? 0,
+                    });
+                    const timeLabel = new St.Label({
+                        text: item.relativeTime,
+                        style_class: 'fuhgawz-popover-recent-time',
+                        y_align: Clutter?.ActorAlign?.CENTER ?? 0,
+                    });
+                    itemBox.add_child(checkIcon);
+                    itemBox.add_child(itemLabel);
+                    itemBox.add_child(timeLabel);
+                    recentBtn.set_child(itemBox);
+                    recentBtn.connect('clicked', () => {
+                        if (item.uri) this.showInFiles(item.uri);
                         this.closeDropdown();
                     });
-                    this.menu.addMenuItem(revealItem);
+                    cardBox.add_child(recentBtn);
                 }
-            } else {
-                // Fallback mock items
+            } else if (!data.activeCard) {
+                const emptyLabel = new St.Label({
+                    text: 'No Active or Recent Tasks',
+                    style_class: 'fuhgawz-popover-stat-time',
+                });
+                cardBox.add_child(emptyLabel);
+            }
+
+            cardMenuItem.add_child(cardBox);
+            this.menu.addMenuItem(cardMenuItem);
+        } else {
+            // Headless fallback representation for unit tests
+            if (data.activeCard) {
+                const card = data.activeCard;
                 const cardProgressBar = new TaskProgressBar({ progress: card.progress, indeterminate: card.indeterminate });
                 this.menu.addMenuItem({
                     type: 'card',
@@ -1390,61 +1532,10 @@ class BaseIndicatorLogic {
                     },
                 });
             }
-        }
 
-        // Separator
-        if (PopupMenu?.PopupSeparatorMenuItem) {
-            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        } else {
             this.menu.addMenuItem({ type: 'separator' });
-        }
 
-        // 2. Recent Tasks Section
-        if (data.recentItems.length > 0) {
-            if (PopupMenu?.PopupSubMenuMenuItem && PopupMenu?.PopupMenuItem) {
-                const headerItem = new PopupMenu.PopupMenuItem('RECENT TASKS', { reactive: false });
-                this.menu.addMenuItem(headerItem);
-
-                for (const item of data.recentItems) {
-                    const label = `✓ ${item.title}  (${item.relativeTime})`;
-                    const subItem = new PopupMenu.PopupSubMenuMenuItem(label);
-
-                    const showInFilesItem = new PopupMenu.PopupMenuItem('📁 Show in Files');
-                    showInFilesItem.connect('activate', () => {
-                        if (item.uri) this.showInFiles(item.uri);
-                        this.closeDropdown();
-                    });
-                    subItem.menu.addMenuItem(showInFilesItem);
-
-                    const openItem = new PopupMenu.PopupMenuItem('📄 Open File');
-                    openItem.connect('activate', () => {
-                        if (item.uri) this.openFile(item.uri);
-                        this.closeDropdown();
-                    });
-                    subItem.menu.addMenuItem(openItem);
-
-                    const copyItem = new PopupMenu.PopupMenuItem('📋 Copy Path');
-                    copyItem.connect('activate', () => {
-                        if (item.uri) this.copyPath(item.uri);
-                        this.closeDropdown();
-                    });
-                    subItem.menu.addMenuItem(copyItem);
-
-                    this.menu.addMenuItem(subItem);
-                }
-            } else if (PopupMenu?.PopupMenuItem) {
-                const headerItem = new PopupMenu.PopupMenuItem('RECENT TASKS', { reactive: false });
-                this.menu.addMenuItem(headerItem);
-
-                for (const item of data.recentItems) {
-                    const label = `✓ ${item.title}  (${item.relativeTime})`;
-                    const recentEntry = new PopupMenu.PopupMenuItem(label);
-                    recentEntry.connect('activate', () => {
-                        if (item.uri) this.showInFiles(item.uri);
-                    });
-                    this.menu.addMenuItem(recentEntry);
-                }
-            } else {
+            if (data.recentItems.length > 0) {
                 this.menu.addMenuItem({ type: 'recent_header', label: 'RECENT TASKS' });
                 for (const item of data.recentItems) {
                     this.menu.addMenuItem({
@@ -1457,13 +1548,8 @@ class BaseIndicatorLogic {
                         },
                     });
                 }
-            }
-        } else if (!data.activeCard) {
-            if (PopupMenu?.PopupMenuItem) {
-                const emptyItem = new PopupMenu.PopupMenuItem('No active tasks', { reactive: false });
-                this.menu.addMenuItem(emptyItem);
-            } else {
-                this.menu.addMenuItem({ type: 'empty', label: 'No active tasks' });
+            } else if (!data.activeCard) {
+                this.menu.addMenuItem({ type: 'empty', label: 'No Active or Recent Tasks' });
             }
         }
     }
@@ -1737,7 +1823,12 @@ class BaseIndicatorLogic {
 
         if (this._telemetryLabelWidget) {
             if (this._isExpanded && this._expandedText) {
-                const displayText = this.getDisplayedTelemetryText();
+                let displayText = this.getDisplayedTelemetryText();
+                const cleanLabel = (this._labelText || '').trim().toLowerCase();
+                const cleanDisplay = (displayText || '').trim().toLowerCase();
+                if (cleanDisplay && cleanLabel && cleanDisplay === cleanLabel) {
+                    displayText = '';
+                }
                 this._telemetryLabelWidget.text = displayText;
                 const isCollapsed = !this._telemetryLabelWidget.visible || this._telemetryLabelWidget.opacity === 0;
                 if (isCollapsed) {
@@ -1790,7 +1881,7 @@ class BaseIndicatorLogic {
         }
 
         if (this._statusIconWidget) {
-            const iconName = this._isCompleted ? 'object-select-symbolic' : 'process-working-symbolic';
+            const iconName = this._isCompleted ? 'object-select-symbolic' : 'content-loading-symbolic';
             if (typeof this._statusIconWidget.set_icon_name === 'function') {
                 this._statusIconWidget.set_icon_name(iconName);
             } else {
@@ -1978,7 +2069,7 @@ if (hasStWidget) {
 
                 this._statusIconWidget = new St.Icon({
                     style_class: 'fuhgawz-task-icon',
-                    icon_name: 'process-working-symbolic',
+                    icon_name: 'content-loading-symbolic',
                     y_align: Clutter.ActorAlign.CENTER,
                 });
                 this._box.add_child(this._statusIconWidget);
@@ -1994,6 +2085,14 @@ if (hasStWidget) {
                     return Clutter ? Clutter.EVENT_STOP : true;
                 });
                 this._box.add_child(this._compactLabelWidget);
+
+                this._telemetryLabelWidget = new St.Label({
+                    style_class: 'fuhgawz-task-telemetry-label',
+                    y_align: Clutter.ActorAlign.CENTER,
+                });
+                this._telemetryLabelWidget.hide();
+                this._telemetryLabelWidget.opacity = 0;
+                this._box.add_child(this._telemetryLabelWidget);
 
                 this._sliderToggleIcon = new St.Icon({
                     style_class: 'fuhgawz-task-toggle-icon',
@@ -2022,14 +2121,6 @@ if (hasStWidget) {
                     this._sliderToggleWidget.click = () => this._sliderToggleWidget.emit('clicked');
                 }
                 this._box.add_child(this._sliderToggleWidget);
-
-                this._telemetryLabelWidget = new St.Label({
-                    style_class: 'fuhgawz-task-telemetry-label',
-                    y_align: Clutter.ActorAlign.CENTER,
-                });
-                this._telemetryLabelWidget.hide();
-                this._telemetryLabelWidget.opacity = 0;
-                this._box.add_child(this._telemetryLabelWidget);
 
                 this._actionIcon = new St.Icon({
                     style_class: 'fuhgawz-task-action-icon',
@@ -2266,7 +2357,7 @@ if (hasStWidget) {
                 };
                 
                 this._statusIconWidget = {
-                    icon_name: 'process-working-symbolic',
+                    icon_name: 'content-loading-symbolic',
                     style_class: 'fuhgawz-task-icon',
                     set_icon_name(name) { this.icon_name = name; }
                 };

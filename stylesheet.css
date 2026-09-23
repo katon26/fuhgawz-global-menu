@@ -351,3 +351,139 @@
 .fuhgawz-pop-btn-icon {
   icon-size: 14px;
 }
+
+/* ── Adwaita Dropdown Popover Card ─────────────────────────────────────── */
+.fuhgawz-popover-card-item {
+  padding: 0;
+  margin: 0;
+  background-color: transparent;
+}
+
+.fuhgawz-popover-card {
+  width: 320px;
+  padding: 12px;
+  background-color: #2d2d2d;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  spacing: 8px;
+}
+
+.fuhgawz-popover-header {
+  spacing: 8px;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.fuhgawz-popover-header-icon {
+  icon-size: 16px;
+  color: #ffffff;
+}
+
+.fuhgawz-popover-title {
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.fuhgawz-popover-progress-wrapper {
+  background-color: rgba(255, 255, 255, 0.1);
+  height: 6px;
+  border-radius: 99px;
+  margin: 4px 0;
+}
+
+.fuhgawz-popover-stats {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.fuhgawz-popover-stat-time {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.fuhgawz-popover-stat-speed {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: center;
+}
+
+.fuhgawz-popover-stat-bytes {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+  text-align: right;
+}
+
+.fuhgawz-popover-actions {
+  spacing: 6px;
+  padding-bottom: 8px;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  margin-bottom: 6px;
+}
+
+.fuhgawz-pop-btn {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 6px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #f6f5f4;
+  transition-duration: 150ms;
+}
+
+.fuhgawz-pop-btn:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.fuhgawz-pop-btn:active {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+.fuhgawz-pop-btn.cancel:hover,
+.fuhgawz-pop-btn-cancel:hover {
+  background-color: rgba(224, 27, 36, 0.25);
+  color: #ff7b82;
+}
+
+.fuhgawz-popover-recent-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  margin-top: 4px;
+  margin-bottom: 2px;
+}
+
+.fuhgawz-popover-recent-item {
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+  transition-duration: 120ms;
+}
+
+.fuhgawz-popover-recent-item:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.fuhgawz-popover-recent-icon {
+  icon-size: 12px;
+  color: #2ec27e;
+  margin-right: 6px;
+}
+
+.fuhgawz-popover-recent-label {
+  font-size: 12px;
+  color: inherit;
+}
+
+.fuhgawz-popover-recent-time {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+

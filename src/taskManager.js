@@ -108,6 +108,57 @@ function unrollVariant(val) {
 }
 
 /**
+ * Formats byte counts into human-readable strings (e.g. '1.1 GB', '320 MB').
+ *
+ * @param {number} bytes
+ * @returns {string}
+ */
+export function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 bytes';
+    if (bytes >= 1e9) {
+        return `${(bytes / 1e9).toFixed(1)} GB`;
+    }
+    if (bytes >= 1e6) {
+        const val = (bytes / 1e6).toFixed(1);
+        return `${val.endsWith('.0') ? val.slice(0, -2) : val} MB`;
+    }
+    if (bytes >= 1e3) {
+        const val = (bytes / 1e3).toFixed(1);
+        return `${val.endsWith('.0') ? val.slice(0, -2) : val} KB`;
+    }
+    return `${Math.round(bytes)} B`;
+}
+
+/**
+ * Formats transfer rate into human-readable strings (e.g. '25.0 MB/s').
+ *
+ * @param {number} bytesPerSec
+ * @returns {string}
+ */
+export function formatSpeed(bytesPerSec) {
+    if (!Number.isFinite(bytesPerSec) || bytesPerSec <= 0) return '';
+    if (bytesPerSec >= 1e6) return `${(bytesPerSec / 1e6).toFixed(1)} MB/s`;
+    if (bytesPerSec >= 1e3) return `${(bytesPerSec / 1e3).toFixed(1)} KB/s`;
+    return `${Math.round(bytesPerSec)} B/s`;
+}
+
+/**
+ * Formats seconds into human-readable ETA strings (e.g. '1m left', '30s left').
+ *
+ * @param {number} seconds
+ * @returns {string}
+ */
+export function formatEta(seconds) {
+    if (!Number.isFinite(seconds) || seconds <= 0) return '';
+    if (seconds < 60) return `${Math.max(1, Math.round(seconds))}s left`;
+    const mins = Math.round(seconds / 60);
+    if (mins < 60) return `${mins}m left`;
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return remMins > 0 ? `${hours}h ${remMins}m left` : `${hours}h left`;
+}
+
+/**
  * Creates a clean, JSON-serializable DTO from a task object,
  * stripping private internal handles (like _notification) that could contain cyclic references.
  *
@@ -181,6 +232,7 @@ export const TaskManager = GObject.registerClass(
             this._activeTasks = new Map(); // taskId -> taskObj
             this._activeInhibitors = new Map(); // inhibitorPath -> taskId
             this._notificationSignals = new Map(); // notification -> [signalId, ...]
+            this._nautilusMonitors = new Map(); // taskId -> monitorState
             this._recentTasks = [];
 
             this._loadRecentTasks();
@@ -673,6 +725,267 @@ export const TaskManager = GObject.registerClass(
         }
 
         /**
+         * Resolves PIDs of running Nautilus instances via Shell.AppSystem, WindowTracker, or /proc scan.
+         *
+         * @returns {number[]}
+         */
+        _findNautilusPids() {
+            const pids = [];
+            try {
+                if (Shell?.AppSystem) {
+                    const appSys = Shell.AppSystem.get_default();
+                    const nautilusApp = appSys?.lookup_app?.('org.gnome.Nautilus.desktop') ||
+                                        appSys?.lookup_app?.('nautilus.desktop');
+                    if (nautilusApp && typeof nautilusApp.get_pids === 'function') {
+                        const appPids = nautilusApp.get_pids();
+                        if (Array.isArray(appPids)) {
+                            for (const p of appPids) {
+                                if (typeof p === 'number' && !pids.includes(p)) pids.push(p);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {}
+
+            try {
+                if (Shell?.WindowTracker && typeof global !== 'undefined' && typeof global.get_window_actors === 'function') {
+                    const tracker = Shell.WindowTracker.get_default();
+                    for (const actor of global.get_window_actors()) {
+                        const win = actor.meta_window || actor.get_meta_window?.();
+                        if (win) {
+                            const app = tracker.get_window_app(win);
+                            if (app && app.get_id()?.toLowerCase().includes('nautilus')) {
+                                const pid = typeof win.get_pid === 'function' ? win.get_pid() : null;
+                                if (pid && !pids.includes(pid)) pids.push(pid);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {}
+
+            if (pids.length === 0) {
+                try {
+                    const procDir = Gio.File.new_for_path('/proc');
+                    const enumerator = procDir.enumerate_children('standard::name', Gio.FileQueryInfoFlags.NONE, null);
+                    let info;
+                    while ((info = enumerator.next_file(null)) !== null) {
+                        const name = info.get_name();
+                        if (/^\d+$/.test(name)) {
+                            try {
+                                const [ok, comm] = GLib.file_get_contents(`/proc/${name}/comm`);
+                                if (ok) {
+                                    const commStr = (comm instanceof Uint8Array ? new TextDecoder().decode(comm) : comm.toString()).trim();
+                                    if (commStr === 'nautilus') {
+                                        const p = parseInt(name, 10);
+                                        if (!pids.includes(p)) pids.push(p);
+                                    }
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            return pids;
+        }
+
+        /**
+         * Scans open file descriptors in /proc/<pid>/fd to find active file transfers.
+         *
+         * @param {number[]} pids
+         * @returns {{ pid: number, path: string, fileName: string, totalBytes: number, uri: string }|null}
+         */
+        _findNautilusActiveTransfer(pids = []) {
+            if (!Array.isArray(pids) || pids.length === 0) return null;
+
+            let foundFile = null;
+            let maxFileSize = 0;
+
+            for (const pid of pids) {
+                let enumerator;
+                try {
+                    const fdDir = Gio.File.new_for_path(`/proc/${pid}/fd`);
+                    enumerator = fdDir.enumerate_children('standard::name', Gio.FileQueryInfoFlags.NONE, null);
+                } catch (e) {
+                    continue;
+                }
+
+                let info;
+                while ((info = enumerator.next_file(null)) !== null) {
+                    const fdName = info.get_name();
+                    const linkPath = `/proc/${pid}/fd/${fdName}`;
+                    let targetPath = null;
+                    try {
+                        targetPath = GLib.file_read_link(linkPath);
+                    } catch (e) {
+                        continue;
+                    }
+
+                    if (!targetPath || !targetPath.startsWith('/')) continue;
+                    if (targetPath.startsWith('/proc') || targetPath.startsWith('/sys') || targetPath.startsWith('/dev')) continue;
+                    if (targetPath.includes('/.cache/') || targetPath.includes('/.config/') || targetPath.includes('/.local/share/gvfs-metadata/')) continue;
+                    if (targetPath.endsWith('.so') || targetPath.endsWith('.mo') || targetPath.endsWith('.desktop')) continue;
+
+                    try {
+                        if (GLib.file_test(targetPath, GLib.FileTest.IS_REGULAR)) {
+                            const basename = GLib.path_get_basename(targetPath);
+                            const isTempOutput = basename.startsWith('.goutputstream-');
+                            const gFile = Gio.File.new_for_path(targetPath);
+                            const qInfo = gFile.query_info('standard::size', Gio.FileQueryInfoFlags.NONE, null);
+                            const size = qInfo ? qInfo.get_size() : 0;
+
+                            if (!isTempOutput && size >= maxFileSize) {
+                                maxFileSize = size;
+                                foundFile = {
+                                    pid,
+                                    path: targetPath,
+                                    fileName: basename,
+                                    totalBytes: size,
+                                    uri: gFile.get_uri(),
+                                };
+                            } else if (!foundFile && isTempOutput) {
+                                foundFile = {
+                                    pid,
+                                    path: targetPath,
+                                    fileName: basename,
+                                    totalBytes: size,
+                                    uri: gFile.get_uri(),
+                                };
+                            }
+                        }
+                    } catch (e) {}
+                }
+            }
+
+            return foundFile;
+        }
+
+        /**
+         * Reads and parses /proc/<pid>/io into numeric key-value map.
+         *
+         * @param {number} pid
+         * @returns {object|null}
+         */
+        _readProcessIo(pid) {
+            if (!pid) return null;
+            try {
+                const [ok, contents] = GLib.file_get_contents(`/proc/${pid}/io`);
+                if (!ok) return null;
+                const str = (contents instanceof Uint8Array ? new TextDecoder().decode(contents) : contents.toString());
+                const lines = str.split('\n');
+                const io = {};
+                for (const line of lines) {
+                    const parts = line.split(':');
+                    if (parts.length === 2) {
+                        io[parts[0].trim()] = parseInt(parts[1].trim(), 10) || 0;
+                    }
+                }
+                return io;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        /**
+         * Starts periodic I/O monitor for active Nautilus transfer.
+         *
+         * @param {object} task
+         * @param {number} pid
+         * @param {object|null} activeTransfer
+         */
+        _startNautilusIoMonitor(task, pid, activeTransfer = null) {
+            if (!task || !pid) return;
+
+            this._stopNautilusIoMonitor(task.id);
+
+            const initialIo = this._readProcessIo(pid);
+            const initialWrite = initialIo?.write_bytes || 0;
+            const initialRead = initialIo?.read_bytes || 0;
+            const initialBytes = Math.max(initialWrite, initialRead);
+
+            const monitorState = {
+                timerId: 0,
+                pid,
+                lastBytes: initialBytes,
+                lastTime: Date.now(),
+                initialBytes,
+                totalBytes: activeTransfer?.totalBytes || task.totalBytes || 0,
+                accumulatedCopied: 0,
+            };
+
+            monitorState.timerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1000, () => {
+                if (this._destroyed || !this._activeTasks.has(task.id)) {
+                    monitorState.timerId = 0;
+                    return GLib.SOURCE_REMOVE;
+                }
+
+                const now = Date.now();
+                const dt = Math.max(0.1, (now - monitorState.lastTime) / 1000);
+                const currentIo = this._readProcessIo(pid);
+
+                // If filename wasn't found yet on initial start, try searching again
+                if (!task.fileName) {
+                    const transfer = this._findNautilusActiveTransfer([pid]);
+                    if (transfer) {
+                        task.fileName = transfer.fileName;
+                        task.uri = transfer.uri;
+                        task.totalBytes = transfer.totalBytes;
+                        monitorState.totalBytes = transfer.totalBytes;
+                    }
+                }
+
+                if (currentIo) {
+                    const currentWrite = currentIo.write_bytes || 0;
+                    const currentRead = currentIo.read_bytes || 0;
+                    const currentBytes = Math.max(currentWrite, currentRead);
+                    const deltaBytes = Math.max(0, currentBytes - monitorState.lastBytes);
+                    const speed = deltaBytes / dt;
+
+                    monitorState.lastBytes = currentBytes;
+                    monitorState.lastTime = now;
+                    monitorState.accumulatedCopied += deltaBytes;
+
+                    const total = monitorState.totalBytes || task.totalBytes || 0;
+                    if (total > 0) {
+                        const copied = Math.min(total, monitorState.accumulatedCopied);
+                        const progress = Math.min(0.99, Math.max(0.01, copied / total));
+                        task.progress = progress;
+                        task.indeterminate = false;
+                        task.bytesText = `${formatBytes(copied)} / ${formatBytes(total)}`;
+
+                        const remaining = Math.max(0, total - copied);
+                        const etaSec = speed > 0 ? (remaining / speed) : 0;
+                        task.etaText = formatEta(etaSec);
+                    } else {
+                        task.bytesText = formatBytes(monitorState.accumulatedCopied);
+                        task.indeterminate = true;
+                    }
+
+                    task.speedText = formatSpeed(speed);
+                }
+
+                this.emit('task-updated', task);
+                return GLib.SOURCE_CONTINUE;
+            });
+
+            this._nautilusMonitors.set(task.id, monitorState);
+        }
+
+        /**
+         * Stops periodic I/O monitor for a task.
+         *
+         * @param {string} taskId
+         */
+        _stopNautilusIoMonitor(taskId) {
+            if (!this._nautilusMonitors?.has(taskId)) return;
+            const mon = this._nautilusMonitors.get(taskId);
+            if (mon?.timerId) {
+                GLib.source_remove(mon.timerId);
+            }
+            this._nautilusMonitors.delete(taskId);
+        }
+
+        /**
          * Ingests an inhibitor for long-running desktop operations (e.g. Nautilus file transfers).
          *
          * @param {string} inhibitorPath
@@ -695,33 +1008,46 @@ export const TaskManager = GObject.registerClass(
                 } catch (e) {}
             }
 
+            const pids = this._findNautilusPids();
+            const activeTransfer = this._findNautilusActiveTransfer(pids);
+            if (!filename && activeTransfer?.fileName) {
+                filename = activeTransfer.fileName;
+            }
+
             const taskId = `inhibitor:${inhibitorPath}`;
+            const totalBytes = activeTransfer?.totalBytes || 0;
             const task = {
                 id: taskId,
                 appId: 'org.gnome.Nautilus',
                 desktopId: 'org.gnome.Nautilus.desktop',
                 title: 'Files',
-                summary: reason || 'Transferring files',
+                summary: reason || 'Copying files',
                 progress: 0.0,
                 progressVisible: true,
                 count: 0,
                 countVisible: false,
-                indeterminate: true, // File transfers use indeterminate hairline pulse
+                indeterminate: totalBytes > 0 ? false : true,
                 source: 'inhibitor',
                 state: 'running',
                 startTime: Date.now(),
                 completedAt: null,
                 canCancel: false,
                 inhibitorPath: inhibitorPath,
-                uri: null,
+                uri: activeTransfer?.uri || null,
                 fileName: filename || null,
-                etaText: '',
+                totalBytes: totalBytes,
+                etaText: totalBytes > 0 ? 'Calculating...' : '',
                 speedText: '',
-                bytesText: '',
+                bytesText: totalBytes > 0 ? `0 bytes / ${formatBytes(totalBytes)}` : '',
             };
 
             this._activeTasks.set(taskId, task);
             this._activeInhibitors.set(inhibitorPath, taskId);
+
+            if (pids.length > 0) {
+                this._startNautilusIoMonitor(task, activeTransfer?.pid || pids[0], activeTransfer);
+            }
+
             this.emit('task-added', task);
         }
 
@@ -737,6 +1063,7 @@ export const TaskManager = GObject.registerClass(
 
             const taskId = this._activeInhibitors.get(inhibitorPath);
             this._activeInhibitors.delete(inhibitorPath);
+            this._stopNautilusIoMonitor(taskId);
 
             const task = this._activeTasks.get(taskId);
             if (task) {
@@ -751,8 +1078,13 @@ export const TaskManager = GObject.registerClass(
                 task.indeterminate = false;
                 task.progress = 1.0;
                 task.progressVisible = false;
+                task.speedText = '';
+                task.etaText = 'Completed';
                 task.state = 'completed';
                 task.completedAt = Date.now();
+                if (task.totalBytes > 0) {
+                    task.bytesText = formatBytes(task.totalBytes);
+                }
 
                 this._addRecentTask(task);
                 this.emit('task-completed', task);
@@ -1009,6 +1341,7 @@ export const TaskManager = GObject.registerClass(
             if (!task) return false;
 
             task.state = 'cancelled';
+            this._stopNautilusIoMonitor(task.id);
             this._activeTasks.delete(task.id);
             this.emit('task-removed', task.id);
 
@@ -1201,6 +1534,14 @@ export const TaskManager = GObject.registerClass(
                 }
             }
             this._notificationSignals.clear();
+
+            // Clean up Nautilus I/O monitors
+            for (const [taskId, mon] of this._nautilusMonitors.entries()) {
+                if (mon?.timerId) {
+                    GLib.source_remove(mon.timerId);
+                }
+            }
+            this._nautilusMonitors.clear();
 
             this._activeTasks.clear();
             this._activeInhibitors.clear();

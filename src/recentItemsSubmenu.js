@@ -810,7 +810,7 @@ export const RecentItemsSubmenu = GObject.registerClass(
     });
 
     const icon = new St.Icon({
-      icon_name: 'emblem-ok-symbolic',
+      icon_name: 'object-select-symbolic',
       style_class: 'popup-menu-icon',
       y_align: Clutter.ActorAlign.CENTER,
     });

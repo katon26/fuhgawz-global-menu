@@ -152,7 +152,7 @@ indFormatting.updateTask({
 assert(indFormatting.visible === true, 'Indicator should become visible when task arrives');
 assert(indFormatting.getLabelText() === '42% · 1m', `Expected '42% · 1m', got '${indFormatting.getLabelText()}'`);
 assert(
-    indFormatting.getExpandedText() === '1.1 GB / 3.6 GB • 25.0 MB/s • the.bombin...e.in.zip',
+    indFormatting.getExpandedText() === '1.1 GB / 3.6 GB · 25.0 MB/s · the.bombin...e.in.zip',
     `Expanded telemetry mismatch: got '${indFormatting.getExpandedText()}'`
 );
 
@@ -256,7 +256,7 @@ assert(
 
 // Telemetry with bytes and speed also filters out redundant app title
 assert(
-    indDedup.formatExpandedTelemetry({ title: 'Files', bytesText: '1.2 GB / 3.0 GB', speedText: '15 MB/s' }, 'Files') === '1.2 GB / 3.0 GB • 15 MB/s',
+    indDedup.formatExpandedTelemetry({ title: 'Files', bytesText: '1.2 GB / 3.0 GB', speedText: '15 MB/s' }, 'Files') === '1.2 GB / 3.0 GB · 15 MB/s',
     `Expected redundant title 'Files' to be filtered out of telemetry parts, got '${indDedup.formatExpandedTelemetry({ title: 'Files', bytesText: '1.2 GB / 3.0 GB', speedText: '15 MB/s' }, 'Files')}'`
 );
 
@@ -1000,7 +1000,7 @@ indTask3.updateTask({
 });
 
 assert(indTask3._statusIconWidget !== undefined, '_statusIconWidget must exist');
-assert(indTask3._statusIconWidget.icon_name === 'process-working-symbolic', `Expected _statusIconWidget to have 'process-working-symbolic', got '${indTask3._statusIconWidget.icon_name}'`);
+assert(indTask3._statusIconWidget.icon_name === 'content-loading-symbolic', `Expected _statusIconWidget to have 'content-loading-symbolic', got '${indTask3._statusIconWidget.icon_name}'`);
 
 indTask3.setCompleted({ title: 'test.zip' });
 assert(indTask3._statusIconWidget.icon_name === 'object-select-symbolic', `Expected _statusIconWidget to have 'object-select-symbolic', got '${indTask3._statusIconWidget.icon_name}'`);
@@ -1027,5 +1027,58 @@ assert(indTask3.formatExpandedTelemetry(indTask3.getActiveTask(), 'Files') === '
 
 indTask3.destroy();
 console.log('-> Task 3 specific requirements PASSED.');
+
+// ---------------------------------------------------------------------
+// 11. Mockup Design Compliance & Live Nautilus Telemetry Verification
+// ---------------------------------------------------------------------
+console.log('11. Verifying Mockup Design Compliance & Live Nautilus Telemetry...');
+const indMockup = new TaskIndicatorButton(mockSettings, null);
+
+// 1. Live Nautilus copy task matching user screenshots and mockup
+const nautilusTask = {
+    id: 'inhibitor:/org/gnome/SessionManager/Inhibitor101',
+    appId: 'org.gnome.Nautilus',
+    title: 'Files',
+    fileName: 'the.bombing.of.pan.am.103.s1.web.108-pahe.in.zip',
+    summary: 'Copying files',
+    progress: 0.42,
+    etaText: '1m left',
+    speedText: '25.0 MB/s',
+    bytesText: '1.1 GB / 3.6 GB',
+    indeterminate: false,
+};
+
+indMockup.updateTask(nautilusTask, 'Files');
+assert(indMockup.getLabelText() === '42% · 1m', `Compact label mismatch: got '${indMockup.getLabelText()}'`);
+assert(
+    indMockup.getExpandedText() === '1.1 GB / 3.6 GB · 25.0 MB/s · the.bombing.of.pan.am.103.s1.web.108-pahe.in.zip',
+    `Expanded text mismatch: got '${indMockup.getExpandedText()}'`
+);
+
+// 2. Anti-stutter verification: when only generic summary exists, telemetry never echoes compact label
+indMockup.updateTask({
+    title: 'Files',
+    summary: 'Copying files',
+    indeterminate: true,
+}, 'Files');
+assert(indMockup.getLabelText() === 'Copying...', `Expected compact label 'Copying...', got '${indMockup.getLabelText()}'`);
+indMockup.setExpanded(true);
+assert(
+    indMockup._telemetryLabelWidget.text === '',
+    `Telemetry label must be suppressed when identical to compact label, got '${indMockup._telemetryLabelWidget.text}'`
+);
+
+// 3. Dropdown Menu Card Data Verification
+indMockup.updateTask(nautilusTask, 'Files');
+indMockup.toggleDropdown();
+const ddData = indMockup.getDropdownData();
+assert(ddData.activeCard !== null, 'Active card must be present');
+assert(ddData.activeCard.fileName === 'the.bombing.of.pan.am.103.s1.web.108-pahe.in.zip', 'Card fileName mismatch');
+assert(ddData.activeCard.speedText === '25.0 MB/s', 'Card speedText mismatch');
+assert(ddData.activeCard.bytesText === '1.1 GB / 3.6 GB', 'Card bytesText mismatch');
+assert(ddData.activeCard.etaText === '1m left', 'Card etaText mismatch');
+
+indMockup.destroy();
+console.log('-> Mockup Design Compliance & Live Telemetry PASSED.');
 
 console.log('ALL TESTS PASSED SUCCESSFULLY!');

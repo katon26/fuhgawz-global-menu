@@ -3,7 +3,7 @@
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
-import { TaskManager, MAX_RECENT_TASKS, TASK_MANAGER_OBJECT_PATH } from '../src/taskManager.js';
+import { TaskManager, MAX_RECENT_TASKS, TASK_MANAGER_OBJECT_PATH, formatBytes, formatSpeed, formatEta } from '../src/taskManager.js';
 
 function assert(condition, message) {
     if (!condition) {
@@ -705,6 +705,60 @@ try {
     assert(tmExtract.extractFilenameFromText('In progress...') === null, 'In progress... must NOT be treated as a filename');
     assert(tmExtract.extractFilenameFromText('Download completed: test_file.iso') === 'test_file.iso', 'test_file.iso extraction failed');
     tmExtract.destroy();
+
+    console.log('20. Verifying formatBytes, formatSpeed, formatEta and Nautilus I/O monitoring logic...');
+    assert(formatBytes(3600000000) === '3.6 GB', `formatBytes(3.6G) failed: got ${formatBytes(3600000000)}`);
+    assert(formatBytes(1100000000) === '1.1 GB', `formatBytes(1.1G) failed: got ${formatBytes(1100000000)}`);
+    assert(formatBytes(320000000) === '320 MB', `formatBytes(320M) failed: got ${formatBytes(320000000)}`);
+    assert(formatBytes(45000) === '45 KB', `formatBytes(45K) failed: got ${formatBytes(45000)}`);
+    assert(formatBytes(0) === '0 bytes', `formatBytes(0) failed: got ${formatBytes(0)}`);
+
+    assert(formatSpeed(25000000) === '25.0 MB/s', `formatSpeed(25M) failed: got ${formatSpeed(25000000)}`);
+    assert(formatSpeed(500000) === '500.0 KB/s', `formatSpeed(500K) failed: got ${formatSpeed(500000)}`);
+    assert(formatSpeed(0) === '', `formatSpeed(0) failed: got ${formatSpeed(0)}`);
+
+    assert(formatEta(60) === '1m left', `formatEta(60) failed: got ${formatEta(60)}`);
+    assert(formatEta(30) === '30s left', `formatEta(30) failed: got ${formatEta(30)}`);
+    assert(formatEta(3600) === '1h left', `formatEta(3600) failed: got ${formatEta(3600)}`);
+
+    const tmMonitor = new TaskManager(null, { cacheFile: GLib.build_filenamev([testTmpDir, 'test-mon-tasks.json']) });
+    assert(Array.isArray(tmMonitor._findNautilusPids()), '_findNautilusPids must return an array');
+    
+    // Simulate simulated transfer injection
+    tmMonitor._findNautilusActiveTransfer = () => ({
+        pid: 12345,
+        path: '/home/test/the.bombing.of.pan.am.103.s1.web.108-pahe.in.zip',
+        fileName: 'the.bombing.of.pan.am.103.s1.web.108-pahe.in.zip',
+        totalBytes: 3600000000,
+        uri: 'file:///home/test/the.bombing.of.pan.am.103.s1.web.108-pahe.in.zip',
+    });
+    tmMonitor._findNautilusPids = () => [12345];
+
+    let taskAddedReceived = null;
+    tmMonitor.connect('task-added', (m, task) => {
+        taskAddedReceived = task;
+    });
+
+    tmMonitor._handleInhibitorAdded('/org/gnome/SessionManager/Inhibitor99', 'org.gnome.Nautilus', 'Copying files');
+    assert(taskAddedReceived !== null, 'task-added must be emitted for Nautilus inhibitor');
+    assert(taskAddedReceived.fileName === 'the.bombing.of.pan.am.103.s1.web.108-pahe.in.zip', 'Task filename mismatch');
+    assert(taskAddedReceived.totalBytes === 3600000000, 'Task totalBytes mismatch');
+    assert(taskAddedReceived.bytesText === '0 bytes / 3.6 GB', `Task bytesText mismatch: got ${taskAddedReceived.bytesText}`);
+    assert(taskAddedReceived.indeterminate === false, 'Task should be determinate when totalBytes is known');
+    assert(tmMonitor._nautilusMonitors.has(taskAddedReceived.id), 'I/O monitor must be registered for task');
+
+    let taskCompletedReceived = null;
+    tmMonitor.connect('task-completed', (m, task) => {
+        taskCompletedReceived = task;
+    });
+
+    tmMonitor._handleInhibitorRemoved('/org/gnome/SessionManager/Inhibitor99');
+    assert(taskCompletedReceived !== null, 'task-completed must be emitted on inhibitor removal');
+    assert(taskCompletedReceived.progress === 1.0, 'Progress must be 1.0 on completion');
+    assert(taskCompletedReceived.bytesText === '3.6 GB', `bytesText on completion mismatch: got ${taskCompletedReceived.bytesText}`);
+    assert(!tmMonitor._nautilusMonitors.has(taskAddedReceived.id), 'I/O monitor must be cleared on inhibitor removal');
+
+    tmMonitor.destroy();
 
     console.log('TaskManager test suite passed with 100% success!');
 } finally {
