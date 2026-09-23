@@ -139,25 +139,43 @@
 
 /* ── Live Task Indicator & Telemetry Widget ────────────────────────────────── */
 .fuhgawz-task-indicator {
-  padding: 0 4px;
+  padding: 0;
   spacing: 4px;
+}
+
+.fuhgawz-task-indicator-unified {
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+  -natural-hpadding: 0px;
+  -minimum-hpadding: 0px;
 }
 
 /* Standalone panel button styling when indicator is in slot 2 */
 .fuhgawz-task-indicator-standalone,
 .fuhgawz-task-indicator.standalone,
-.panel-button.fuhgawz-task-indicator {
+.panel-button.fuhgawz-task-indicator,
+.panel-button.fuhgawz-task-indicator-standalone {
   padding-left: 10px;
   padding-right: 10px;
-  font-weight: 500;
-  border-radius: 4px;
+  font-weight: 600;
+  border-radius: 6px;
+  background-color: rgba(53, 132, 228, 0.14);
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(53, 132, 228, 0.28);
+  color: #9ac1f0;
   transition-duration: 150ms;
 }
 
 .fuhgawz-task-indicator-standalone:hover,
 .fuhgawz-task-indicator.standalone:hover,
-.panel-button.fuhgawz-task-indicator:hover {
-  background-color: rgba(255, 255, 255, 0.12);
+.panel-button.fuhgawz-task-indicator:hover,
+.panel-button.fuhgawz-task-indicator-standalone:hover {
+  background-color: rgba(53, 132, 228, 0.24);
+  border-color: rgba(53, 132, 228, 0.45);
   color: #ffffff;
 }
 
@@ -166,16 +184,27 @@
 .fuhgawz-task-indicator.standalone:active,
 .fuhgawz-task-indicator.standalone:checked,
 .panel-button.fuhgawz-task-indicator:active,
-.panel-button.fuhgawz-task-indicator:checked {
-  background-color: rgba(255, 255, 255, 0.22);
+.panel-button.fuhgawz-task-indicator:checked,
+.panel-button.fuhgawz-task-indicator-standalone:active,
+.panel-button.fuhgawz-task-indicator-standalone:checked {
+  background-color: rgba(53, 132, 228, 0.35);
+  border-color: rgba(53, 132, 228, 0.55);
+  color: #ffffff;
+}
+
+.fuhgawz-task-indicator-standalone.completed,
+.panel-button.fuhgawz-task-indicator-standalone.completed {
+  background-color: rgba(46, 194, 126, 0.16);
+  border-color: rgba(46, 194, 126, 0.35);
+  color: #79dcb0;
 }
 
 /* Anti-Slop: Clean inline flow without nested grey capsule pill */
 .fuhgawz-task-indicator-box {
   spacing: 6px;
-  padding: 0 2px;
+  padding: 0 4px;
   background-color: transparent;
-  border-radius: 0;
+  border-width: 0px;
 }
 
 .fuhgawz-task-pill {
@@ -183,7 +212,7 @@
   border-radius: 99px;
   background-color: -st-accent-color;
   color: -st-accent-fg-color;
-  font-size: 0.85em;
+  font-size: 11px;
   font-weight: bold;
 }
 
@@ -194,13 +223,13 @@
 
 /* Subtle dot separator replacing harsh vertical bar line */
 .fuhgawz-task-separator {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.45);
   font-weight: bold;
   padding: 0 4px;
 }
 
 .fuhgawz-task-indicator-label {
-  font-size: 0.9em;
+  font-size: 13px;
   font-weight: 600;
   color: inherit;
 }
@@ -212,26 +241,35 @@
 }
 
 .fuhgawz-task-telemetry-label {
-  font-size: 0.85em;
-  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  font-weight: normal;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 0 2px;
 }
 
-/* Subtle Adwaita hover states and active tactile depression */
+/* Polished Libadwaita mini buttons for >> and • • • */
 .fuhgawz-task-slider-toggle,
 .fuhgawz-task-toggle-btn,
 .fuhgawz-task-action-button {
-  padding: 0 4px;
+  padding: 2px 7px;
+  margin: 0 2px;
   border-radius: 4px;
+  font-size: 11px;
   font-weight: bold;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.85);
+  background-color: rgba(255, 255, 255, 0.10);
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.16);
   transition-duration: 150ms;
 }
 
 .fuhgawz-task-slider-toggle:hover,
 .fuhgawz-task-toggle-btn:hover,
 .fuhgawz-task-action-button:hover {
-  color: -st-accent-fg-color;
-  background-color: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.20);
+  border-color: rgba(255, 255, 255, 0.30);
 }
 
 .fuhgawz-task-slider-toggle:active,
@@ -239,7 +277,8 @@
 .fuhgawz-task-action-button:active,
 .fuhgawz-task-action-button:checked {
   color: #ffffff;
-  background-color: rgba(255, 255, 255, 0.22);
+  background-color: rgba(255, 255, 255, 0.30);
+  border-color: rgba(255, 255, 255, 0.45);
 }
 
 /* Hairline Progress Bar: crisp 2px height, Adwaita blue accent (#3584e4) and completed green (#2ec27e) */

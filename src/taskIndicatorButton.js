@@ -36,6 +36,13 @@ try {
     Main = null;
 }
 
+let PanelMenu = null;
+try {
+    PanelMenu = await import('resource:///org/gnome/shell/ui/panelMenu.js');
+} catch (e) {
+    PanelMenu = null;
+}
+
 const hasClutterContext = typeof global !== 'undefined' && Boolean(global.stage);
 const hasStWidget = Boolean(St?.Widget && hasClutterContext);
 
@@ -168,30 +175,26 @@ class BaseIndicatorLogic {
         this._progressBar = new TaskProgressBar();
 
         // Dropdown menu setup
-        if (PopupMenu?.PopupMenu && Main?.uiGroup) {
-            try {
-                const sourceActor = this._actionButton || this;
-                this.menu = new PopupMenu.PopupMenu(sourceActor, 0.0, St?.Side?.TOP ?? 0);
-                this.menuManager = new PopupMenu.PopupMenuManager(this);
-                this.menuManager.addMenu(this.menu);
-                if (typeof Main.uiGroup.add_child === 'function') {
-                    Main.uiGroup.add_child(this.menu.actor);
-                } else if (typeof Main.uiGroup.add_actor === 'function') {
-                    Main.uiGroup.add_actor(this.menu.actor);
-                }
-                this.menu.actor.hide();
-                this._menuOpenStateId = this.menu.connect('open-state-changed', (m, isOpen) => {
-                    this._isDropdownOpen = isOpen;
-                    this._updateUiComponents();
-                    if (typeof this.emit === 'function') {
-                        this.emit('dropdown-toggled', isOpen);
+        if (!this.menu) {
+            if (PopupMenu?.PopupMenu && Main?.uiGroup) {
+                try {
+                    const sourceActor = this._actionButton || this;
+                    this.menu = new PopupMenu.PopupMenu(sourceActor, 0.0, St?.Side?.TOP ?? 0);
+                    if (typeof Main.uiGroup.add_child === 'function') {
+                        Main.uiGroup.add_child(this.menu.actor);
+                    } else if (typeof Main.uiGroup.add_actor === 'function') {
+                        Main.uiGroup.add_actor(this.menu.actor);
                     }
-                });
-            } catch (e) {
+                    this.menu.actor.hide();
+                } catch (e) {
+                    this.menu = new FallbackPopupMenu();
+                }
+            } else {
                 this.menu = new FallbackPopupMenu();
             }
-        } else {
-            this.menu = new FallbackPopupMenu();
+        }
+
+        if (this.menu && !this._menuOpenStateId && typeof this.menu.connect === 'function') {
             this._menuOpenStateId = this.menu.connect('open-state-changed', (m, isOpen) => {
                 this._isDropdownOpen = isOpen;
                 this._updateUiComponents();
@@ -238,9 +241,9 @@ class BaseIndicatorLogic {
                     if (this._destroyed) return;
                     this._enabled = this._settings.get_boolean('enable-task-indicator');
                     if (!this._enabled) {
-                        if (typeof this.hide === 'function') this.hide();
+                        this._hideIndicator();
                     } else if (this._activeTask || this._isCompleted) {
-                        if (typeof this.show === 'function') this.show();
+                        this._showIndicator();
                     }
                 });
                 this._settingsSignalIds.push(sModeId, sPlacementId, sEnableId);
@@ -360,6 +363,61 @@ class BaseIndicatorLogic {
         }
     }
 
+    _syncVisibility() {
+        const hasContent = Boolean(this._activeTask || this._isCompleted);
+        const shouldShow = Boolean(this._enabled && hasContent);
+
+        if (this._placement === 'standalone') {
+            if (shouldShow) {
+                if (this.container && typeof this.container.show === 'function') {
+                    this.container.show();
+                    this.container.visible = true;
+                }
+                if (typeof this.show === 'function') this.show();
+                this.visible = true;
+            } else {
+                if (this.container && typeof this.container.hide === 'function') {
+                    this.container.hide();
+                    this.container.visible = false;
+                }
+                if (typeof this.hide === 'function') this.hide();
+                this.visible = false;
+            }
+        } else {
+            // Unified placement
+            if (shouldShow) {
+                if (typeof this.show === 'function') this.show();
+                this.visible = true;
+                if (this._appMenuButton && typeof this._appMenuButton.show === 'function') {
+                    this._appMenuButton.show();
+                }
+            } else {
+                if (typeof this.hide === 'function') this.hide();
+                this.visible = false;
+                if (this._appMenuButton && !this._appMenuButton._window && typeof this._appMenuButton.hide === 'function') {
+                    this._appMenuButton.hide();
+                }
+            }
+        }
+    }
+
+    _showIndicator() {
+        this._syncVisibility();
+    }
+
+    _hideIndicator() {
+        if (typeof this.hide === 'function') this.hide();
+        this.visible = false;
+        if (this._placement === 'standalone') {
+            if (this.container && typeof this.container.hide === 'function') {
+                this.container.hide();
+                this.container.visible = false;
+            }
+        } else if (this._appMenuButton && !this._appMenuButton._window && typeof this._appMenuButton.hide === 'function') {
+            this._appMenuButton.hide();
+        }
+    }
+
     _applyPlacement(oldPlacement = null) {
         if (this._destroyed) return;
         const main = this._getMain();
@@ -388,6 +446,7 @@ class BaseIndicatorLogic {
                 if (this._progressBar._parent === this._appMenuButton) {
                     this._progressBar._parent = null;
                 }
+                this._appMenuButton._progressBar = null;
             }
 
             // 3. Attach progress bar directly to this indicator
@@ -411,23 +470,57 @@ class BaseIndicatorLogic {
                 }
             }
 
-            // 4. Register in Main.panel (role: 'fuhgawz-task-indicator', pos = 2, 'left')
+            // 4. Ensure this is inside this.container if container exists (GNOME Shell PanelMenu.Button)
+            if (this.container) {
+                const curChild = (typeof this.container.get_child === 'function')
+                    ? this.container.get_child()
+                    : (this.container.child || null);
+                if (curChild !== this) {
+                    if (typeof this.container.set_child === 'function') {
+                        try { this.container.set_child(this); } catch (e) {}
+                    }
+                    if (this.container.child !== this) {
+                        try { this.container.child = this; } catch (e) {}
+                    }
+                }
+            }
+
+            // 5. Register in Main.panel (role: 'fuhgawz-task-indicator', pos = 2, 'left')
             if (main?.panel) {
                 if (typeof main.panel.addToStatusArea === 'function') {
                     if (main.panel.statusArea?.['fuhgawz-task-indicator'] !== this) {
+                        if (main.panel.statusArea?.['fuhgawz-task-indicator']) {
+                            delete main.panel.statusArea['fuhgawz-task-indicator'];
+                        }
                         try {
                             main.panel.addToStatusArea('fuhgawz-task-indicator', this, 2, 'left');
                         } catch (e) {
                             console.error(`FUHGlobe: Failed to register TaskIndicator in statusArea: ${e}`);
+                            if (main.panel._leftBox) {
+                                const targetChild = this.container || this;
+                                const boxChildren = main.panel._leftBox.get_children ? main.panel._leftBox.get_children() : (main.panel._leftBox.children || []);
+                                if (!boxChildren.includes(targetChild)) {
+                                    if (typeof main.panel._leftBox.insert_child_at_index === 'function') {
+                                        main.panel._leftBox.insert_child_at_index(targetChild, 2);
+                                    } else {
+                                        main.panel._leftBox.add_child(targetChild);
+                                    }
+                                }
+                                if (main.panel.statusArea) {
+                                    main.panel.statusArea['fuhgawz-task-indicator'] = this;
+                                }
+                                this._rolePosition = 2;
+                            }
                         }
                     }
                 } else if (main.panel._leftBox && typeof main.panel._leftBox.add_child === 'function') {
+                    const targetChild = this.container || this;
                     const boxChildren = main.panel._leftBox.get_children ? main.panel._leftBox.get_children() : (main.panel._leftBox.children || []);
-                    if (!boxChildren.includes(this)) {
+                    if (!boxChildren.includes(targetChild)) {
                         if (typeof main.panel._leftBox.insert_child_at_index === 'function') {
-                            main.panel._leftBox.insert_child_at_index(this, 2);
+                            main.panel._leftBox.insert_child_at_index(targetChild, 2);
                         } else {
-                            main.panel._leftBox.add_child(this);
+                            main.panel._leftBox.add_child(targetChild);
                         }
                         this._parent = main.panel._leftBox;
                     }
@@ -438,7 +531,7 @@ class BaseIndicatorLogic {
                 }
 
                 // Consistently ensure indicator actor is at index 2 in Main.panel._leftBox
-                if (main.panel._leftBox && typeof main.panel._leftBox.insert_child_at_index === 'function') {
+                if (main.panel._leftBox && typeof main.panel._leftBox.set_child_at_index === 'function') {
                     const targetChild = this.container || this;
                     const boxChildren = main.panel._leftBox.get_children ? main.panel._leftBox.get_children() : (main.panel._leftBox.children || []);
                     const curIdx = boxChildren.indexOf(targetChild);
@@ -454,27 +547,23 @@ class BaseIndicatorLogic {
                 }
             }
 
-            // 5. Update style classes for standalone panel button
+            // 6. Update style classes for standalone panel button
+            if (typeof this.remove_style_class_name === 'function') {
+                this.remove_style_class_name('fuhgawz-task-indicator-unified');
+            }
             if (typeof this.add_style_class_name === 'function') {
                 this.add_style_class_name('panel-button');
                 this.add_style_class_name('fuhgawz-task-indicator-standalone');
             }
 
-            // 6. Hide separator in standalone mode
+            // 7. Hide separator in standalone mode
             if (this._separatorWidget) {
                 if (typeof this._separatorWidget.hide === 'function') this._separatorWidget.hide();
                 this._separatorWidget.visible = false;
             }
 
-            // 7. Auto-hide behavior: hide if idle, reveal if active or completed badge
-            const isRunningOrBadge = Boolean(this._activeTask || this._isCompleted);
-            if (this._enabled && isRunningOrBadge) {
-                if (typeof this.show === 'function') this.show();
-                this.visible = true;
-            } else {
-                if (typeof this.hide === 'function') this.hide();
-                this.visible = false;
-            }
+            // 8. Auto-hide behavior synchronized across indicator and its container
+            this._syncVisibility();
 
         } else {
             // Placement: 'unified'
@@ -483,8 +572,12 @@ class BaseIndicatorLogic {
                 if (main.panel.statusArea && main.panel.statusArea['fuhgawz-task-indicator']) {
                     delete main.panel.statusArea['fuhgawz-task-indicator'];
                 }
+                const targetChild = this.container || this;
                 if (main.panel._leftBox && typeof main.panel._leftBox.remove_child === 'function') {
-                    try { main.panel._leftBox.remove_child(this); } catch (e) {}
+                    try { main.panel._leftBox.remove_child(targetChild); } catch (e) {}
+                }
+                if (this.container && typeof this.container.get_parent === 'function' && this.container.get_parent()) {
+                    try { this.container.get_parent().remove_child(this.container); } catch (e) {}
                 }
                 const curParent = (typeof this.get_parent === 'function') ? this.get_parent() : this._parent;
                 if (curParent === main.panel._leftBox) {
@@ -503,7 +596,22 @@ class BaseIndicatorLogic {
                 }
             }
 
-            // 3. Attach inside AppMenuButton._box at pos = 1
+            // 3. Remove this from this.container if parented there
+            if (this.container) {
+                const curChild = (typeof this.container.get_child === 'function')
+                    ? this.container.get_child()
+                    : (this.container.child || null);
+                if (curChild === this) {
+                    if (typeof this.container.set_child === 'function') {
+                        try { this.container.set_child(null); } catch (e) {}
+                    }
+                    if (this.container.child === this) {
+                        try { this.container.child = null; } catch (e) {}
+                    }
+                }
+            }
+
+            // 4. Attach inside AppMenuButton._box ALWAYS AT THE END (after app name label)
             if (this._appMenuButton) {
                 const targetBox = this._appMenuButton._box || this._appMenuButton;
                 const curParent = (typeof this.get_parent === 'function') ? this.get_parent() : this._parent;
@@ -512,16 +620,25 @@ class BaseIndicatorLogic {
                 }
                 const existingChildren = targetBox.get_children ? targetBox.get_children() : (targetBox.children || []);
                 if (!existingChildren.includes(this)) {
-                    if (typeof targetBox.insert_child_at_index === 'function') {
-                        const pos = Math.min(1, existingChildren.length);
-                        targetBox.insert_child_at_index(this, pos);
-                    } else if (typeof targetBox.add_child === 'function') {
+                    if (typeof targetBox.add_child === 'function') {
                         targetBox.add_child(this);
+                    } else if (typeof targetBox.insert_child_at_index === 'function') {
+                        targetBox.insert_child_at_index(this, existingChildren.length);
                     }
                     this._parent = targetBox;
+                } else {
+                    const lastIdx = existingChildren.length - 1;
+                    const curIdx = existingChildren.indexOf(this);
+                    if (curIdx !== -1 && curIdx !== lastIdx && lastIdx > 0) {
+                        if (typeof targetBox.set_child_at_index === 'function') {
+                            targetBox.set_child_at_index(this, lastIdx);
+                        } else if (typeof targetBox.insert_child_at_index === 'function') {
+                            targetBox.insert_child_at_index(this, lastIdx);
+                        }
+                    }
                 }
 
-                // 4. Attach progress bar to AppMenuButton
+                // Attach progress bar to AppMenuButton
                 if (this._progressBar && typeof this._appMenuButton.add_child === 'function') {
                     const curPbParent = (typeof this._progressBar.get_parent === 'function')
                         ? this._progressBar.get_parent()
@@ -536,13 +653,17 @@ class BaseIndicatorLogic {
                         }
                         this._progressBar._parent = this._appMenuButton;
                     }
+                    this._appMenuButton._progressBar = this._progressBar;
                 }
             }
 
-            // 5. Remove standalone style classes
+            // 5. Remove standalone style classes, add unified class
             if (typeof this.remove_style_class_name === 'function') {
                 this.remove_style_class_name('panel-button');
                 this.remove_style_class_name('fuhgawz-task-indicator-standalone');
+            }
+            if (typeof this.add_style_class_name === 'function') {
+                this.add_style_class_name('fuhgawz-task-indicator-unified');
             }
 
             // 6. Restore separator based on content
@@ -557,21 +678,8 @@ class BaseIndicatorLogic {
                 }
             }
 
-            // 7. Visibility in unified mode
-            const hasContent = Boolean(this._activeTask || this._isCompleted);
-            if (this._enabled && hasContent) {
-                if (typeof this.show === 'function') this.show();
-                this.visible = true;
-                if (this._appMenuButton && typeof this._appMenuButton.show === 'function') {
-                    this._appMenuButton.show();
-                }
-            } else {
-                if (typeof this.hide === 'function') this.hide();
-                this.visible = false;
-                if (this._appMenuButton && !this._appMenuButton._window && typeof this._appMenuButton.hide === 'function') {
-                    this._appMenuButton.hide();
-                }
-            }
+            // 7. Auto-hide behavior synchronized across indicator and its container
+            this._syncVisibility();
         }
 
         this._placementApplied = true;
@@ -848,14 +956,7 @@ class BaseIndicatorLogic {
         }
 
         this._updateUiComponents();
-
-        if (this._enabled && typeof this.show === 'function') {
-            this.show();
-            this.visible = true;
-            if (this._placement === 'unified' && this._appMenuButton && typeof this._appMenuButton.show === 'function') {
-                this._appMenuButton.show();
-            }
-        }
+        this._syncVisibility();
 
         if (typeof this.emit === 'function') {
             this.emit('task-updated', this._activeTask);
@@ -894,14 +995,7 @@ class BaseIndicatorLogic {
         }
 
         this._updateUiComponents();
-
-        if (this._enabled && typeof this.show === 'function') {
-            this.show();
-            this.visible = true;
-            if (this._placement === 'unified' && this._appMenuButton && typeof this._appMenuButton.show === 'function') {
-                this._appMenuButton.show();
-            }
-        }
+        this._syncVisibility();
 
         if (typeof this.emit === 'function') {
             this.emit('completion-state-changed', true);
@@ -955,14 +1049,7 @@ class BaseIndicatorLogic {
         }
 
         this._updateUiComponents();
-
-        if (typeof this.hide === 'function') {
-            this.hide();
-        }
-        this.visible = false;
-        if (this._placement === 'unified' && this._appMenuButton && !this._appMenuButton._window && typeof this._appMenuButton.hide === 'function') {
-            this._appMenuButton.hide();
-        }
+        this._syncVisibility();
 
         if (typeof this.emit === 'function') {
             this.emit('completion-state-changed', false);
@@ -1025,9 +1112,7 @@ class BaseIndicatorLogic {
 
     toggleSlider() {
         if (this._destroyed) return;
-        if (this._mode === 'slider') {
-            this.setExpanded(!this._isExpanded);
-        }
+        this.setExpanded(!this._isExpanded);
     }
 
     setExpanded(expanded) {
@@ -1128,6 +1213,22 @@ class BaseIndicatorLogic {
     openDropdown() {
         if (this._destroyed) return;
         this._buildDropdownMenu();
+
+        if (this.menu) {
+            if (this._placement === 'unified') {
+                this.menu.sourceActor = this._actionButton || this;
+            } else {
+                this.menu.sourceActor = this;
+            }
+        }
+
+        const main = this._getMain();
+        if (main?.panel?.menuManager && this.menu) {
+            try {
+                main.panel.menuManager.addMenu(this.menu);
+            } catch (e) {}
+        }
+
         this._isDropdownOpen = true;
 
         if (typeof this.menu?.open === 'function') {
@@ -1469,6 +1570,9 @@ class BaseIndicatorLogic {
         }
 
         this._appMenuButton = appMenuButton;
+        try {
+            this._appMenuButton._taskIndicator = this;
+        } catch (e) {}
 
         // Apply placement (unified attaches into appMenuButton._box, standalone registers in statusArea)
         this._applyPlacement();
@@ -1525,6 +1629,9 @@ class BaseIndicatorLogic {
                 this._appMenuButton.menu.toggle = this._origAppMenuToggle;
             } catch (e) {}
             this._origAppMenuToggle = null;
+        }
+        if (this._appMenuButton && this._appMenuButton._taskIndicator === this) {
+            this._appMenuButton._taskIndicator = null;
         }
     }
 
@@ -1774,6 +1881,7 @@ class BaseIndicatorLogic {
 // GObject Class Registration
 // -------------------------------------------------------------------------
 
+const BasePanelButton = PanelMenu?.Button ?? St?.Widget ?? Object;
 let TaskIndicatorButtonClass;
 
 if (hasStWidget) {
@@ -1798,14 +1906,25 @@ if (hasStWidget) {
                 },
             },
         },
-        class TaskIndicatorButton extends St.Widget {
+        class TaskIndicatorButton extends BasePanelButton {
             _init(settings = null, taskManager = null, options = {}) {
-                super._init({
-                    style_class: 'fuhgawz-task-indicator',
-                    reactive: true,
-                    track_hover: true,
-                });
-                this.container = this;
+                if (PanelMenu?.Button && BasePanelButton === PanelMenu.Button) {
+                    super._init(0.0, 'FUHGlobeTaskIndicatorButton');
+                    // Remove default ClickGesture so it does not intercept or cancel events on child buttons
+                    if (this._clickGesture && typeof this.remove_action === 'function') {
+                        try {
+                            this.remove_action(this._clickGesture);
+                        } catch (e) {}
+                        this._clickGesture = null;
+                    }
+                } else {
+                    super._init({
+                        style_class: 'fuhgawz-task-indicator',
+                        reactive: true,
+                        track_hover: true,
+                    });
+                    this.container = this;
+                }
 
                 this._box = new St.BoxLayout({
                     style_class: 'fuhgawz-task-indicator-box',
@@ -1815,7 +1934,7 @@ if (hasStWidget) {
 
                 this._separatorWidget = new St.Label({
                     style_class: 'fuhgawz-task-separator',
-                    text: '•',
+                    text: '·',
                     y_align: Clutter.ActorAlign.CENTER,
                 });
                 this._box.add_child(this._separatorWidget);
@@ -1823,6 +1942,12 @@ if (hasStWidget) {
                 this._compactLabelWidget = new St.Label({
                     style_class: 'fuhgawz-task-indicator-label',
                     y_align: Clutter.ActorAlign.CENTER,
+                    reactive: true,
+                    track_hover: true,
+                });
+                this._compactLabelWidget.connect('button-release-event', () => {
+                    this.toggleDropdown();
+                    return Clutter ? Clutter.EVENT_STOP : true;
                 });
                 this._box.add_child(this._compactLabelWidget);
 
@@ -1855,7 +1980,7 @@ if (hasStWidget) {
 
                 this._actionButton = new St.Button({
                     style_class: 'fuhgawz-task-action-button',
-                    label: '•••',
+                    label: '• • •',
                     y_align: Clutter.ActorAlign.CENTER,
                     reactive: true,
                     can_focus: true,
@@ -1877,14 +2002,7 @@ if (hasStWidget) {
                 this.connect('button-press-event', (actor, event) => {
                     const source = event?.get_source ? event.get_source() : (event?.target || null);
                     if (this._isChildButton(source)) {
-                        return Clutter ? Clutter.EVENT_STOP : true;
-                    }
-                    return Clutter ? Clutter.EVENT_PROPAGATE : false;
-                });
-                this.connect('button-release-event', (actor, event) => {
-                    const source = event?.get_source ? event.get_source() : (event?.target || null);
-                    if (this._isChildButton(source)) {
-                        return Clutter ? Clutter.EVENT_STOP : true;
+                        return Clutter ? Clutter.EVENT_PROPAGATE : false;
                     }
                     if (this._placement === 'standalone') {
                         this.toggleDropdown();
@@ -1897,6 +2015,22 @@ if (hasStWidget) {
                 this.connect('leave-event', () => this.onPointerLeave());
 
                 this._initIndicator(settings, taskManager, options);
+            }
+
+            vfunc_allocate(box) {
+                super.vfunc_allocate(box);
+                if (this._progressBar && this._progressBar.visible && (this._progressBar.get_parent() === this || this._progressBar._parent === this)) {
+                    const availWidth = box.x2 - box.x1;
+                    const availHeight = box.y2 - box.y1;
+                    const pbBox = new (Clutter?.ActorBox ?? Object)();
+                    pbBox.x1 = 0;
+                    pbBox.x2 = availWidth;
+                    pbBox.y1 = Math.max(0, availHeight - 2);
+                    pbBox.y2 = availHeight;
+                    if (typeof this._progressBar.allocate === 'function') {
+                        this._progressBar.allocate(pbBox);
+                    }
+                }
             }
 
             destroy() {
@@ -1974,8 +2108,6 @@ if (hasStWidget) {
             const ev = event || { get_source: () => this, target: this };
             const pressRes = this.emit('button-press-event', ev);
             if (pressRes === (Clutter?.EVENT_STOP ?? true)) {
-                // Emulating St.Button: if button-press-event returns EVENT_STOP on the button,
-                // the internal press state is swallowed and 'clicked' is never emitted.
                 return;
             }
             this.emit('button-release-event', ev);
@@ -2044,7 +2176,7 @@ if (hasStWidget) {
                 this.style_classes = new Set(['fuhgawz-task-indicator']);
 
                 this._separatorWidget = {
-                    text: '•',
+                    text: '·',
                     visible: false,
                     show() { this.visible = true; },
                     hide() { this.visible = false; },
@@ -2089,7 +2221,7 @@ if (hasStWidget) {
                 };
 
                 this._actionButton = new MockStButton({
-                    label: '•••',
+                    label: '• • •',
                     visible: true,
                     reactive: true,
                     can_focus: true,

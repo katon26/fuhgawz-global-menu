@@ -422,9 +422,131 @@ class AppMenuButton extends PanelMenu.Button {
         this._box.add_child(this._label);
         this.add_child(this._box);
 
+        this._taskIndicator = null;
+        this._progressBar = null;
+
         this._buildMenu(appLabel);
+
+        // Remove default PanelMenu ClickGesture so it does not intercept or cancel events on child buttons (>> and • • •)
+        if (this._clickGesture && typeof this.remove_action === 'function') {
+            try {
+                this.remove_action(this._clickGesture);
+            } catch (e) {}
+            this._clickGesture = null;
+        }
+
+        this.connect('button-press-event', (actor, event) => {
+            const source = event?.get_source ? event.get_source() : (event?.target || null);
+            if (this._isIndicatorActor(source)) {
+                return Clutter ? Clutter.EVENT_PROPAGATE : false;
+            }
+            try {
+                const [x, y] = global.get_pointer ? global.get_pointer() : [-1, -1];
+                if (this._isIndicatorAtPoint(x, y)) {
+                    return Clutter ? Clutter.EVENT_PROPAGATE : false;
+                }
+            } catch (e) {}
+
+            if (this.menu && typeof this.menu.toggle === 'function') {
+                this.menu.toggle();
+            }
+            return Clutter ? Clutter.EVENT_STOP : true;
+        });
+
+        if (this.menu && typeof this.menu.toggle === 'function') {
+            const origToggle = this.menu.toggle.bind(this.menu);
+            this.menu.toggle = () => {
+                if (this._taskIndicator && this._taskIndicator._childClickInProgress) {
+                    return;
+                }
+                const event = Clutter?.get_current_event ? Clutter.get_current_event() : null;
+                if (event) {
+                    const source = event.get_source ? event.get_source() : (event.target || null);
+                    if (this._isIndicatorActor(source)) {
+                        return;
+                    }
+                }
+                try {
+                    const [x, y] = global.get_pointer ? global.get_pointer() : [-1, -1];
+                    if (this._isIndicatorAtPoint(x, y)) {
+                        return;
+                    }
+                } catch (e) {}
+                return origToggle();
+            };
+        }
+
         if (!metaWindow) {
             this.hide();
+        }
+    }
+
+    _isIndicatorActor(source) {
+        if (!source || !this._taskIndicator) return false;
+        const target = this._taskIndicator;
+        if (source === target || source === this._taskIndicator._box) return true;
+        if (typeof target.contains === 'function') {
+            try { if (target.contains(source)) return true; } catch (e) {}
+        }
+        if (this._taskIndicator._box && typeof this._taskIndicator._box.contains === 'function') {
+            try { if (this._taskIndicator._box.contains(source)) return true; } catch (e) {}
+        }
+        return false;
+    }
+
+    _isIndicatorAtPoint(x, y) {
+        if (x < 0 || y < 0 || !this._taskIndicator) return false;
+        const target = this._taskIndicator._box || this._taskIndicator;
+        if (!target.visible) return false;
+        if (typeof target.get_transformed_position === 'function' && typeof target.get_transformed_size === 'function') {
+            try {
+                const [tx, ty] = target.get_transformed_position();
+                const [tw, th] = target.get_transformed_size();
+                if (x >= tx && x <= tx + tw && y >= ty && y <= ty + th) {
+                    return true;
+                }
+            } catch (e) {}
+        }
+        return false;
+    }
+
+    _ensureIndicatorAtEnd() {
+        if (!this._taskIndicator) return;
+        const indicatorActor = this._taskIndicator;
+        const curParent = (typeof indicatorActor.get_parent === 'function') ? indicatorActor.get_parent() : indicatorActor._parent;
+        if (curParent === this._box) {
+            if (typeof this._box.set_child_above_sibling === 'function') {
+                try {
+                    this._box.set_child_above_sibling(indicatorActor, null);
+                    return;
+                } catch (e) {}
+            }
+            const children = this._box.get_children ? this._box.get_children() : (this._box.children || []);
+            const lastIdx = children.length - 1;
+            const curIdx = children.indexOf(indicatorActor);
+            if (curIdx !== -1 && curIdx !== lastIdx && lastIdx > 0) {
+                if (typeof this._box.set_child_at_index === 'function') {
+                    this._box.set_child_at_index(indicatorActor, lastIdx);
+                } else if (typeof this._box.insert_child_at_index === 'function') {
+                    this._box.insert_child_at_index(indicatorActor, lastIdx);
+                }
+            }
+        }
+    }
+
+    vfunc_allocate(box) {
+        super.vfunc_allocate(box);
+        if (this._progressBar && this._progressBar.visible && (this._progressBar.get_parent() === this || this._progressBar._parent === this)) {
+            const availWidth = box.x2 - box.x1;
+            const availHeight = box.y2 - box.y1;
+            const pbBox = new (Clutter?.ActorBox ?? Object)();
+            pbBox.x1 = 0;
+            pbBox.x2 = availWidth;
+            pbBox.y1 = Math.max(0, availHeight - 2);
+            pbBox.y2 = availHeight;
+            if (typeof this._progressBar.allocate === 'function') {
+                this._progressBar.allocate(pbBox);
+            }
         }
     }
 
@@ -481,6 +603,7 @@ class AppMenuButton extends PanelMenu.Button {
         } else {
             this.hide();
         }
+        this._ensureIndicatorAtEnd();
     }
 
     updateTitle(metaWindow) {
@@ -505,6 +628,7 @@ class AppMenuButton extends PanelMenu.Button {
             this._label.set_text(appLabel);
             this.accessible_name = appLabel;
         }
+        this._ensureIndicatorAtEnd();
     }
 
     _triggerAboutAction(appLabel) {
@@ -2075,6 +2199,9 @@ class FUHGlobeGlobalMenu {
         // Live task indicator initialized according to configured placement (after button pool)
         const placement = this._settings?.get_string('task-indicator-placement') || 'unified';
         this._taskIndicator = new TaskIndicatorButton(this._settings, this._taskManager);
+        if (this._appMenuButton) {
+            this._appMenuButton._taskIndicator = this._taskIndicator;
+        }
         this._taskIndicator.bindToAppMenu(this._appMenuButton);
         if (placement !== 'unified') {
             this._taskIndicator.setPlacement(placement);
