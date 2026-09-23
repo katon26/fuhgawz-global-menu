@@ -693,6 +693,19 @@ try {
         tmDbus.destroy();
     }
 
+    console.log('19. Verifying filename extraction...');
+    const tmExtract = new TaskManager(null, { cacheFile: GLib.build_filenamev([testTmpDir, 'test-extract-tasks.json']) });
+    
+    assert(tmExtract.extractFilenameFromText('Permanently delete “xCodium.json”?') === 'xCodium.json', 'xCodium.json extraction failed');
+    assert(tmExtract.extractFilenameFromText('Copying "archive.tar.gz" to Downloads') === 'archive.tar.gz', 'archive.tar.gz extraction failed');
+    assert(tmExtract.extractFilenameFromText('the.bombin.pan.am.103.zip (Finished)') === 'the.bombin.pan.am.103.zip', 'the.bombin... extraction failed');
+    assert(tmExtract.extractFilenameFromText('Deleting...') === null, 'Deleting... with ellipsis must NOT be treated as a filename');
+    assert(tmExtract.extractFilenameFromText('Copying 1,420 files') === null, 'Copying 1,420 files must NOT be treated as a filename');
+    assert(tmExtract.extractFilenameFromText('Deleting... xCodium.json') === 'xCodium.json', 'Deleting... xCodium.json must extract xCodium.json');
+    assert(tmExtract.extractFilenameFromText('In progress...') === null, 'In progress... must NOT be treated as a filename');
+    assert(tmExtract.extractFilenameFromText('Download completed: test_file.iso') === 'test_file.iso', 'test_file.iso extraction failed');
+    tmExtract.destroy();
+
     console.log('TaskManager test suite passed with 100% success!');
 } finally {
     // Cleanup temporary test files

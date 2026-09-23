@@ -150,7 +150,7 @@ indFormatting.updateTask({
 });
 
 assert(indFormatting.visible === true, 'Indicator should become visible when task arrives');
-assert(indFormatting.getLabelText() === '⏳ 42% 1m', `Expected '⏳ 42% 1m', got '${indFormatting.getLabelText()}'`);
+assert(indFormatting.getLabelText() === '42% · 1m', `Expected '42% · 1m', got '${indFormatting.getLabelText()}'`);
 assert(
     indFormatting.getExpandedText() === '1.1 GB / 3.6 GB • 25.0 MB/s • the.bombin...e.in.zip',
     `Expanded telemetry mismatch: got '${indFormatting.getExpandedText()}'`
@@ -161,7 +161,7 @@ indFormatting.updateTask({
     title: 'Download.iso',
     progress: 0.85,
 });
-assert(indFormatting.getLabelText() === '⏳ 85%', `Expected '⏳ 85%', got '${indFormatting.getLabelText()}'`);
+assert(indFormatting.getLabelText() === '85%', `Expected '85%', got '${indFormatting.getLabelText()}'`);
 assert(indFormatting.getExpandedText() === 'Download.iso', `Expected 'Download.iso', got '${indFormatting.getExpandedText()}'`);
 
 // ETA formats: '45s left' -> '45s', '2h 10m left' -> '2h 10m'
@@ -170,38 +170,38 @@ indFormatting.updateTask({
     progress: 0.10,
     etaText: '45s left',
 });
-assert(indFormatting.getLabelText() === '⏳ 10% 45s', `Expected '⏳ 10% 45s', got '${indFormatting.getLabelText()}'`);
+assert(indFormatting.getLabelText() === '10% · 45s', `Expected '10% · 45s', got '${indFormatting.getLabelText()}'`);
 
 indFormatting.updateTask({
     title: 'Backup.tar',
     progress: 0.05,
     etaText: '2h 10m left',
 });
-assert(indFormatting.getLabelText() === '⏳ 5% 2h 10m', `Expected '⏳ 5% 2h 10m', got '${indFormatting.getLabelText()}'`);
+assert(indFormatting.getLabelText() === '5% · 2h 10m', `Expected '5% · 2h 10m', got '${indFormatting.getLabelText()}'`);
 
 // 0% and 100% boundary
 indFormatting.updateTask({ progress: 0.0, etaText: 'estimating' });
-assert(indFormatting.getLabelText() === '⏳ 0% estimating', `Expected '⏳ 0% estimating', got '${indFormatting.getLabelText()}'`);
+assert(indFormatting.getLabelText() === '0% · estimating', `Expected '0% · estimating', got '${indFormatting.getLabelText()}'`);
 
 indFormatting.updateTask({ progress: 1.0 });
-assert(indFormatting.getLabelText() === '⏳ 100%', `Expected '⏳ 100%', got '${indFormatting.getLabelText()}'`);
+assert(indFormatting.getLabelText() === '100%', `Expected '100%', got '${indFormatting.getLabelText()}'`);
 
 // Robustness: NaN, negative, and oversized progress values
 indFormatting.updateTask({ progress: NaN });
-assert(indFormatting.getLabelText() === '⏳ 0%', `NaN progress should be normalized to 0%, got '${indFormatting.getLabelText()}'`);
+assert(indFormatting.getLabelText() === '0%', `NaN progress should be normalized to 0%, got '${indFormatting.getLabelText()}'`);
 
 indFormatting.updateTask({ progress: -0.5 });
-assert(indFormatting.getLabelText() === '⏳ 0%', `Negative progress should clamp to 0%, got '${indFormatting.getLabelText()}'`);
+assert(indFormatting.getLabelText() === '0%', `Negative progress should clamp to 0%, got '${indFormatting.getLabelText()}'`);
 
 indFormatting.updateTask({ progress: 150 });
-assert(indFormatting.getLabelText() === '⏳ 100%', `Oversized progress should clamp to 100%, got '${indFormatting.getLabelText()}'`);
+assert(indFormatting.getLabelText() === '100%', `Oversized progress should clamp to 100%, got '${indFormatting.getLabelText()}'`);
 
 // Indeterminate state (Nautilus copy, spinner)
 indFormatting.updateTask({
     indeterminate: true,
     summary: 'Transferring files',
 });
-assert(indFormatting.getLabelText() === '⏳ Transferring files', `Expected '⏳ Transferring files', got '${indFormatting.getLabelText()}'`);
+assert(indFormatting.getLabelText() === 'Transferring files', `Expected 'Transferring files', got '${indFormatting.getLabelText()}'`);
 
 indFormatting.destroy();
 
@@ -212,7 +212,7 @@ console.log('2b. Verifying label deduplication, anti-slop formatting & strict te
 const indDedup = new TaskIndicatorButton(null, null, { appLabel: 'Files' });
 
 // 1. Indeterminate task with appLabel="Files", summary="Deleting Files", title="Files"
-// Must display "⏳ Deleting..." (NOT "⏳ Deleting Files Files" or "⏳ Deleting Files")
+// Must display "Deleting..." (NOT "Deleting Files Files" or "Deleting Files")
 indDedup.updateTask({
     title: 'Files',
     summary: 'Deleting Files',
@@ -220,13 +220,13 @@ indDedup.updateTask({
 }, 'Files');
 
 assert(
-    indDedup.getLabelText() === '⏳ Deleting...',
-    `Expected compact label '⏳ Deleting...', got '${indDedup.getLabelText()}'`
+    indDedup.getLabelText() === 'Deleting...',
+    `Expected compact label 'Deleting...', got '${indDedup.getLabelText()}'`
 );
 
 // Format compact label method directly with appLabel
 assert(
-    indDedup.formatCompactLabel({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files') === '⏳ Deleting...',
+    indDedup.formatCompactLabel({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files') === 'Deleting...',
     `formatCompactLabel direct check failed, got '${indDedup.formatCompactLabel({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files')}'`
 );
 
@@ -264,29 +264,29 @@ assert(
 indDedup.setExpanded(false);
 assert(indDedup._telemetryLabelWidget.visible === false, '_telemetryLabelWidget must be strictly hidden after collapse');
 
-// 4. Completed state: compact label displays "✓ Done" (NOT "✓ Done ✓ Files")
+// 4. Completed state: compact label displays "Done" (NOT "Done Files")
 indDedup.setCompleted({ title: 'Files', summary: 'Deleting Files' }, 'Files');
 assert(
-    indDedup.getLabelText() === '✓ Done',
-    `Expected compact label '✓ Done' on completion, got '${indDedup.getLabelText()}'`
+    indDedup.getLabelText() === 'Done',
+    `Expected compact label 'Done' on completion, got '${indDedup.getLabelText()}'`
 );
 assert(
     !indDedup.getLabelText().includes('Files'),
     `Compact label on completion must not append app name: '${indDedup.getLabelText()}'`
 );
 
-// Expanded telemetry on completed state returns "✓ Completed" (NOT "✓ Files" or "✓ Done ✓ Files")
+// Expanded telemetry on completed state returns "Completed"
 const completedExpanded = indDedup.getExpandedText();
 assert(
-    completedExpanded === '✓ Completed',
-    `Expected expanded telemetry '✓ Completed', got '${completedExpanded}'`
+    completedExpanded === 'Completed',
+    `Expected expanded telemetry 'Completed', got '${completedExpanded}'`
 );
 assert(
     !completedExpanded.includes('Files'),
     `Expanded telemetry on completion must not contain app name 'Files': '${completedExpanded}'`
 );
 assert(
-    indDedup.formatExpandedTelemetry({ state: 'completed', title: 'Files' }, 'Files') === '✓ Completed',
+    indDedup.formatExpandedTelemetry({ state: 'completed', title: 'Files' }, 'Files') === 'Completed',
     `formatExpandedTelemetry direct completion check failed: got '${indDedup.formatExpandedTelemetry({ state: 'completed', title: 'Files' }, 'Files')}'`
 );
 
@@ -406,19 +406,19 @@ indModes.setMode('slider');
 assert(indModes.getMode() === 'slider', 'Mode must be slider');
 assert(indModes.isExpanded() === false, 'Slider mode starts collapsed');
 assert(indModes._sliderToggleWidget.visible === true, 'Slider toggle widget must be visible in slider mode');
-assert(indModes.getSliderToggleLabel() === '>>', `Expected toggle label '>>', got '${indModes.getSliderToggleLabel()}'`);
+assert(indModes.getSliderToggleIconName() === 'go-next-symbolic', `Expected toggle icon 'go-next-symbolic', got '${indModes.getSliderToggleIconName()}'`);
 
 // Click toggle button to expand
 indModes.toggleSlider();
 assert(indModes.isExpanded() === true, 'Slider mode must expand on toggle click');
 assert(indModes._telemetryLabelWidget.visible === true, 'Telemetry widget must be visible after toggle');
-assert(indModes.getSliderToggleLabel() === '<<', `Expected toggle label '<<', got '${indModes.getSliderToggleLabel()}'`);
+assert(indModes.getSliderToggleIconName() === 'go-previous-symbolic', `Expected toggle icon 'go-previous-symbolic', got '${indModes.getSliderToggleIconName()}'`);
 
 // Click toggle button to collapse
 indModes.toggleSlider();
 assert(indModes.isExpanded() === false, 'Slider mode must collapse on second toggle click');
 assert(indModes._telemetryLabelWidget.visible === false, 'Telemetry widget must be hidden after toggle collapse');
-assert(indModes.getSliderToggleLabel() === '>>', `Expected toggle label '>>', got '${indModes.getSliderToggleLabel()}'`);
+assert(indModes.getSliderToggleIconName() === 'go-next-symbolic', `Expected toggle icon 'go-next-symbolic', got '${indModes.getSliderToggleIconName()}'`);
 
 // Switching back to compact auto-collapses any expansion
 indModes.setExpanded(true);
@@ -510,7 +510,7 @@ assert(indCompletion.isCompleted() === false, 'Initially should not be completed
 // Trigger task completion
 indCompletion.setCompleted({ title: 'Transfer', progress: 1.0 });
 assert(indCompletion.isCompleted() === true, 'isCompleted must be true');
-assert(indCompletion.getLabelText() === '✓ Done', `Expected '✓ Done', got '${indCompletion.getLabelText()}'`);
+assert(indCompletion.getLabelText() === 'Done', `Expected 'Done', got '${indCompletion.getLabelText()}'`);
 assert(completionEmitted === true, 'completion-state-changed true must be emitted');
 assert(Boolean(indCompletion._autoHideTimerId), 'Auto-hide timer must be active');
 
@@ -829,7 +829,7 @@ if (typeof indClick._sliderToggleWidget.click === 'function') {
     indClick._sliderToggleWidget.emit('clicked');
 }
 assert(indClick.isExpanded() === true, 'Clicking _sliderToggleWidget must expand indicator');
-assert(indClick.getSliderToggleLabel() === '<<', 'Label must be << when expanded');
+assert(indClick.getSliderToggleIconName() === 'go-previous-symbolic', 'Icon must be go-previous-symbolic when expanded');
 assert(indClick._telemetryLabelWidget.visible === true, 'Telemetry must be visible when expanded');
 
 // Click again to collapse
@@ -839,7 +839,7 @@ if (typeof indClick._sliderToggleWidget.click === 'function') {
     indClick._sliderToggleWidget.emit('clicked');
 }
 assert(indClick.isExpanded() === false, 'Clicking _sliderToggleWidget again must collapse indicator');
-assert(indClick.getSliderToggleLabel() === '>>', 'Label must be >> when collapsed');
+assert(indClick.getSliderToggleIconName() === 'go-next-symbolic', 'Icon must be go-next-symbolic when collapsed');
 assert(indClick._telemetryLabelWidget.visible === false, 'Telemetry must be hidden when collapsed');
 
 // 4. Test _actionButton click reactivity and dropdown-toggled signal
@@ -937,9 +937,95 @@ assert(indClick.isDropdownOpen() === true, '_actionButton click must still open 
 assert(mockAppMenuWithPopup.menuToggled === false,
     'Clicking _actionButton must NOT toggle AppMenuButton menu');
 
+// 6. Test isDescendantOf helper
+console.log('Verifying isDescendantOf helper...');
+const parentNode = { get_parent: () => null };
+const childNode = { get_parent: () => parentNode };
+const deepChildNode = { get_parent: () => childNode };
+const unrelatedNode = { get_parent: () => null };
+assert(indClick.isDescendantOf(childNode, parentNode) === true, 'Child is descendant of parent');
+assert(indClick.isDescendantOf(deepChildNode, parentNode) === true, 'Deep child is descendant of parent');
+assert(indClick.isDescendantOf(unrelatedNode, parentNode) === false, 'Unrelated node is not descendant');
+
+// 7. Test standalone placement event stoppage
+console.log('Verifying standalone button-press-event routing...');
+indClick.setPlacement('standalone');
+assert(indClick.getPlacement() === 'standalone', 'Indicator placement is standalone');
+indClick.closeDropdown(); // Reset
+
+// Mock button press event
+class MockEvent {
+    constructor(source) {
+        this._source = source;
+    }
+    get_source() {
+        return this._source;
+    }
+}
+
+// 7a. Click on slider toggle widget must return EVENT_STOP and NOT open menu
+const sliderEvent = new MockEvent(indClick._sliderToggleWidget);
+const resSlider = indClick.emit('button-press-event', sliderEvent);
+assert(indClick.isDropdownOpen() === false, 'Clicking slider toggle in standalone must NOT open dropdown');
+assert(resSlider === true || resSlider === (Clutter ? Clutter.EVENT_STOP : true), 'Slider toggle click must stop propagation');
+
+// 7b. Click on action button must return EVENT_STOP
+const actionEvent = new MockEvent(indClick._actionButton);
+const resAction = indClick.emit('button-press-event', actionEvent);
+assert(resAction === true || resAction === (Clutter ? Clutter.EVENT_STOP : true), 'Action button click must stop propagation');
+
+// 7c. Click on indicator body must open menu and return EVENT_STOP
+const bodyEvent = new MockEvent(indClick);
+const resBody = indClick.emit('button-press-event', bodyEvent);
+assert(indClick.isDropdownOpen() === true, 'Clicking body in standalone must open dropdown');
+assert(resBody === true || resBody === (Clutter ? Clutter.EVENT_STOP : true), 'Body click must stop propagation');
+
 // Clean up
 indClick.destroy();
 assert(mockAppMenuWithPopup.menuToggled === false);
 
 console.log('TaskIndicatorButton test suite passed with 100% success!');
 
+
+
+// ---------------------------------------------------------------------
+// 10. Task 3 Specific Requirements
+// ---------------------------------------------------------------------
+console.log('10. Verifying Task 3 specific UI and anti-duplication logic...');
+const indTask3 = new TaskIndicatorButton(mockSettings, null);
+
+indTask3.updateTask({
+    title: 'test.zip',
+    progress: 0.5,
+});
+
+assert(indTask3._statusIconWidget !== undefined, '_statusIconWidget must exist');
+assert(indTask3._statusIconWidget.icon_name === 'process-working-symbolic', `Expected _statusIconWidget to have 'process-working-symbolic', got '${indTask3._statusIconWidget.icon_name}'`);
+
+indTask3.setCompleted({ title: 'test.zip' });
+assert(indTask3._statusIconWidget.icon_name === 'object-select-symbolic', `Expected _statusIconWidget to have 'object-select-symbolic', got '${indTask3._statusIconWidget.icon_name}'`);
+
+indTask3.setMode('slider');
+assert(indTask3._sliderToggleWidget !== undefined, '_sliderToggleWidget must exist');
+assert(indTask3._sliderToggleIcon !== undefined, '_sliderToggleIcon must exist inside slider toggle');
+assert(indTask3._sliderToggleIcon.icon_name === 'go-next-symbolic', 'Slider toggle icon must be go-next-symbolic when collapsed');
+
+indTask3.toggleSlider();
+assert(indTask3._sliderToggleIcon.icon_name === 'go-previous-symbolic', 'Slider toggle icon must be go-previous-symbolic when expanded');
+
+assert(indTask3._actionIcon !== undefined, '_actionIcon must exist inside action button');
+assert(indTask3._actionIcon.icon_name === 'view-more-symbolic', 'Action icon must be view-more-symbolic');
+
+// Filename telemetry anti-duplication
+indTask3.updateTask({
+    title: 'Files',
+    summary: 'Deleting...',
+    fileName: 'xCodium.json',
+    indeterminate: true,
+}, 'Files');
+assert(indTask3.formatExpandedTelemetry(indTask3.getActiveTask(), 'Files') === 'xCodium.json', `Expected 'xCodium.json', got '${indTask3.formatExpandedTelemetry(indTask3.getActiveTask(), 'Files')}'`);
+
+indTask3.destroy();
+console.log('-> Task 3 specific requirements PASSED.');
+
+console.log('ALL TESTS PASSED SUCCESSFULLY!');

@@ -457,12 +457,15 @@ export const TaskManager = GObject.registerClass(
                 }
             }
 
+            let filename = this.extractFilenameFromText(title) || this.extractFilenameFromText(summary) || this.extractFilenameFromText(notification.body);
+
             if (progress < 1.0) {
                 if (existingTask) {
                     existingTask.progress = progress;
                     existingTask.progressVisible = true;
                     existingTask.title = title;
                     existingTask.summary = summary;
+                    if (filename && !existingTask.fileName) existingTask.fileName = filename;
                     this.emit('task-updated', existingTask);
                 } else {
                     const task = {
@@ -482,6 +485,7 @@ export const TaskManager = GObject.registerClass(
                         completedAt: null,
                         canCancel: typeof notification.close === 'function',
                         uri: null,
+                        fileName: filename || null,
                         etaText: '',
                         speedText: '',
                         bytesText: '',
@@ -532,10 +536,12 @@ export const TaskManager = GObject.registerClass(
                     completedAt: Date.now(),
                     canCancel: false,
                     uri: null,
+                    fileName: filename || null,
                     etaText: '',
                     speedText: '',
                     bytesText: '',
                 };
+                if (filename && !task.fileName) task.fileName = filename;
 
                 task.progress = 1.0;
                 task.progressVisible = false;
@@ -637,6 +643,36 @@ export const TaskManager = GObject.registerClass(
         }
 
         /**
+         * Extracts a filename from text containing quotes or at the beginning.
+         * 
+         * @param {string} text
+         * @returns {string|null}
+         */
+        extractFilenameFromText(text) {
+            if (!text || typeof text !== 'string') return null;
+
+            // 1. Extract from quotes (curly or straight)
+            const quoteMatch = text.match(/["“'‘]([^"”'’]+)["”'’]/);
+            if (quoteMatch) {
+                const quoted = quoteMatch[1].trim();
+                if (quoted) return quoted;
+            }
+
+            // 2. Extract filename with valid alphanumeric extension (2 to 6 chars)
+            // Strip any trailing ellipsis (...) to prevent false matches on verbs like 'Deleting...'
+            const clean = text.replace(/\.{2,}/g, '');
+            const extMatch = clean.match(/\b([a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9]{2,6})\b/);
+            if (extMatch) {
+                const candidate = extMatch[1].trim();
+                if (/\.[a-zA-Z0-9]{2,6}$/.test(candidate)) {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        /**
          * Ingests an inhibitor for long-running desktop operations (e.g. Nautilus file transfers).
          *
          * @param {string} inhibitorPath
@@ -648,6 +684,16 @@ export const TaskManager = GObject.registerClass(
 
             const isNautilus = appId && appId.toLowerCase().includes('nautilus');
             if (!isNautilus) return;
+
+            let filename = this.extractFilenameFromText(reason);
+            if (!filename) {
+                try {
+                    let focusWindow = global.display?.focus_window || (Shell && Shell.WindowTracker && Shell.WindowTracker.get_default()?.focus_app?.get_windows()[0]);
+                    if (focusWindow && typeof focusWindow.get_title === 'function') {
+                        filename = this.extractFilenameFromText(focusWindow.get_title());
+                    }
+                } catch (e) {}
+            }
 
             const taskId = `inhibitor:${inhibitorPath}`;
             const task = {
@@ -668,6 +714,7 @@ export const TaskManager = GObject.registerClass(
                 canCancel: false,
                 inhibitorPath: inhibitorPath,
                 uri: null,
+                fileName: filename || null,
                 etaText: '',
                 speedText: '',
                 bytesText: '',

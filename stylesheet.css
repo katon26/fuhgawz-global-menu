@@ -331,3 +331,23 @@
   color: #2ec27e;
 }
 
+
+/* Icon styles for Task 3 */
+.fuhgawz-task-icon {
+  icon-size: 14px;
+  color: inherit;
+}
+
+.fuhgawz-task-toggle-icon {
+  icon-size: 12px;
+  color: inherit;
+}
+
+.fuhgawz-task-action-icon {
+  icon-size: 14px;
+  color: inherit;
+}
+
+.fuhgawz-pop-btn-icon {
+  icon-size: 14px;
+}
