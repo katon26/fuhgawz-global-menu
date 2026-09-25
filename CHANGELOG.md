@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2026-09-25
+
+### Major Architectural Highlights
+
+* **Dynamic Live Media Ingestion & MPRIS Engine (`src/mediaManager.js`)**:
+  * Headless D-Bus session listener monitoring `org.mpris.MediaPlayer2.*` endpoints.
+  * Multi-player priority arbitration preferring Spotify (`org.mpris.MediaPlayer2.spotify`) when active.
+  * Startup player discovery via `Properties.GetAll` and dynamic `PropertiesChanged` signal subscription for track metadata, position, and playback state.
+  * Persistent FIFO playback history caching the last 10 tracks to `~/.cache/fuhgawz-global-menu/recent-tracks.json`.
+  * Asynchronous remote album artwork downloader caching in `~/.cache/fuhgawz-global-menu/media-art/`.
+
+* **Interactive Libadwaita Floating Media Popover (`src/mediaFloatingCard.js`)**:
+  * Elevated popup card anchored to the top panel indicator on `Main.layoutManager.uiGroup`, clamped within screen bounds with 12px margin.
+  * 80×80px rounded album art container with symbolic fallback (`audio-x-generic-symbolic`).
+  * Real-time Cairo wave equalizer and progress visualizer with interactive seek scrubbing.
+  * Full ATK accessibility integration with `Atk.Role.SLIDER` and dynamic value reporting.
+  * Comprehensive keyboard navigation (Tab focus navigation, Left/Right arrow keys for ±5s seek, Home/End, Enter/Space, and Escape dismissal returning focus to the panel indicator).
+  * Integrated collapsible drawer displaying recently played tracks.
+
+* **Unified Dynamic Task & Media Arbitration (`src/taskIndicatorButton.js`)**:
+  * Real-time panel display arbitration: prioritizes active background operations (such as Nautilus file transfers, downloads, and package installs) and transitions to live media playback (`[ 🎵 Spotify • ▶ Song - Artist ]`) when tasks are idle.
+  * Configurable persistent idle pill keeping paused media visible with dimmed styling.
+  * Direct panel pill interaction: Left-click raises the active player window; middle-click toggles Play/Pause.
+  * 250ms hover grace period for smooth pointer transition into the popover.
+
+---
+
+### Preferences & GSettings Schema
+
+* **"Media & Dynamic Indicators" Configuration Group (`prefs.js`)**:
+  * Added Libadwaita controls for live indicator toggling, Spotify priority, visualizer style selection (`wave` / `bar`), persistent idle, and hover popover.
+  * Added 5 GSettings schema keys in `schemas/org.gnome.shell.extensions.fuhgawzglbmenu.gschema.xml`.
+
+---
+
+### Packaging, CI & Compatibility
+
+* **GNOME Shell Version Compatibility**:
+  * Expanded official support for **GNOME Shell 45, 46, 47, 48, 49, 50, and 51**.
+
+---
+
 ## [1.0.0] - 2026-09-09
 
 ### Major Architectural Highlights

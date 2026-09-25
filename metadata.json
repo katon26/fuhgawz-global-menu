@@ -1,17 +1,18 @@
 {
   "name": "FUHGAWZ Global Menu",
-  "description": "A sleek, native global application menu for centralized workspace utilization for GNOME Shell. Shows File, Edit, View, etc. in the top bar. Temporarily uses clipboard to navigate browser URLs from declarative profile bookmarks/actions. Supports GNOME 45–50.",
+  "description": "A sleek, native global application menu for centralized workspace utilization for GNOME Shell. Shows File, Edit, View, etc. in the top bar. Temporarily uses clipboard to navigate browser URLs from declarative profile bookmarks/actions. Supports GNOME 45–51.",
   "shell-version": [
     "45",
     "46",
     "47",
     "48",
     "49",
-    "50"
+    "50",
+    "51"
   ],
   "uuid": "fuhgawzglbmenu@katon26.github.io",
   "url": "https://github.com/katon26/fuhgawz-global-menu",
   "settings-schema": "org.gnome.shell.extensions.fuhgawzglbmenu",
-  "version": 1,
-  "version-name": "1.0.0"
+  "version": 2,
+  "version-name": "1.1.0"
 }
