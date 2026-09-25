@@ -145,5 +145,34 @@
       <summary>Sync completed tasks with Recent Items</summary>
       <description>Automatically append completed operations to the Global Menu Recent Items submenu.</description>
     </key>
+    <key name="enable-media-indicator" type="b">
+      <default>true</default>
+      <summary>Enable dynamic live media player indicator</summary>
+      <description>Show active media playback in the top panel when no file task takes priority.</description>
+    </key>
+    <key name="media-spotify-priority" type="b">
+      <default>true</default>
+      <summary>Prioritize Spotify playback</summary>
+      <description>Prefer Spotify over other active MPRIS media players.</description>
+    </key>
+    <key name="media-visualizer-style" type="s">
+      <choices>
+        <choice value="wave"/>
+        <choice value="bar"/>
+      </choices>
+      <default>'wave'</default>
+      <summary>Media progress visualizer style</summary>
+      <description>Choose an animated wave or a simple progress bar for the hover card.</description>
+    </key>
+    <key name="media-persistent-idle" type="b">
+      <default>true</default>
+      <summary>Keep paused media in the panel</summary>
+      <description>Continue showing the current track while its player is paused.</description>
+    </key>
+    <key name="media-hover-popover" type="b">
+      <default>true</default>
+      <summary>Show the interactive media card</summary>
+      <description>Open the media card when hovering over or moving keyboard focus to the panel indicator.</description>
+    </key>
   </schema>
 </schemalist>

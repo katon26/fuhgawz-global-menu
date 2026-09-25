@@ -4,7 +4,9 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
+import Pango from 'gi://Pango';
 import { TaskProgressBar } from './taskProgressBar.js';
+import { MediaFloatingCard } from './mediaFloatingCard.js';
 
 let St = null;
 try {
@@ -163,6 +165,13 @@ class BaseIndicatorLogic {
         this._lastCopiedPath = null;
         this._autoHideTimerId = 0;
         this._destroyed = false;
+        this._mediaManager = options.mediaManager ?? null;
+        this._mediaCard = options.mediaCard ?? null;
+        this._mediaTrack = this._mediaManager?.getActiveTrack?.() ?? null;
+        this._mediaPlaybackStatus = this._mediaManager?.getPlaybackStatus?.() ?? 'Stopped';
+        this._isMediaDisplay = false;
+        this._suppressMediaFocusCard = false;
+        this._mediaSignalIds = [];
 
         this._tmSignalIds = [];
         this._settingsSignalIds = [];
@@ -240,15 +249,27 @@ class BaseIndicatorLogic {
                 const sEnableId = this._settings.connect('changed::enable-task-indicator', () => {
                     if (this._destroyed) return;
                     this._enabled = this._settings.get_boolean('enable-task-indicator');
-                    if (!this._enabled) {
-                        this._hideIndicator();
-                    } else if (this._activeTask || this._isCompleted) {
-                        this._showIndicator();
-                    }
+                    this._refreshMediaIndicator();
                 });
                 this._settingsSignalIds.push(sModeId, sPlacementId, sEnableId);
             } catch (e) {}
+
+            for (const key of ['enable-media-indicator', 'media-persistent-idle', 'media-hover-popover']) {
+                try {
+                    const id = this._settings.connect(`changed::${key}`, () => {
+                        if (this._destroyed)
+                            return;
+                        if (key === 'media-hover-popover' && !this._readMediaSetting(key, true))
+                            this._mediaCard?.hideCard?.();
+                        else
+                            this._refreshMediaIndicator();
+                    });
+                    this._settingsSignalIds.push(id);
+                } catch (e) {}
+            }
         }
+
+        this._initMediaIntegration();
 
         // Connect to TaskManager
         if (this._taskManager) {
@@ -285,6 +306,134 @@ class BaseIndicatorLogic {
         }
 
         this._updateUiComponents();
+        this._syncVisibility();
+    }
+
+    _readMediaSetting(key, fallback = true) {
+        try {
+            return this._settings?.get_boolean(key) ?? fallback;
+        } catch (error) {
+            return fallback;
+        }
+    }
+
+    _initMediaIntegration() {
+        const manager = this._mediaManager;
+        if (!manager)
+            return;
+
+        try {
+            this._mediaSignalIds.push(manager.connect('track-changed', (_manager, track) => {
+                if (this._destroyed) return;
+                this._mediaTrack = track ?? manager.getActiveTrack?.() ?? null;
+                this._mediaPlaybackStatus = manager.getPlaybackStatus?.() ?? this._mediaPlaybackStatus;
+                this._mediaCard?.updateState?.(this._mediaTrack, this._mediaPlaybackStatus);
+                this._refreshMediaIndicator();
+            }));
+            this._mediaSignalIds.push(manager.connect('status-changed', (_manager, status) => {
+                if (this._destroyed) return;
+                this._mediaPlaybackStatus = status || manager.getPlaybackStatus?.() || 'Stopped';
+                this._mediaTrack = manager.getActiveTrack?.() ?? this._mediaTrack;
+                this._mediaCard?.updateState?.(this._mediaTrack, this._mediaPlaybackStatus);
+                this._refreshMediaIndicator();
+            }));
+        } catch (error) {
+            this._mediaSignalIds = [];
+        }
+
+        if (!this._mediaCard) {
+            try {
+                this._mediaCard = new MediaFloatingCard(manager, {
+                    settings: this._settings,
+                    uiGroup: this._options?.mediaUiGroup,
+                    ...(this._options?.mediaCardOptions ?? {}),
+                });
+            } catch (error) {
+                console.error(`FUHGlobe: Failed to create media hover card: ${error} (${error?.message ?? 'no message'})\n${error?.stack ?? ''}`);
+                this._mediaCard = null;
+            }
+        }
+    }
+
+    _hasDisplayableMedia() {
+        if (!this._readMediaSetting('enable-media-indicator', true) || !this._mediaTrack)
+            return false;
+        if (this._mediaPlaybackStatus === 'Playing')
+            return true;
+        return this._mediaPlaybackStatus === 'Paused' && this._readMediaSetting('media-persistent-idle', true);
+    }
+
+    _syncIndicatorDisplay() {
+        const taskHasPriority = this._enabled && Boolean(this._activeTask || this._isCompleted);
+        if (taskHasPriority) {
+            this._isMediaDisplay = false;
+            this._labelText = this.formatCompactLabel(this._activeTask, this.getAppLabel());
+            this._expandedText = this.formatExpandedTelemetry(this._activeTask, this.getAppLabel());
+            this._mediaCard?.hideCard?.();
+            return;
+        }
+
+        const track = this._hasDisplayableMedia() ? this._mediaTrack : null;
+        if (!track) {
+            if (this._isMediaDisplay || this._activeTask || this._isCompleted) {
+                this._labelText = '';
+                this._expandedText = '';
+            }
+            this._isMediaDisplay = false;
+            this._mediaCard?.hideCard?.();
+            return;
+        }
+
+        const player = track.playerTitle || track.playerName || track.player || 'Media Player';
+        const state = this._mediaPlaybackStatus === 'Playing' ? '▶' : '⏸';
+        const title = String(track.title || 'Unknown track');
+        const artist = String(track.artist || '');
+        this._labelText = `${player} • ${state} ${title}${artist ? ` - ${artist}` : ''}`;
+        this._expandedText = '';
+        this._isMediaDisplay = true;
+    }
+
+    _refreshMediaIndicator() {
+        if (this._destroyed)
+            return;
+        this._syncIndicatorDisplay();
+        this._updateUiComponents();
+        this._syncVisibility();
+    }
+
+    _invokeMediaCommand(method) {
+        try {
+            const result = this._mediaManager?.[method]?.();
+            result?.catch?.(() => {});
+        } catch (error) {
+            // The media player can disappear between a panel click and its D-Bus call.
+        }
+    }
+
+    _handleIndicatorButtonPress(event) {
+        const source = event?.get_source ? event.get_source() : (event?.target || null);
+        if (this.isDescendantOf(source, this._sliderToggleWidget) || this.isDescendantOf(source, this._actionButton))
+            return Clutter ? Clutter.EVENT_STOP : true;
+
+        if (this._isMediaDisplay) {
+            let button = 0;
+            try { button = event?.get_button?.() ?? event?.button ?? 0; } catch (error) {}
+            if (button === 1) {
+                this._invokeMediaCommand('raise');
+                return Clutter ? Clutter.EVENT_STOP : true;
+            }
+            if (button === 2) {
+                this._invokeMediaCommand('playPause');
+                return Clutter ? Clutter.EVENT_STOP : true;
+            }
+            return Clutter ? Clutter.EVENT_PROPAGATE : false;
+        }
+
+        if (this._placement === 'standalone') {
+            this.toggleDropdown();
+            return Clutter ? Clutter.EVENT_STOP : true;
+        }
+        return Clutter ? Clutter.EVENT_PROPAGATE : false;
     }
 
     // ---------------------------------------------------------------------
@@ -330,13 +479,7 @@ class BaseIndicatorLogic {
                     }
                 }
                 this._updateUiComponents();
-                if (typeof this.hide === 'function') {
-                    this.hide();
-                }
-                this.visible = false;
-                if (this._placement === 'unified' && this._appMenuButton && !this._appMenuButton._window && typeof this._appMenuButton.hide === 'function') {
-                    this._appMenuButton.hide();
-                }
+                this._syncVisibility();
             }
         }
     }
@@ -364,8 +507,9 @@ class BaseIndicatorLogic {
     }
 
     _syncVisibility() {
-        const hasContent = Boolean(this._activeTask || this._isCompleted);
-        const shouldShow = Boolean(this._enabled && hasContent);
+        this._syncIndicatorDisplay();
+        const hasTaskContent = Boolean(this._activeTask || this._isCompleted);
+        const shouldShow = Boolean((this._enabled && hasTaskContent) || this._isMediaDisplay);
 
         if (this._placement === 'standalone') {
             if (shouldShow) {
@@ -427,7 +571,7 @@ class BaseIndicatorLogic {
             if (this._appMenuButton) {
                 const targetBox = this._appMenuButton._box || this._appMenuButton;
                 const curParent = (typeof this.get_parent === 'function') ? this.get_parent() : this._parent;
-                if (curParent === targetBox || (targetBox && typeof targetBox.remove_child === 'function')) {
+                if (curParent === targetBox) {
                     try { targetBox.remove_child(this); } catch (e) {}
                 }
                 if (this._parent === targetBox) {
@@ -440,7 +584,7 @@ class BaseIndicatorLogic {
                 const curPbParent = (typeof this._progressBar.get_parent === 'function')
                     ? this._progressBar.get_parent()
                     : this._progressBar._parent;
-                if (curPbParent === this._appMenuButton || typeof this._appMenuButton.remove_child === 'function') {
+                if (curPbParent === this._appMenuButton) {
                     try { this._appMenuButton.remove_child(this._progressBar); } catch (e) {}
                 }
                 if (this._progressBar._parent === this._appMenuButton) {
@@ -573,7 +717,10 @@ class BaseIndicatorLogic {
                     delete main.panel.statusArea['fuhgawz-task-indicator'];
                 }
                 const targetChild = this.container || this;
-                if (main.panel._leftBox && typeof main.panel._leftBox.remove_child === 'function') {
+                const targetChildParent = typeof targetChild.get_parent === 'function'
+                    ? targetChild.get_parent()
+                    : targetChild._parent;
+                if (targetChildParent === main.panel._leftBox) {
                     try { main.panel._leftBox.remove_child(targetChild); } catch (e) {}
                 }
                 if (this.container && typeof this.container.get_parent === 'function' && this.container.get_parent()) {
@@ -1064,6 +1211,10 @@ class BaseIndicatorLogic {
 
     onPointerEnter() {
         if (this._destroyed) return;
+        this._syncIndicatorDisplay();
+        if (this._isMediaDisplay && this._readMediaSetting('media-hover-popover', true)) {
+            this._mediaCard?.showForActor?.(this, this._mediaTrack, this._mediaPlaybackStatus);
+        }
         if (this._mode === 'hover') {
             this.setExpanded(true);
         }
@@ -1074,6 +1225,27 @@ class BaseIndicatorLogic {
         if (this._mode === 'hover') {
             this.setExpanded(false);
         }
+    }
+
+    onFocusEnter() {
+        if (this._destroyed)
+            return;
+        if (this._suppressMediaFocusCard) {
+            this._suppressMediaFocusCard = false;
+            return;
+        }
+        this._syncIndicatorDisplay();
+        if (this._isMediaDisplay && this._readMediaSetting('media-hover-popover', true))
+            this._mediaCard?.showForKeyboardActor?.(this, this._mediaTrack, this._mediaPlaybackStatus);
+    }
+
+    onFocusLeave() {
+        if (!this._destroyed)
+            this._mediaCard?.scheduleKeyboardFocusClose?.();
+    }
+
+    suppressNextKeyboardCardOpen() {
+        this._suppressMediaFocusCard = true;
     }
 
     isDescendantOf(child, parent) {
@@ -1749,6 +1921,7 @@ class BaseIndicatorLogic {
     // ---------------------------------------------------------------------
 
     _updateUiComponents() {
+        this._syncIndicatorDisplay();
         if (this._separatorWidget) {
             if (this._placement === 'standalone') {
                 if (typeof this._separatorWidget.hide === 'function') this._separatorWidget.hide();
@@ -1767,6 +1940,23 @@ class BaseIndicatorLogic {
 
         if (this._compactLabelWidget) {
             this._compactLabelWidget.text = this._labelText;
+            if (this._isMediaDisplay) {
+                this._compactLabelWidget.tooltip_text = this._labelText;
+                if (this._compactLabelWidget.clutter_text)
+                    this._compactLabelWidget.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+            } else {
+                this._compactLabelWidget.tooltip_text = '';
+            }
+            if (this._isMediaDisplay) {
+                this._compactLabelWidget.add_style_class_name?.('fuhgawz-media-indicator-label');
+                if (this._mediaPlaybackStatus === 'Paused')
+                    this._compactLabelWidget.add_style_class_name?.('media-paused');
+                else
+                    this._compactLabelWidget.remove_style_class_name?.('media-paused');
+            } else {
+                this._compactLabelWidget.remove_style_class_name?.('fuhgawz-media-indicator-label');
+                this._compactLabelWidget.remove_style_class_name?.('media-paused');
+            }
             if (this._isCompleted) {
                 if (typeof this._compactLabelWidget.add_style_class_name === 'function') {
                     this._compactLabelWidget.add_style_class_name('completed');
@@ -1791,6 +1981,17 @@ class BaseIndicatorLogic {
                     this._progressBar.remove_style_class_name('completed');
                 }
             }
+        }
+
+        if (this._isMediaDisplay) {
+            this.add_style_class_name?.('fuhgawz-media-active');
+            if (this._mediaPlaybackStatus === 'Paused')
+                this.add_style_class_name?.('media-paused');
+            else
+                this.remove_style_class_name?.('media-paused');
+        } else {
+            this.remove_style_class_name?.('fuhgawz-media-active');
+            this.remove_style_class_name?.('media-paused');
         }
 
         if (this._isCompleted) {
@@ -1881,7 +2082,9 @@ class BaseIndicatorLogic {
         }
 
         if (this._statusIconWidget) {
-            const iconName = this._isCompleted ? 'object-select-symbolic' : 'content-loading-symbolic';
+            const iconName = this._isMediaDisplay
+                ? 'audio-x-generic-symbolic'
+                : (this._isCompleted ? 'object-select-symbolic' : 'content-loading-symbolic');
             if (typeof this._statusIconWidget.set_icon_name === 'function') {
                 this._statusIconWidget.set_icon_name(iconName);
             } else {
@@ -1950,6 +2153,20 @@ class BaseIndicatorLogic {
             this._settingsSignalIds = [];
         }
 
+        if (this._mediaManager && this._mediaSignalIds.length > 0) {
+            for (const sId of this._mediaSignalIds) {
+                try { this._mediaManager.disconnect(sId); } catch (e) {}
+            }
+            this._mediaSignalIds = [];
+        }
+        if (this._mediaCard) {
+            try { this._mediaCard.destroy?.(); } catch (e) {}
+            this._mediaCard = null;
+        }
+        this._mediaManager = null;
+        this._mediaTrack = null;
+        this._isMediaDisplay = false;
+
         if (this.menu) {
             if (this._menuOpenStateId && typeof this.menu.disconnect === 'function') {
                 try {
@@ -1987,7 +2204,8 @@ class BaseIndicatorLogic {
             if (main.panel.statusArea && main.panel.statusArea['fuhgawz-task-indicator']) {
                 delete main.panel.statusArea['fuhgawz-task-indicator'];
             }
-            if (main.panel._leftBox && typeof main.panel._leftBox.remove_child === 'function') {
+            const indicatorParent = typeof this.get_parent === 'function' ? this.get_parent() : this._parent;
+            if (indicatorParent === main.panel._leftBox) {
                 try { main.panel._leftBox.remove_child(this); } catch (e) {}
             }
         }
@@ -2080,7 +2298,13 @@ if (hasStWidget) {
                     reactive: true,
                     track_hover: true,
                 });
-                this._compactLabelWidget.connect('button-release-event', () => {
+                this._compactLabelWidget.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+                this._compactLabelWidget.connect('button-release-event', (_actor, event) => {
+                    if (this._isMediaDisplay) {
+                        let button = 0;
+                        try { button = event?.get_button?.() ?? 0; } catch (e) {}
+                        return button === 3 ? Clutter.EVENT_PROPAGATE : Clutter.EVENT_STOP;
+                    }
                     this.toggleDropdown();
                     return Clutter ? Clutter.EVENT_STOP : true;
                 });
@@ -2153,19 +2377,14 @@ if (hasStWidget) {
                 this.add_child(this._box);
 
                 this.connect('button-press-event', (actor, event) => {
-                    const source = event?.get_source ? event.get_source() : (event?.target || null);
-                    if (this.isDescendantOf(source, this._sliderToggleWidget) || this.isDescendantOf(source, this._actionButton)) {
-                        return Clutter ? Clutter.EVENT_STOP : true;
-                    }
-                    if (this._placement === 'standalone') {
-                        this.toggleDropdown();
-                        return Clutter ? Clutter.EVENT_STOP : true;
-                    }
-                    return Clutter ? Clutter.EVENT_PROPAGATE : false;
+                    return this._handleIndicatorButtonPress(event);
                 });
 
                 this.connect('enter-event', () => this.onPointerEnter());
                 this.connect('leave-event', () => this.onPointerLeave());
+                this.connect('key-focus-in', () => this.onFocusEnter());
+                this.connect('key-focus-out', () => this.onFocusLeave());
+                this.can_focus = true;
 
                 this._initIndicator(settings, taskManager, options);
             }
@@ -2312,10 +2531,20 @@ if (hasStWidget) {
                 'dropdown-toggled': {
                     param_types: [GObject.TYPE_BOOLEAN],
                 },
+                'enter-event': {
+                    param_types: [GObject.TYPE_JSOBJECT],
+                    return_type: GObject.TYPE_BOOLEAN,
+                },
+                'leave-event': {
+                    param_types: [GObject.TYPE_JSOBJECT],
+                    return_type: GObject.TYPE_BOOLEAN,
+                },
                 'button-press-event': {
                     param_types: [GObject.TYPE_JSOBJECT],
                     return_type: GObject.TYPE_BOOLEAN,
                 },
+                'key-focus-in': {},
+                'key-focus-out': {},
                 'destroy': {},
             },
         },
@@ -2423,16 +2652,14 @@ if (hasStWidget) {
                 };
 
                 this.connect('button-press-event', (actor, event) => {
-                    const source = event?.get_source ? event.get_source() : (event?.target || null);
-                    if (this.isDescendantOf(source, this._sliderToggleWidget) || this.isDescendantOf(source, this._actionButton)) {
-                        return Clutter ? Clutter.EVENT_STOP : true;
-                    }
-                    if (this._placement === 'standalone') {
-                        this.toggleDropdown();
-                        return Clutter ? Clutter.EVENT_STOP : true;
-                    }
-                    return Clutter ? Clutter.EVENT_PROPAGATE : false;
+                    return this._handleIndicatorButtonPress(event);
                 });
+
+                this.connect('enter-event', () => this.onPointerEnter());
+                this.connect('leave-event', () => this.onPointerLeave());
+                this.connect('key-focus-in', () => this.onFocusEnter());
+                this.connect('key-focus-out', () => this.onFocusLeave());
+                this.can_focus = true;
 
                 this.click = (event = null) => {
                     if (this._placement === 'standalone') {

@@ -1082,3 +1082,174 @@ indMockup.destroy();
 console.log('-> Mockup Design Compliance & Live Telemetry PASSED.');
 
 console.log('ALL TESTS PASSED SUCCESSFULLY!');
+
+// ---------------------------------------------------------------------
+// 11. Dynamic media/task arbitration and panel interaction
+// ---------------------------------------------------------------------
+console.log('11. Verifying dynamic media indicator arbitration, settings, pointer routing and teardown...');
+
+class MockMediaManager extends GObject.Object {
+    _init() {
+        super._init();
+        this.track = null;
+        this.status = 'Stopped';
+        this.calls = { playPause: 0, raise: 0 };
+    }
+    getActiveTrack() { return this.track; }
+    getPlaybackStatus() { return this.status; }
+    getRecentTracks() { return []; }
+    playPause() { this.calls.playPause++; }
+    raise() { this.calls.raise++; }
+    previous() {}
+    next() {}
+    seek() {}
+    publishTrack(track) {
+        this.track = track;
+        this.emit('track-changed', track);
+    }
+    publishStatus(status) {
+        this.status = status;
+        this.emit('status-changed', status);
+    }
+}
+const MockMediaManagerClass = GObject.registerClass({
+    GTypeName: 'MockMediaManagerIndicatorIntegrationTest',
+    Signals: {
+        'track-changed': { param_types: [GObject.TYPE_JSOBJECT] },
+        'status-changed': { param_types: [GObject.TYPE_STRING] },
+        'player-changed': {},
+        'recent-updated': { param_types: [GObject.TYPE_JSOBJECT] },
+    },
+}, MockMediaManager);
+
+class MockTaskManagerForMedia extends GObject.Object {
+    _init() {
+        super._init();
+        this.tasks = [];
+    }
+    getAllActiveTasks() { return this.tasks.slice(); }
+    getActiveTask(id) { return this.tasks.find(task => task.id === id) ?? null; }
+    add(task) {
+        this.tasks.push(task);
+        this.emit('task-added', task);
+    }
+    remove(id) {
+        this.tasks = this.tasks.filter(task => task.id !== id);
+        this.emit('task-removed', id);
+    }
+}
+const MockTaskManagerForMediaClass = GObject.registerClass({
+    GTypeName: 'MockTaskManagerMediaIntegrationTest',
+    Signals: {
+        'task-added': { param_types: [GObject.TYPE_JSOBJECT] },
+        'task-updated': { param_types: [GObject.TYPE_JSOBJECT] },
+        'task-completed': { param_types: [GObject.TYPE_JSOBJECT] },
+        'task-removed': { param_types: [GObject.TYPE_STRING] },
+    },
+}, MockTaskManagerForMedia);
+
+class MockMediaCard {
+    constructor() {
+        this.shownFor = [];
+        this.states = [];
+        this.destroyed = false;
+    }
+    showForActor(actor, track, status) { this.shownFor.push({ actor, track, status }); }
+    showForKeyboardActor(actor, track, status) { this.shownFor.push({ actor, track, status, keyboard: true }); }
+    scheduleKeyboardFocusClose() { this.keyboardCloseScheduled = true; }
+    updateState(track, status) { this.states.push({ track, status }); }
+    hideCard() { this.hidden = true; }
+    destroy() { this.destroyed = true; }
+}
+
+class MockPointerEvent {
+    constructor(source, button) { this._source = source; this._button = button; }
+    get_source() { return this._source; }
+    get_button() { return this._button; }
+}
+
+const mediaSettings = new MockSettingsClass();
+mediaSettings._values.set('enable-media-indicator', true);
+mediaSettings._values.set('media-persistent-idle', true);
+mediaSettings._values.set('media-hover-popover', true);
+mediaSettings._values.set('media-visualizer-style', 'wave');
+mediaSettings._values.set('media-spotify-priority', true);
+const fakeMedia = new MockMediaManagerClass();
+const fakeTasks = new MockTaskManagerForMediaClass();
+const fakeCard = new MockMediaCard();
+const mediaIndicator = new TaskIndicatorButton(mediaSettings, fakeTasks, {
+    mediaManager: fakeMedia,
+    mediaCard: fakeCard,
+    autoHideSeconds: 0.05,
+});
+const flowerTrack = {
+    player: 'org.mpris.MediaPlayer2.spotify',
+    playerTitle: 'Spotify',
+    title: 'Flower',
+    artist: 'Soundgarden',
+    album: 'Superunknown',
+};
+
+fakeMedia.publishTrack(flowerTrack);
+fakeMedia.publishStatus('Playing');
+assert(mediaIndicator.visible === true, 'playing media should show the indicator with no file task');
+assert(mediaIndicator._labelText === 'Spotify • ▶ Flower - Soundgarden', `unexpected media label: ${mediaIndicator._labelText}`);
+assert(mediaIndicator._compactLabelWidget.text === mediaIndicator._labelText, 'compact panel label must show the media text');
+assert(mediaIndicator._statusIconWidget.icon_name === 'audio-x-generic-symbolic', 'media state should use the symbolic media icon');
+
+fakeTasks.add({ id: 'download:1', title: 'Download.iso', progress: 0.5, state: 'running' });
+assert(mediaIndicator._labelText === '50%', 'active file transfer should take priority over the media label');
+assert(mediaIndicator._statusIconWidget.icon_name === 'content-loading-symbolic', 'file task should restore its task icon');
+fakeTasks.remove('download:1');
+assert(mediaIndicator.visible === true, 'media should return after the last file task is removed');
+assert(mediaIndicator._labelText === 'Spotify • ▶ Flower - Soundgarden', 'media label should be restored after task removal');
+
+fakeMedia.publishStatus('Paused');
+assert(mediaIndicator.visible === true, 'paused media should persist when the preference is enabled');
+assert(mediaIndicator._labelText === 'Spotify • ⏸ Flower - Soundgarden', 'paused indicator should communicate playback state');
+mediaSettings.set_boolean('media-persistent-idle', false);
+assert(mediaIndicator.visible === false, 'paused media should hide when idle persistence is disabled');
+mediaSettings.set_boolean('media-persistent-idle', true);
+assert(mediaIndicator.visible === true, 're-enabling idle persistence should restore paused media');
+fakeMedia.publishStatus('Stopped');
+assert(mediaIndicator.visible === false, 'stopped media must not persist as an idle track');
+fakeMedia.publishStatus('Playing');
+mediaSettings.set_boolean('enable-media-indicator', false);
+assert(mediaIndicator.visible === false, 'disabling the media indicator should hide media');
+mediaSettings.set_boolean('enable-media-indicator', true);
+assert(mediaIndicator.visible === true, 're-enabling the media indicator should restore active media');
+
+mediaSettings.set_boolean('media-hover-popover', false);
+mediaIndicator.emit('enter-event', {});
+mediaIndicator.emit('key-focus-in');
+assert(fakeCard.shownFor.length === 0, 'media card should stay closed when its preference is disabled');
+mediaSettings.set_boolean('media-hover-popover', true);
+assert(mediaIndicator.can_focus === true,
+    'media indicator must participate in keyboard focus navigation');
+mediaIndicator.emit('key-focus-in');
+assert(fakeCard.shownFor.length === 1,
+    'keyboard focus must reveal the media card without requiring pointer hover');
+mediaIndicator.emit('enter-event', {});
+assert(fakeCard.shownFor.length === 2, 'hover should send the active track to the media card');
+assert(fakeCard.shownFor[0].actor === mediaIndicator && fakeCard.shownFor[0].status === 'Playing', 'focus card should anchor to the indicator and receive current playback state');
+assert(fakeCard.shownFor[0].keyboard === true,
+    'keyboard entry should use the card focus handoff path');
+const primaryResult = mediaIndicator.emit('button-press-event', new MockPointerEvent(mediaIndicator._compactLabelWidget, 1));
+assert(fakeMedia.calls.raise === 1, 'primary click on a media pill should raise the player');
+assert(primaryResult === true, 'media primary click should stop panel click propagation');
+mediaIndicator.emit('button-press-event', new MockPointerEvent(mediaIndicator, 2));
+assert(fakeMedia.calls.playPause === 1, 'middle click on a media pill should toggle playback');
+mediaIndicator.emit('button-press-event', new MockPointerEvent(mediaIndicator, 3));
+assert(fakeMedia.calls.raise === 1 && fakeMedia.calls.playPause === 1, 'right click should not invoke media transport');
+mediaIndicator.emit('key-focus-out');
+assert(fakeCard.keyboardCloseScheduled === true,
+    'leaving keyboard focus should schedule closing the floating card');
+
+const mediaConnectionIds = mediaIndicator._mediaSignalIds.slice();
+mediaIndicator.destroy();
+assert(fakeCard.destroyed === true, 'indicator teardown should destroy its floating card');
+const shownCountAfterDestroy = fakeCard.shownFor.length;
+fakeMedia.publishStatus('Paused');
+assert(fakeCard.shownFor.length === shownCountAfterDestroy, 'destroyed indicator must not react to later manager signals');
+assert(mediaConnectionIds.length === 2 && mediaIndicator._mediaSignalIds.length === 0, 'indicator teardown should disconnect media manager handlers');
+console.log('-> Dynamic media/task integration requirements PASSED.');

@@ -538,6 +538,66 @@ function createGlobalMenuPage(settings, gettextFunc) {
     );
     taskIndicatorGroup.add(syncRecentRow);
 
+    // Group 5: Media & Dynamic Indicators
+    const mediaGroup = new Adw.PreferencesGroup({
+        title: gettextFunc('Media & Dynamic Indicators'),
+        description: gettextFunc('Show MPRIS playback in the top panel and configure its hover card.'),
+    });
+    page.add(mediaGroup);
+
+    const mediaEnabledRow = new Adw.SwitchRow({
+        title: gettextFunc('Enable Live Media Indicator'),
+        subtitle: gettextFunc('Show the active player and track when no file task is running.'),
+    });
+    settings.bind('enable-media-indicator', mediaEnabledRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+    mediaGroup.add(mediaEnabledRow);
+
+    const spotifyPriorityRow = new Adw.SwitchRow({
+        title: gettextFunc('Prefer Spotify'),
+        subtitle: gettextFunc('Choose Spotify when it is playing alongside another media player.'),
+    });
+    settings.bind('media-spotify-priority', spotifyPriorityRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+    mediaGroup.add(spotifyPriorityRow);
+
+    const visualizerList = new Gtk.StringList();
+    visualizerList.append(gettextFunc('Dynamic Wave Equalizer'));
+    visualizerList.append(gettextFunc('Simple Progress Bar'));
+    const visualizerStyles = ['wave', 'bar'];
+    const visualizerRow = new Adw.ComboRow({
+        title: gettextFunc('Progress Visualizer'),
+        subtitle: gettextFunc('Choose how playback progress appears in the media card.'),
+        model: visualizerList,
+        selected: Math.max(0, visualizerStyles.indexOf(settings.get_string('media-visualizer-style'))),
+    });
+    visualizerRow.connect('notify::selected', widget => {
+        const style = visualizerStyles[widget.selected];
+        if (style && settings.get_string('media-visualizer-style') !== style)
+            settings.set_string('media-visualizer-style', style);
+    });
+    const visualizerSettingsSignalId = settings.connect('changed::media-visualizer-style', () => {
+        const index = visualizerStyles.indexOf(settings.get_string('media-visualizer-style'));
+        if (index >= 0 && visualizerRow.selected !== index)
+            visualizerRow.selected = index;
+    });
+    visualizerRow.connect('unrealize', () => {
+        try { settings.disconnect(visualizerSettingsSignalId); } catch (error) {}
+    });
+    mediaGroup.add(visualizerRow);
+
+    const persistentIdleRow = new Adw.SwitchRow({
+        title: gettextFunc('Keep Paused Track Visible'),
+        subtitle: gettextFunc('Keep showing the last track while its player is paused.'),
+    });
+    settings.bind('media-persistent-idle', persistentIdleRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+    mediaGroup.add(persistentIdleRow);
+
+    const hoverPopoverRow = new Adw.SwitchRow({
+        title: gettextFunc('Interactive Hover Card'),
+        subtitle: gettextFunc('Show album art, playback controls, progress, and recent tracks on hover or keyboard focus.'),
+    });
+    settings.bind('media-hover-popover', hoverPopoverRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+    mediaGroup.add(hoverPopoverRow);
+
     return page;
 }
 

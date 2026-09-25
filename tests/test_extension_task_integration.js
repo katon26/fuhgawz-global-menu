@@ -94,16 +94,21 @@ const stylesheetCode = readTextFile('./stylesheet.css');
 // Verify extension.js imports
 assert(extensionCode.includes("import { TaskManager } from './src/taskManager.js'"),
     'extension.js must import TaskManager');
+assert(extensionCode.includes("import { MediaManager } from './src/mediaManager.js'"),
+    'extension.js must import MediaManager');
 assert(extensionCode.includes("import { TaskIndicatorButton } from './src/taskIndicatorButton.js'"),
     'extension.js must import TaskIndicatorButton');
 
 // Verify extension.js constructor initializes TaskManager
 assert(extensionCode.includes('this._taskManager = new TaskManager(this._settings)'),
     'FUHGlobeGlobalMenu constructor must initialize this._taskManager');
+assert(extensionCode.includes('this._mediaManager = new MediaManager(this._settings)'),
+    'FUHGlobeGlobalMenu constructor must initialize this._mediaManager');
 
 // Verify extension.js _initButtonPool registers TaskIndicatorButton and binds to AppMenuButton
-assert(extensionCode.includes('this._taskIndicator = new TaskIndicatorButton(this._settings, this._taskManager)'),
-    '_initButtonPool must instantiate TaskIndicatorButton with settings and taskManager');
+assert(extensionCode.includes('this._taskIndicator = new TaskIndicatorButton(this._settings, this._taskManager, {') &&
+    extensionCode.includes('mediaManager: this._mediaManager'),
+    '_initButtonPool must pass settings, taskManager and mediaManager to TaskIndicatorButton');
 assert(extensionCode.includes('this._taskIndicator.bindToAppMenu(this._appMenuButton)'),
     '_initButtonPool must bind TaskIndicatorButton permanently to this._appMenuButton');
 
@@ -116,6 +121,15 @@ assert(extensionCode.includes('this._taskIndicator.destroy()'),
     'extension.js destroy must call this._taskIndicator.destroy()');
 assert(extensionCode.includes('this._taskManager.destroy()'),
     'extension.js destroy must call this._taskManager.destroy()');
+assert(extensionCode.includes('this._mediaManager.destroy()'),
+    'extension.js destroy must call this._mediaManager.destroy()');
+assert(stylesheetCode.includes('.fuhgawz-media-popover-card') &&
+    stylesheetCode.includes('.fuhgawz-media-wave-area'),
+    'stylesheet.css must style the floating media card and seek area');
+const mediaCardCode = readTextFile('./src/mediaFloatingCard.js');
+assert(stylesheetCode.includes('max-height: 80px') &&
+    mediaCardCode.includes('y_align: Clutter.ActorAlign.CENTER'),
+    'album artwork must remain a centered square when its metadata column is taller');
 
 // Verify src/systemMenu.js accepts taskManager and passes to RecentItemsSubmenu
 assert(systemMenuCode.includes('_init(settings, extensionPath, extension, taskManager = null)'),

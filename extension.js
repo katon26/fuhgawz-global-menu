@@ -20,6 +20,7 @@ import { ProfileManager, expandDynamicProfileItems, getBookmarksCacheMtime, load
 import { AtspiScanner } from './src/atspiScanner.js';
 import { HoverSubMenuMenuItem } from './src/hoverSubMenu.js';
 import { TaskManager } from './src/taskManager.js';
+import { MediaManager } from './src/mediaManager.js';
 import { TaskIndicatorButton } from './src/taskIndicatorButton.js';
 
 // ── D-Bus Interface XML ──────────────────────────────────────────────────────
@@ -2141,6 +2142,7 @@ class FUHGlobeGlobalMenu {
 
         // Headless desktop task ingestion engine
         this._taskManager = new TaskManager(this._settings);
+        this._mediaManager = new MediaManager(this._settings);
 
         // Initialize persistent zero-churn button pool
         this._initButtonPool();
@@ -2198,7 +2200,9 @@ class FUHGlobeGlobalMenu {
 
         // Live task indicator initialized according to configured placement (after button pool)
         const placement = this._settings?.get_string('task-indicator-placement') || 'unified';
-        this._taskIndicator = new TaskIndicatorButton(this._settings, this._taskManager);
+        this._taskIndicator = new TaskIndicatorButton(this._settings, this._taskManager, {
+            mediaManager: this._mediaManager,
+        });
         if (this._appMenuButton) {
             this._appMenuButton._taskIndicator = this._taskIndicator;
         }
@@ -3196,6 +3200,10 @@ class FUHGlobeGlobalMenu {
         if (this._taskIndicator) {
             try { this._taskIndicator.destroy(); } catch (e) {}
             this._taskIndicator = null;
+        }
+        if (this._mediaManager) {
+            try { this._mediaManager.destroy(); } catch (e) {}
+            this._mediaManager = null;
         }
         if (Main?.panel?.statusArea?.['fuhgawz-task-indicator']) {
             try { delete Main.panel.statusArea['fuhgawz-task-indicator']; } catch (e) {}

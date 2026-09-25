@@ -24,6 +24,11 @@ const requiredKeys = {
     'task-auto-hide-seconds': { type: 'i', defaultVal: 4 },
     'task-sync-recent-items': { type: 'b', defaultVal: true },
     'task-indicator-placement': { type: 's', defaultVal: 'unified', choices: ['unified', 'standalone'] },
+    'enable-media-indicator': { type: 'b', defaultVal: true },
+    'media-spotify-priority': { type: 'b', defaultVal: true },
+    'media-visualizer-style': { type: 's', defaultVal: 'wave', choices: ['wave', 'bar'] },
+    'media-persistent-idle': { type: 'b', defaultVal: true },
+    'media-hover-popover': { type: 'b', defaultVal: true },
 };
 
 // 1. Validate schema keys, types, defaults, and choices
@@ -111,6 +116,18 @@ settings.set_boolean('task-sync-recent-items', false);
 if (settings.get_boolean('task-sync-recent-items') !== false) {
     throw new Error('Failed to update task-sync-recent-items to false');
 }
+settings.set_boolean('enable-media-indicator', false);
+settings.set_boolean('media-spotify-priority', false);
+settings.set_string('media-visualizer-style', 'bar');
+settings.set_boolean('media-persistent-idle', false);
+settings.set_boolean('media-hover-popover', false);
+if (settings.get_boolean('enable-media-indicator') !== false ||
+    settings.get_boolean('media-spotify-priority') !== false ||
+    settings.get_string('media-visualizer-style') !== 'bar' ||
+    settings.get_boolean('media-persistent-idle') !== false ||
+    settings.get_boolean('media-hover-popover') !== false) {
+    throw new Error('Media preference write/read mismatch');
+}
 
 // Test settings reset
 for (const key of Object.keys(requiredKeys)) {
@@ -140,11 +157,22 @@ const prefsSource = decoder.decode(prefsContents);
 
 const expectedPrefsTokens = [
     'Live Task Indicator',
+    'Media & Dynamic Indicators',
+    'enable-media-indicator',
+    'media-spotify-priority',
+    'media-visualizer-style',
+    'media-persistent-idle',
+    'media-hover-popover',
     'enable-task-indicator',
     'task-indicator-mode',
     'task-auto-hide-seconds',
     'task-sync-recent-items',
     'task-indicator-placement',
+    'enable-media-indicator',
+    'media-spotify-priority',
+    'media-visualizer-style',
+    'media-persistent-idle',
+    'media-hover-popover',
     'Indicator Placement',
     'Unified Capsule (Inside AppMenu)',
     'Dedicated Slot (Beside AppMenu)',
