@@ -219,7 +219,7 @@ const anchor = new MockActor(1240, 10, 30, 24);
 anchor.hover = true;
 card.showForActor(anchor, {
     title: 'Flower', artist: 'Soundgarden', album: 'Superunknown',
-    playerTitle: 'Spotify', lengthMs: 240_000, positionMs: 30_000,
+    playerTitle: 'Music', lengthMs: 240_000, positionMs: 30_000,
 }, 'Playing');
 assert(card._playPauseBtn.tooltip_text === 'Pause playback',
     'playback-state changes must update the play button description');

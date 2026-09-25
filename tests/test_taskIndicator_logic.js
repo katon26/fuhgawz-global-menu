@@ -705,6 +705,22 @@ const indAppMenu = new TaskIndicatorButton(null, null);
 class MockActor {
     constructor() {
         this.children = [];
+        this._signals = new Map();
+        this._nextSignalId = 1;
+    }
+    connect(signal, callback) {
+        const id = this._nextSignalId++;
+        this._signals.set(id, { signal, callback });
+        return id;
+    }
+    disconnect(id) {
+        this._signals.delete(id);
+    }
+    emit(signal, ...args) {
+        for (const { signal: registered, callback } of [...this._signals.values()]) {
+            if (registered === signal)
+                callback(this, ...args);
+        }
     }
     add_child(child) {
         this.children.push(child);
@@ -1184,7 +1200,7 @@ const mediaIndicator = new TaskIndicatorButton(mediaSettings, fakeTasks, {
 });
 const flowerTrack = {
     player: 'org.mpris.MediaPlayer2.spotify',
-    playerTitle: 'Spotify',
+    playerTitle: 'Music',
     title: 'Flower',
     artist: 'Soundgarden',
     album: 'Superunknown',
@@ -1193,8 +1209,8 @@ const flowerTrack = {
 fakeMedia.publishTrack(flowerTrack);
 fakeMedia.publishStatus('Playing');
 assert(mediaIndicator.visible === true, 'playing media should show the indicator with no file task');
-assert(mediaIndicator._labelText === 'Spotify • ▶ Flower - Soundgarden', `unexpected media label: ${mediaIndicator._labelText}`);
-assert(mediaIndicator._compactLabelWidget.text === mediaIndicator._labelText, 'compact panel label must show the media text');
+assert(mediaIndicator._labelText === 'Music • ▶ Flower - Soundgarden', `unexpected media label: ${mediaIndicator._labelText}`);
+assert(mediaIndicator._compactLabelWidget.text === mediaIndicator.getMarqueeText(), 'compact panel label must show the active marquee text');
 assert(mediaIndicator._statusIconWidget.icon_name === 'audio-x-generic-symbolic', 'media state should use the symbolic media icon');
 
 fakeTasks.add({ id: 'download:1', title: 'Download.iso', progress: 0.5, state: 'running' });
@@ -1202,11 +1218,11 @@ assert(mediaIndicator._labelText === '50%', 'active file transfer should take pr
 assert(mediaIndicator._statusIconWidget.icon_name === 'content-loading-symbolic', 'file task should restore its task icon');
 fakeTasks.remove('download:1');
 assert(mediaIndicator.visible === true, 'media should return after the last file task is removed');
-assert(mediaIndicator._labelText === 'Spotify • ▶ Flower - Soundgarden', 'media label should be restored after task removal');
+assert(mediaIndicator._labelText === 'Music • ▶ Flower - Soundgarden', 'media label should be restored after task removal');
 
 fakeMedia.publishStatus('Paused');
 assert(mediaIndicator.visible === true, 'paused media should persist when the preference is enabled');
-assert(mediaIndicator._labelText === 'Spotify • ⏸ Flower - Soundgarden', 'paused indicator should communicate playback state');
+assert(mediaIndicator._labelText === 'Music • ⏸ Flower - Soundgarden', 'paused indicator should communicate playback state');
 mediaSettings.set_boolean('media-persistent-idle', false);
 assert(mediaIndicator.visible === false, 'paused media should hide when idle persistence is disabled');
 mediaSettings.set_boolean('media-persistent-idle', true);
@@ -1245,8 +1261,45 @@ mediaIndicator.emit('key-focus-out');
 assert(fakeCard.keyboardCloseScheduled === true,
     'leaving keyboard focus should schedule closing the floating card');
 
+// Test running text marquee for long song/artist with Unicode emojis
+const longTrack = {
+    player: 'org.mpris.MediaPlayer2.spotify',
+    title: '🎵 Gravity Chasm In The Void Of Heavens 🌌',
+    artist: 'Conan Blood Eagle Ensemble',
+};
+fakeMedia.publishTrack(longTrack);
+fakeMedia.publishStatus('Playing');
+assert(mediaIndicator.isMarqueeRunning() === true, 'long media song/artist title must start running text marquee');
+assert(mediaIndicator._labelText.startsWith('Music • ▶ 🎵'), 'player brand must be sanitized to Music even with raw dbus name');
+const initialMarqueeText = mediaIndicator.getMarqueeText();
+assert(Array.from(initialMarqueeText).length === 28, 'initial marquee text must be clamped to 28 Unicode code points');
+mediaIndicator._stepMarquee();
+const steppedMarqueeText = mediaIndicator.getMarqueeText();
+assert(initialMarqueeText !== steppedMarqueeText, 'stepping marquee must shift running text characters');
+assert(Array.from(steppedMarqueeText).length === 28, 'stepped marquee text must preserve exact 28 code points without splitting surrogate pairs');
+
+// Test looping through all steps back to 0
+const streamLength = Array.from(mediaIndicator._marqueeFullText + '   •   ').length;
+for (let step = 0; step < streamLength; step++) {
+    mediaIndicator._stepMarquee();
+}
+assert(mediaIndicator.getMarqueeText() === steppedMarqueeText, 'cycling through entire marquee stream must wrap smoothly');
+
+fakeMedia.publishStatus('Paused');
+assert(mediaIndicator.isMarqueeRunning() === false, 'paused media must halt running text marquee');
+
+// Verify AppMenuButton pointer hover propagation
+const hostAppMenu = new MockActor();
+hostAppMenu._box = new MockActor();
+mediaIndicator.bindToAppMenu(hostAppMenu);
+const preHoverCardCount = fakeCard.shownFor.length;
+hostAppMenu.emit('enter-event', {});
+assert(fakeCard.shownFor.length === preHoverCardCount + 1, 'hovering host AppMenuButton must trigger media floating card');
+hostAppMenu.emit('leave-event', {});
+
 const mediaConnectionIds = mediaIndicator._mediaSignalIds.slice();
 mediaIndicator.destroy();
+assert(mediaIndicator.isMarqueeRunning() === false, 'destroyed indicator must cancel marquee timers');
 assert(fakeCard.destroyed === true, 'indicator teardown should destroy its floating card');
 const shownCountAfterDestroy = fakeCard.shownFor.length;
 fakeMedia.publishStatus('Paused');

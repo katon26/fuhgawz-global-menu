@@ -152,8 +152,8 @@
     </key>
     <key name="media-spotify-priority" type="b">
       <default>true</default>
-      <summary>Prioritize Spotify playback</summary>
-      <description>Prefer Spotify over other active MPRIS media players.</description>
+      <summary>Prioritize dedicated music player playback</summary>
+      <description>Prefer dedicated music player over other active MPRIS media players.</description>
     </key>
     <key name="media-visualizer-style" type="s">
       <choices>

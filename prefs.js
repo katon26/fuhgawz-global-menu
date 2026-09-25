@@ -553,8 +553,8 @@ function createGlobalMenuPage(settings, gettextFunc) {
     mediaGroup.add(mediaEnabledRow);
 
     const spotifyPriorityRow = new Adw.SwitchRow({
-        title: gettextFunc('Prefer Spotify'),
-        subtitle: gettextFunc('Choose Spotify when it is playing alongside another media player.'),
+        title: gettextFunc('Prefer Primary Music App'),
+        subtitle: gettextFunc('Choose dedicated music players when playing alongside browser tabs.'),
     });
     settings.bind('media-spotify-priority', spotifyPriorityRow, 'active', Gio.SettingsBindFlags.DEFAULT);
     mediaGroup.add(spotifyPriorityRow);

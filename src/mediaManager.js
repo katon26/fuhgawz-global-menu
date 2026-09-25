@@ -55,8 +55,10 @@ function trackKey(track) {
 
 function playerTitle(name) {
     if (isSpotify(name))
-        return 'Spotify';
+        return 'Music';
     const value = name.split('.').at(-1) ?? name;
+    if (value.toLowerCase() === 'spotify')
+        return 'Music';
     return value.length ? value[0].toUpperCase() + value.slice(1) : 'Media Player';
 }
 

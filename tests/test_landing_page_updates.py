@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+def test_font_tokens():
+    tokens_path = REPO_ROOT / "docs" / "tokens.css"
+    content = tokens_path.read_text(encoding="utf-8")
+    assert '--font-display: "Space Grotesk"' in content, "Space Grotesk not found in tokens.css display font"
+    assert '--font-body:    "Inter"' in content, "Inter not found in tokens.css body font"
+    assert "Cantarell" not in content, "Cantarell should not be in tokens.css"
+    print("PASS: test_font_tokens")
+
+def test_font_html():
+    html_path = REPO_ROOT / "docs" / "index.html"
+    content = html_path.read_text(encoding="utf-8")
+    assert "Space+Grotesk" in content, "Space Grotesk not in Google Fonts link"
+    assert "Inter:wght@" in content, "Inter not in Google Fonts link"
+    assert "Cantarell" not in content, "Cantarell should not be in Google Fonts link"
+    print("PASS: test_font_html")
+
+def test_generic_code_icon():
+    html_path = REPO_ROOT / "docs" / "index.html"
+    css_path = REPO_ROOT / "docs" / "styles.css"
+    html_content = html_path.read_text(encoding="utf-8")
+    css_content = css_path.read_text(encoding="utf-8")
+
+    # Ensure VS Code trademark icon path is removed
+    assert "#007ACC" not in html_content, "VS Code trademark color fill found in index.html"
+    assert "M17.6 1.3 7.8 8.9" not in html_content, "VS Code logo path found in index.html"
+
+    # Ensure generic code icon is present inside active app pill
+    pill_match = re.search(r'<div class="gnome-app-pill">(.*?)</div>', html_content, re.DOTALL)
+    assert pill_match, "gnome-app-pill not found in index.html"
+    pill_html = pill_match.group(1)
+    assert 'class="app-icon"' in pill_html, "app-icon class not found inside gnome-app-pill"
+    assert '<span>Code</span>' in pill_html or '<span>Editor</span>' in pill_html, "Code/Editor label not found"
+
+    # Ensure CSS defines .app-icon
+    assert ".app-icon" in css_content, ".app-icon not styled in styles.css"
+    print("PASS: test_generic_code_icon")
+
+def test_hero_cta_gnome_extension():
+    html_path = REPO_ROOT / "docs" / "index.html"
+    css_path = REPO_ROOT / "docs" / "styles.css"
+    js_path = REPO_ROOT / "docs" / "app.js"
+
+    html_content = html_path.read_text(encoding="utf-8")
+    css_content = css_path.read_text(encoding="utf-8")
+    js_content = js_path.read_text(encoding="utf-8")
+
+    # 1. HTML checks
+    assert 'id="ego-trigger"' in html_content, "ego-trigger button missing in index.html"
+    assert 'View on GNOME Extension' in html_content, "View on GNOME Extension text missing"
+    assert 'In Review' in html_content, "In Review badge missing"
+    assert 'id="ego-popover"' in html_content, "ego-popover missing in index.html"
+    assert 'id="ego-close"' in html_content, "ego-close button missing in index.html"
+    assert 'href="#install"' in html_content, "install action link missing"
+
+    # Check GNOME footprint SVG path
+    assert "M13.136 0c-3.328" in html_content, "GNOME footprint SVG path missing"
+
+    # 2. CSS checks
+    assert ".btn--ego" in css_content, ".btn--ego missing in styles.css"
+    assert ".btn-badge--pending" in css_content, ".btn-badge--pending missing in styles.css"
+    assert ".ego-popover" in css_content, ".ego-popover missing in styles.css"
+    assert ".ego-status-dot" in css_content, ".ego-status-dot missing in styles.css"
+    assert "@keyframes popoverFadeIn" in css_content, "popoverFadeIn animation missing in styles.css"
+    assert ".hero__cta .ego-btn-wrap" in css_content, "responsive ego-btn-wrap rule missing in styles.css"
+
+    # 3. JS checks
+    assert "egoTrigger" in js_content, "egoTrigger logic missing in app.js"
+    assert "egoPopover" in js_content, "egoPopover logic missing in app.js"
+    assert "openEgoPopover" in js_content, "openEgoPopover function missing in app.js"
+    assert "closeEgoPopover" in js_content, "closeEgoPopover function missing in app.js"
+    print("PASS: test_hero_cta_gnome_extension")
+
+def test_js_syntax():
+    res = subprocess.run(["node", "-c", str(REPO_ROOT / "docs" / "app.js")], capture_output=True, text=True)
+    assert res.returncode == 0, f"JS syntax check failed: {res.stderr}"
+    print("PASS: test_js_syntax")
+
+def test_existing_suite():
+    res1 = subprocess.run(["gjs", str(REPO_ROOT / "tests" / "test_buttonPool_logic.js")], capture_output=True, text=True)
+    assert res1.returncode == 0, f"Button pool test failed: {res1.stderr}"
+
+    res2 = subprocess.run(["gjs", "-m", str(REPO_ROOT / "tests" / "test_hoverSubMenu_logic.js")], capture_output=True, text=True)
+    assert res2.returncode == 0, f"Hover sub menu test failed: {res2.stderr}"
+
+    print("PASS: test_existing_suite")
+
+def test_dynamic_indicator_and_release_flow():
+    html_path = REPO_ROOT / "docs" / "index.html"
+    css_path = REPO_ROOT / "docs" / "styles.css"
+    js_path = REPO_ROOT / "docs" / "app.js"
+    readme_path = REPO_ROOT / "README.md"
+
+    html_content = html_path.read_text(encoding="utf-8")
+    css_content = css_path.read_text(encoding="utf-8")
+    js_content = js_path.read_text(encoding="utf-8")
+    readme_content = readme_path.read_text(encoding="utf-8")
+
+    # 1. Dynamic Indicator checks
+    assert "gnome-live-pill" in html_content, "gnome-live-pill missing from index.html"
+    assert "Dynamic Live Indicator" in html_content, "Dynamic Live Indicator card missing in index.html"
+    assert "Music &middot; Gravity Chasm - Conan" in html_content, "Mockup live media indicator missing in index.html"
+    assert ".gnome-live-pill" in css_content, ".gnome-live-pill missing in styles.css"
+    assert ".live-pill__equalizer" in css_content, ".live-pill__equalizer missing in styles.css"
+    assert ".live-pill__text" in css_content, ".live-pill__text missing in styles.css"
+    assert "eqPulse" in css_content, "eqPulse animation missing in styles.css"
+
+    # 2. Release Pill & Tabs checks
+    assert "releases/latest/download/fuhgawzglbmenu@katon26.github.io.shell-extension.zip" in html_content, "Release download link missing in index.html"
+    assert "tab-release" in html_content, "tab-release missing in index.html"
+    assert "tab-source" in html_content, "tab-source missing in index.html"
+    assert "headerbar-tab" in css_content, "headerbar-tab missing in styles.css"
+    assert "installSnippets" in js_content, "installSnippets missing in app.js"
+    assert "activateTab" in js_content, "activateTab missing in app.js"
+    assert "ArrowRight" in js_content and "ArrowLeft" in js_content, "Tab keyboard navigation missing in app.js"
+
+    # 3. Avoid-AI-writing checks
+    assert "Not just a static menu bar" not in html_content, "AI negation pattern found in index.html"
+    assert "dynamic live activity engine" not in html_content, "AI buzzword pattern found in index.html"
+
+    # 4. README check
+    assert "Dynamic Live Activity Indicator" in readme_content, "Dynamic Live Activity Indicator missing in README.md"
+    assert "Method 1: Pre-built Package (Recommended)" in readme_content, "Pre-built package section missing in README.md"
+
+    print("PASS: test_dynamic_indicator_and_release_flow")
+
+def test_floating_media_card_and_marquee():
+    html_path = REPO_ROOT / "docs" / "index.html"
+    css_path = REPO_ROOT / "docs" / "styles.css"
+    js_path = REPO_ROOT / "docs" / "app.js"
+
+    html_content = html_path.read_text(encoding="utf-8")
+    css_content = css_path.read_text(encoding="utf-8")
+    js_content = js_path.read_text(encoding="utf-8")
+
+    # 1. Trademark / user constraint safety checks
+    assert "spotify" not in html_content.lower(), "Spotify trademark found in index.html"
+    assert "bohemian" not in html_content.lower(), "Bohemian Rhapsody found in index.html"
+    assert "spotify" not in js_content.lower(), "Spotify trademark found in app.js"
+
+    # 2. HTML Floating Media Card checks
+    assert 'id="gnome-live-pill"' in html_content, "gnome-live-pill ID missing in index.html"
+    assert 'id="mockup-media-card"' in html_content, "mockup-media-card missing in index.html"
+    assert 'mockup-media-card__art' in html_content, "Album artwork container missing in index.html"
+    assert 'Gravity Chasm' in html_content, "Gravity Chasm track title missing in index.html"
+    assert 'Conan · Blood Eagle' in html_content, "Conan · Blood Eagle artist missing in index.html"
+    assert 'id="media-prev-btn"' in html_content, "Previous track button missing in index.html"
+    assert 'id="media-play-btn"' in html_content, "Play/Pause button missing in index.html"
+    assert 'id="media-next-btn"' in html_content, "Next track button missing in index.html"
+    assert 'mockup-media-card__waveform' in html_content, "Cairo waveform area missing in index.html"
+    assert 'Recently played' in html_content, "Recently played section heading missing in index.html"
+    assert 'Hawk as Weapon' in html_content, "Hawk as Weapon missing in index.html"
+    assert 'Levitation Hoax' in html_content, "Levitation Hoax missing in index.html"
+    assert 'Unknown Title' in html_content, "Unknown Title missing in index.html"
+
+    # 3. CSS styles and keyframes
+    assert '.mockup-media-card' in css_content, ".mockup-media-card missing in styles.css"
+    assert '.media-ctrl-btn--play' in css_content, ".media-ctrl-btn--play missing in styles.css"
+    assert '.mockup-media-card__waveform' in css_content, ".mockup-media-card__waveform missing in styles.css"
+    assert '.wave-bar' in css_content, ".wave-bar missing in styles.css"
+    assert '@keyframes marqueeScroll' in css_content, "marqueeScroll animation missing in styles.css"
+    assert 'mediaCardFadeIn' in css_content, "mediaCardFadeIn animation missing in styles.css"
+
+    # 4. JS behavior and coordination
+    assert 'livePill' in js_content, "livePill ref missing in app.js"
+    assert 'mediaCard' in js_content, "mediaCard ref missing in app.js"
+    assert 'closeMediaCard' in js_content, "closeMediaCard coordination missing in app.js"
+    assert 'positionMediaCard' in js_content, "positionMediaCard missing in app.js"
+
+    print("PASS: test_floating_media_card_and_marquee")
+
+def main():
+    test_font_tokens()
+    test_font_html()
+    test_generic_code_icon()
+    test_hero_cta_gnome_extension()
+    test_dynamic_indicator_and_release_flow()
+    test_floating_media_card_and_marquee()
+    test_js_syntax()
+    test_existing_suite()
+    print("\nAll landing page and repository tests passed!")
+
+if __name__ == "__main__":
+    main()

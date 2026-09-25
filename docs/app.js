@@ -94,6 +94,8 @@
   let openEgoPopover = null;
   let closeEgoPopover = null;
   let closeMockupMenu = null;
+  let openMediaCard = null;
+  let closeMediaCard = null;
 
   /* ── 4 · ⌘K command palette ─────────────────────────────────────────── */
   const palette = document.getElementById('palette');
@@ -315,6 +317,9 @@
       if (typeof closeEgoPopover === 'function') {
         closeEgoPopover();
       }
+      if (typeof closeMediaCard === 'function') {
+        closeMediaCard();
+      }
       updateMenuState(btn);
       popoverMenu.hidden = false;
       renderMenu(key, btn);
@@ -424,6 +429,264 @@
     });
   }
 
+  /* ── 5b · Dynamic Live Media Indicator & Floating Popover Card ── */
+  const livePill = document.getElementById('gnome-live-pill');
+  const mediaCard = document.getElementById('mockup-media-card');
+  const trackTitle = document.getElementById('mockup-track-title');
+  const trackArtist = document.getElementById('mockup-track-artist');
+  const mediaPlayBtn = document.getElementById('media-play-btn');
+  const mediaPrevBtn = document.getElementById('media-prev-btn');
+  const mediaNextBtn = document.getElementById('media-next-btn');
+  const mediaWaveform = document.querySelector('.mockup-media-card__waveform');
+  const recentButtons = document.querySelectorAll('.mockup-media-card .recent-item');
+  const livePillTextInner = document.querySelector('.live-pill__text-inner');
+
+  if (livePill && mediaCard && desktopWorkspace) {
+    let mediaGraceTimer = null;
+    let isPlaying = true;
+    const trackQueue = [
+      { title: 'Gravity Chasm', artist: 'Conan · Blood Eagle' },
+      { title: 'Hawk as Weapon', artist: 'Conan · Blood Eagle' },
+      { title: 'Levitation Hoax', artist: 'Conan · Monnos' },
+      { title: 'Foehammer', artist: 'Conan · Blood Eagle' },
+    ];
+    let currentTrackIdx = 0;
+
+    const cancelGraceTimer = () => {
+      if (mediaGraceTimer) {
+        clearTimeout(mediaGraceTimer);
+        mediaGraceTimer = null;
+      }
+    };
+
+    const positionMediaCard = () => {
+      if (mediaCard.hidden) return;
+      const pillRect = livePill.getBoundingClientRect();
+      const workspaceRect = desktopWorkspace.getBoundingClientRect();
+      const offsetLeft = pillRect.left - workspaceRect.left;
+      const cardWidth = mediaCard.offsetWidth || 280;
+      const maxLeft = Math.max(6, desktopWorkspace.clientWidth - cardWidth - 6);
+      const safeLeft = Math.max(6, Math.min(maxLeft, offsetLeft - 10));
+      mediaCard.style.left = `${safeLeft}px`;
+    };
+
+    const setWaveformProgress = (ratio) => {
+      if (!mediaWaveform) return;
+      const bars = mediaWaveform.querySelectorAll('.wave-bar');
+      const total = bars.length;
+      const activeIdx = Math.min(total - 1, Math.max(0, Math.floor(ratio * total)));
+      bars.forEach((bar, idx) => {
+        bar.classList.toggle('is-played', idx <= activeIdx);
+        bar.classList.toggle('is-active', idx === activeIdx);
+      });
+      const percent = Math.round(ratio * 100);
+      mediaWaveform.setAttribute('aria-valuenow', String(percent));
+    };
+
+    const setTrack = (title, artist) => {
+      if (trackTitle) {
+        trackTitle.textContent = title;
+        trackTitle.title = title;
+      }
+      if (trackArtist) {
+        trackArtist.textContent = artist;
+        trackArtist.title = artist;
+      }
+      const shortArtist = artist.includes('·') ? artist.split('·')[0].trim() : artist;
+      const displayLabel = `Music · ${title}${shortArtist ? ` - ${shortArtist}` : ''}`;
+      if (livePillTextInner) {
+        livePillTextInner.textContent = displayLabel;
+      }
+      if (livePill) {
+        livePill.setAttribute('aria-label', `Media playback indicator: ${displayLabel}`);
+        livePill.setAttribute('title', `Live media playback: ${displayLabel} (hover or click to open controls)`);
+      }
+      setWaveformProgress(0.5);
+    };
+
+    const openCard = () => {
+      cancelGraceTimer();
+      if (typeof closeMockupMenu === 'function') {
+        closeMockupMenu();
+      }
+      if (typeof closeEgoPopover === 'function') {
+        closeEgoPopover();
+      }
+      mediaCard.hidden = false;
+      livePill.setAttribute('aria-expanded', 'true');
+      livePill.classList.add('is-active');
+      positionMediaCard();
+    };
+    openMediaCard = openCard;
+
+    const closeCard = () => {
+      cancelGraceTimer();
+      mediaCard.hidden = true;
+      livePill.setAttribute('aria-expanded', 'false');
+      livePill.classList.remove('is-active');
+    };
+    closeMediaCard = closeCard;
+
+    const scheduleCloseCard = () => {
+      cancelGraceTimer();
+      mediaGraceTimer = setTimeout(closeCard, 240);
+    };
+
+    // Hover interactions with grace period
+    livePill.addEventListener('mouseenter', () => {
+      openCard();
+    });
+
+    livePill.addEventListener('mouseleave', () => {
+      scheduleCloseCard();
+    });
+
+    mediaCard.addEventListener('mouseenter', () => {
+      cancelGraceTimer();
+    });
+
+    mediaCard.addEventListener('mouseleave', () => {
+      scheduleCloseCard();
+    });
+
+    // Click / touch toggle
+    livePill.addEventListener('click', (e) => {
+      e.stopPropagation();
+      cancelGraceTimer();
+      if (mediaCard.hidden) {
+        openCard();
+      } else {
+        closeCard();
+      }
+    });
+
+    // Keyboard navigation on live pill
+    livePill.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        if (mediaCard.hidden) {
+          openCard();
+        } else {
+          closeCard();
+        }
+      }
+    });
+
+    // Transport controls: Play / Pause
+    if (mediaPlayBtn) {
+      const pauseIcon = mediaPlayBtn.querySelector('.media-pause-icon');
+      const playIcon = mediaPlayBtn.querySelector('.media-play-icon');
+
+      const setPlaybackState = (playing) => {
+        isPlaying = playing;
+        if (pauseIcon) pauseIcon.style.display = playing ? 'inline' : 'none';
+        if (playIcon) playIcon.style.display = playing ? 'none' : 'inline';
+        const label = playing ? 'Pause playback' : 'Resume playback';
+        mediaPlayBtn.setAttribute('aria-label', label);
+        mediaPlayBtn.setAttribute('title', label);
+        livePill.classList.toggle('live-pill--paused', !playing);
+      };
+
+      mediaPlayBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setPlaybackState(!isPlaying);
+      });
+    }
+
+    // Previous & Next controls
+    if (mediaPrevBtn) {
+      mediaPrevBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        currentTrackIdx = (currentTrackIdx - 1 + trackQueue.length) % trackQueue.length;
+        const current = trackQueue[currentTrackIdx];
+        setTrack(current.title, current.artist);
+      });
+    }
+
+    if (mediaNextBtn) {
+      mediaNextBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        currentTrackIdx = (currentTrackIdx + 1) % trackQueue.length;
+        const current = trackQueue[currentTrackIdx];
+        setTrack(current.title, current.artist);
+      });
+    }
+
+    // Recently played items
+    recentButtons.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const title = btn.dataset.title || btn.querySelector('.recent-item__title')?.textContent || 'Unknown';
+        const rawArtist = btn.dataset.artist || btn.querySelector('.recent-item__artist')?.textContent || '';
+        const artist = rawArtist ? (rawArtist.includes('·') ? rawArtist : `${rawArtist} · Conan`) : 'Conan · Blood Eagle';
+        setTrack(title, artist);
+        btn.style.background = 'rgba(255, 255, 255, 0.16)';
+        setTimeout(() => { btn.style.background = ''; }, 180);
+      });
+    });
+
+    // Waveform scrubbing & keyboard seeking
+    if (mediaWaveform) {
+      let currentProgress = 0.5;
+      const updateProgress = (ratio) => {
+        currentProgress = Math.max(0, Math.min(1, ratio));
+        setWaveformProgress(currentProgress);
+      };
+
+      mediaWaveform.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const bar = e.target.closest('.wave-bar');
+        const bars = [...mediaWaveform.querySelectorAll('.wave-bar')];
+        if (bar && bars.length) {
+          const index = bars.indexOf(bar);
+          updateProgress((index + 1) / bars.length);
+        } else {
+          const rect = mediaWaveform.getBoundingClientRect();
+          const ratio = (e.clientX - rect.left) / (rect.width || 1);
+          updateProgress(ratio);
+        }
+      });
+
+      mediaWaveform.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          updateProgress(currentProgress + 0.05);
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          updateProgress(currentProgress - 0.05);
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          updateProgress(0);
+        } else if (e.key === 'End') {
+          e.preventDefault();
+          updateProgress(1);
+        }
+      });
+    }
+
+    // Dismiss on click outside
+    document.addEventListener('click', (e) => {
+      if (!mediaCard.hidden && !mediaCard.contains(e.target) && !livePill.contains(e.target)) {
+        closeCard();
+      }
+    });
+
+    // Dismiss on Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !mediaCard.hidden) {
+        closeCard();
+        livePill.focus();
+      }
+    });
+
+    // Reposition on resize
+    window.addEventListener('resize', () => {
+      if (!mediaCard.hidden) {
+        positionMediaCard();
+      }
+    });
+  }
+
   /* ── 6 · GNOME Extensions Pending Popover ─────────────────────────────── */
   const egoTrigger = document.getElementById('ego-trigger');
   const egoPopover = document.getElementById('ego-popover');
@@ -449,6 +712,9 @@
     openEgoPopover = () => {
       if (typeof closeMockupMenu === 'function') {
         closeMockupMenu();
+      }
+      if (typeof closeMediaCard === 'function') {
+        closeMediaCard();
       }
       egoPopover.hidden = false;
       egoTrigger.setAttribute('aria-expanded', 'true');
@@ -499,6 +765,68 @@
 
     window.addEventListener('resize', () => {
       positionEgoPopover();
+    });
+  }
+
+  /* ── 7 · Install Card Tabs (Release vs Source) ────────────────────────── */
+  const headerbarTabs = document.querySelectorAll('.headerbar-tab');
+  const installCode = document.getElementById('install-code');
+  const installCopyBtn = document.getElementById('install-copy-btn');
+
+  const installSnippets = {
+    release: {
+      code: '<span class="tok-accent">$</span> curl -sLO https://github.com/katon26/fuhgawz-global-menu/releases/latest/download/fuhgawzglbmenu@katon26.github.io.shell-extension.zip\n<span class="tok-accent">$</span> gnome-extensions install --force fuhgawzglbmenu@katon26.github.io.shell-extension.zip\n<span class="tok-accent">$</span> gnome-extensions enable fuhgawzglbmenu@katon26.github.io',
+      copy: 'curl -sLO https://github.com/katon26/fuhgawz-global-menu/releases/latest/download/fuhgawzglbmenu@katon26.github.io.shell-extension.zip\ngnome-extensions install --force fuhgawzglbmenu@katon26.github.io.shell-extension.zip\ngnome-extensions enable fuhgawzglbmenu@katon26.github.io'
+    },
+    source: {
+      code: '<span class="tok-accent">$</span> git clone https://github.com/katon26/fuhgawz-global-menu\n<span class="tok-accent">$</span> cd fuhgawz-global-menu\n<span class="tok-accent">$</span> ./install.sh\n<span class="tok-accent">$</span> gnome-extensions enable fuhgawzglbmenu@katon26.github.io',
+      copy: 'git clone https://github.com/katon26/fuhgawz-global-menu\ncd fuhgawz-global-menu\n./install.sh\ngnome-extensions enable fuhgawzglbmenu@katon26.github.io'
+    }
+  };
+
+  if (headerbarTabs.length && installCode && installCopyBtn) {
+    const activateTab = (tab) => {
+      headerbarTabs.forEach((t) => {
+        const active = t === tab;
+        t.classList.toggle('is-active', active);
+        t.setAttribute('aria-selected', String(active));
+        t.setAttribute('tabindex', active ? '0' : '-1');
+      });
+      const target = tab.dataset.target || 'release';
+      const snippet = installSnippets[target] || installSnippets.release;
+      installCode.innerHTML = `<code>${snippet.code}</code>`;
+      installCopyBtn.dataset.copy = snippet.copy;
+    };
+
+    headerbarTabs.forEach((tab, index) => {
+      tab.setAttribute('tabindex', tab.classList.contains('is-active') ? '0' : '-1');
+      tab.addEventListener('click', () => {
+        activateTab(tab);
+      });
+
+      tab.addEventListener('keydown', (e) => {
+        let nextIndex = index;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          nextIndex = (index + 1) % headerbarTabs.length;
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          nextIndex = (index - 1 + headerbarTabs.length) % headerbarTabs.length;
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          nextIndex = 0;
+        } else if (e.key === 'End') {
+          e.preventDefault();
+          nextIndex = headerbarTabs.length - 1;
+        } else {
+          return;
+        }
+        const nextTab = headerbarTabs[nextIndex];
+        if (nextTab) {
+          nextTab.focus();
+          activateTab(nextTab);
+        }
+      });
     });
   }
 })();

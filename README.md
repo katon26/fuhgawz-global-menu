@@ -7,6 +7,7 @@ I just trying to maximize workspace utilization, try to reclaim some vertical sc
 ## Features
 
 - **Unified Interface:** Brings File, Edit, View, and Help menus directly into the GNOME top bar for active applications.
+- **Dynamic Live Activity Indicator:** Monitors active Nautilus file copy telemetry and universal MPRIS media players with live Cairo wave equalizers and interactive hover cards.
 - **Dynamic GTK 4 Fallback:** Intelligently reads `org.gtk.Actions` from modern headerbar-driven GTK 4 apps and groups them logically.
 - **Legacy GTK 3 Support:** Full integration with `appmenu-gtk-module` to restore traditional D-Bus menu exporting on modern systems.
 - **D-Bus Menu Registrar:** Acts as a session-wide registrar for Qt and compatible applications exporting `com.canonical.dbusmenu`.
@@ -14,33 +15,39 @@ I just trying to maximize workspace utilization, try to reclaim some vertical sc
 
 ## Installation
 
-To get the full experience on distributions like Fedora (where global menu libraries are not packaged by default), this repository includes an automated setup script that compiles and configures the necessary GTK modules.
+### Method 1: Pre-built Package (Recommended)
 
-### 1. Configure the Environment
-Clone the repository and run the setup script. This will compile `appmenu-gtk-module` from source, configure systemd environment variables (`UBUNTU_MENUPROXY=1`), and set up Flatpak overrides.
+Download and install the pre-built release package directly from GitHub Releases:
 
 ```bash
-git clone https://github.com/katon26/fuhg-global-menu.git fuhgawz-global-menu
+curl -sLO https://github.com/katon26/fuhgawz-global-menu/releases/latest/download/fuhgawzglbmenu@katon26.github.io.shell-extension.zip
+gnome-extensions install --force fuhgawzglbmenu@katon26.github.io.shell-extension.zip
+gnome-extensions enable fuhgawzglbmenu@katon26.github.io
+```
+
+### Method 2: Build from Source (For Builders & Contributors)
+
+To compile GTK modules from source and configure environment overrides (e.g. on Fedora where global menu libraries are not packaged by default):
+
+#### 1. Configure the Environment
+Clone the repository and run the setup script:
+
+```bash
+git clone https://github.com/katon26/fuhgawz-global-menu.git
 cd fuhgawz-global-menu
 ./configure-global-menu.sh
 ```
 
-### 2. Install the Extension
-Pack and install the extension into your local GNOME extensions directory:
+#### 2. Install and Enable the Extension
+Pack and install the extension:
 
 ```bash
-# Rename the folder to match the new UUID if necessary, or just install via the CLI:
-gnome-extensions pack --force
-gnome-extensions install fuhgawzglbmenu@katon26.github.io.shell-extension.zip
-```
-
-### 3. Restart and Enable
-**Important:** Log out of your GNOME session and log back in. This ensures the environment variables and the new GTK modules are loaded into the display server.
-
-Once logged back in, enable the extension:
-```bash
+./install.sh
 gnome-extensions enable fuhgawzglbmenu@katon26.github.io
 ```
+
+#### 3. Session Reload
+Log out of your GNOME session and log back in so the environment variables (`UBUNTU_MENUPROXY=1`) and GTK modules load into the display server.
 
 ## Overcoming Technical Limitations: The 6-Tier Architecture
 

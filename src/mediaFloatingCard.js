@@ -820,11 +820,8 @@ class MediaFloatingCardLogic {
                 // Keep the player icon when an artwork file is unreadable.
             }
         }
-        const player = track?.player ?? '';
         this._albumArtIcon.gicon = null;
-        this._setIcon(this._albumArtIcon, player.toLowerCase().includes('spotify')
-            ? 'audio-x-generic-symbolic'
-            : 'audio-x-generic-symbolic');
+        this._setIcon(this._albumArtIcon, 'audio-x-generic-symbolic');
         this._albumArtIcon.icon_size = 32;
     }
 
@@ -985,6 +982,30 @@ class MediaFloatingCardLogic {
         }
     }
 
+    _isPointerOver(actor) {
+        if (!actor || !actor.visible)
+            return false;
+        if (actor.hover)
+            return true;
+        if (actor._box?.hover || actor._compactLabelWidget?.hover || actor._statusIconWidget?.hover || actor._appMenuButton?.hover || actor._appMenuButton?._box?.hover)
+            return true;
+        if (typeof global !== 'undefined' && global.get_pointer) {
+            try {
+                const [x, y] = global.get_pointer();
+                if (x >= 0 && y >= 0) {
+                    const target = actor._box || actor._appMenuButton || actor;
+                    if (typeof target.get_transformed_position === 'function' && typeof target.get_transformed_size === 'function') {
+                        const [ax, ay] = target.get_transformed_position();
+                        const [aw, ah] = target.get_transformed_size();
+                        if (x >= ax && x <= ax + aw && y >= ay && y <= ay + ah)
+                            return true;
+                    }
+                }
+            } catch (e) {}
+        }
+        return false;
+    }
+
     scheduleKeyboardFocusClose() {
         if (this._focusExitTimerId || this._destroyed || !this._isOpen)
             return;
@@ -994,7 +1015,7 @@ class MediaFloatingCardLogic {
                 return GLib.SOURCE_REMOVE;
             const stage = typeof global !== 'undefined' ? global.stage : null;
             const focusedActor = stage?.get_key_focus?.() ?? null;
-            const pointerIsInside = Boolean(this.hover || this._anchorActor?.hover);
+            const pointerIsInside = this._isPointerOver(this) || this._isPointerOver(this._anchorActor);
             const keyboardIsInside = focusedActor === this._anchorActor || this._isActorInsideCard(focusedActor);
             if (!pointerIsInside && !keyboardIsInside)
                 this.hideCard();
@@ -1044,7 +1065,7 @@ class MediaFloatingCardLogic {
     _onHoverChanged() {
         if (this._destroyed)
             return;
-        if (this._anchorActor?.hover || this.hover || this._hasKeyboardFocus()) {
+        if (this._isPointerOver(this._anchorActor) || this._isPointerOver(this) || this._hasKeyboardFocus()) {
             this._cancelGraceTimer();
             this._cancelKeyboardFocusClose();
             return;
@@ -1062,7 +1083,7 @@ class MediaFloatingCardLogic {
             return;
         this._graceTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, this._gracePeriodMs, () => {
             this._graceTimerId = 0;
-            if (!this._anchorActor?.hover && !this.hover && !this._hasKeyboardFocus())
+            if (!this._isPointerOver(this._anchorActor) && !this._isPointerOver(this) && !this._hasKeyboardFocus())
                 this.hideCard();
             return GLib.SOURCE_REMOVE;
         });

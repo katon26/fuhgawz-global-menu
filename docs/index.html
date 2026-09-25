@@ -65,10 +65,205 @@
   </header>
 
   <main id="top">
-    <!-- Hero — Left: Interactive Display Mockup, Right: Copy & CTAs -->
-    <section class="hero" id="hero">
-      <!-- Left side: Live Global Menu Visualization in Desktop Frame -->
-      <div class="hero-mockup-wrap is-in" data-reveal>
+        <!-- Hero — edge-to-edge laptop frame, codexbar-style -->
+    <section class="hero-section" id="hero">
+      <!-- Laptop frame + HUD (absolute, fills section, clipped) -->
+      <div class="mockup-stage" id="mockup-stage" aria-hidden="true">
+        <div class="stage-glow" aria-hidden="true"></div>
+        <div class="mockup-wrap" id="mockup-wrap">
+          <img src="hero-mockup.svg" alt="" class="mockup-img"
+               width="6111" height="3239" draggable="false" fetchpriority="high" />
+        </div>
+        <!-- HUD layer — same size/transform as mockup-wrap, positions interactive elements over the SVG screen -->
+        <div class="mockup-hud-layer">
+          <div class="mockup-artboard">
+            <!-- GNOME panel bar at top of screen area -->
+            <div class="hud-panel">
+              <div class="hud-panel__left">
+                <!-- Fedora mark -->
+                <div class="gnome-os-mark" title="Fedora Linux" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
+                    <path d="M8.004.15C3.586.15.01 3.661.001 7.996H0v6.074h.001c.002.984.816 1.78 1.818 1.78h6.186C12.424 15.847 16 12.336 16 8.004 16 3.668 12.42.157 7.997.157zM9.63 3.38c1.343 0 2.612 1.01 2.612 2.402 0 .129 0 .258-.021.404a.665.665 0 01-.758.585.657.657 0 01-.561-.77c.006-.04.008-.107.008-.22 0-.789-.658-1.093-1.28-1.093-.623 0-1.184.513-1.184 1.094.01.671 0 1.338 0 2.008L9.6 7.782c.901-.019.912 1.313.01 1.307l-1.165.009c-.003.54.004.442.001.714 0 0 .01.661-.01 1.162-.14 1.47-1.416 2.646-2.95 2.646-1.627 0-2.966-1.304-2.966-2.903.049-1.644 1.385-2.937 3.07-2.923l.939-.007v1.306l-.94.008h-.004c-.926.027-1.719.643-1.734 1.615 0 .886.73 1.596 1.635 1.596.904 0 1.628-.646 1.628-1.594l-.001-4.943c0-.092.003-.165.013-.266.153-1.209 1.256-2.13 2.504-2.13z"/>
+                  </svg>
+                </div>
+                <!-- App pill -->
+                <div class="gnome-app-pill">
+                  <svg class="app-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="m5 4.5-3.5 3.5 3.5 3.5"/><path d="m11 4.5 3.5 3.5-3.5 3.5"/><path d="m9.5 3-3 10"/>
+                  </svg>
+                  <span>Code</span>
+                </div>
+                <!-- Global menu items -->
+                <span class="hud-menu-item is-active">File</span>
+                <span class="hud-menu-item">Edit</span>
+                <span class="hud-menu-item">Selection</span>
+                <span class="hud-menu-item">View</span>
+                <span class="hud-menu-item">Go</span>
+                <span class="hud-menu-item">Terminal</span>
+                <span class="hud-menu-item">Help</span>
+                <!-- Live media indicator -->
+                <div class="hud-live-pill">
+                  <span class="live-pill__equalizer" aria-hidden="true">
+                    <span class="eq-bar eq-bar--1"></span>
+                    <span class="eq-bar eq-bar--2"></span>
+                    <span class="eq-bar eq-bar--3"></span>
+                  </span>
+                  <span>Music · Gravity Chasm</span>
+                </div>
+              </div>
+              <div class="hud-panel__right">
+                <span class="gnome-tray-icon" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M8 2.5a8.7 8.7 0 0 0-5.7 2.1l-.8-.8a9.8 9.8 0 0 1 13 0l-.8.8A8.7 8.7 0 0 0 8 2.5zm0 3.8a5.2 5.2 0 0 0-3.4 1.3l-.8-.8a6.3 6.3 0 0 1 8.4 0l-.8.8A5.2 5.2 0 0 0 8 6.3zm0 3.8a1.7 1.7 0 0 0-1.1.4L8 12.1l1.1-1.6a1.7 1.7 0 0 0-1.1-.4z"/></svg>
+                </span>
+                <span class="gnome-tray-icon" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M9 2.5 5.5 5.5H2v5h3.5L9 13.5v-11zM11.5 8c0-1.7-.9-3.1-2.2-3.8v7.6c1.3-.7 2.2-2.1 2.2-3.8z"/></svg>
+                </span>
+                <span class="hud-clock">Sep 25 09:41</span>
+              </div>
+            </div>
+
+            <!-- File dropdown popover hanging from panel -->
+            <aside class="hud-popover">
+              <div class="hud-popover__item"><span>New Text File</span><kbd>Ctrl+N</kbd></div>
+              <div class="hud-popover__item"><span>New Window</span><kbd>Ctrl+Shift+N</kbd></div>
+              <div class="hud-popover__sep"></div>
+              <div class="hud-popover__item"><span>Open File...</span><kbd>Ctrl+O</kbd></div>
+              <div class="hud-popover__sep"></div>
+              <div class="hud-popover__item"><span>Save</span><kbd>Ctrl+S</kbd></div>
+              <div class="hud-popover__item"><span>Save As...</span><kbd>Ctrl+Shift+S</kbd></div>
+              <div class="hud-popover__sep"></div>
+              <div class="hud-popover__item"><span>Close Editor</span><kbd>Ctrl+W</kbd></div>
+              <div class="hud-popover__item"><span>Close Window</span><kbd>Ctrl+Shift+W</kbd></div>
+            </aside>
+
+            <!-- Media player card with Cairo wave equalizer -->
+            <aside class="hud-media-card">
+              <div class="hud-media-card__top">
+                <div class="hud-media-card__art" aria-hidden="true">
+                  <svg viewBox="0 0 80 80" width="100%" height="100%">
+                    <defs>
+                      <linearGradient id="hudArtGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#3b1115"/>
+                        <stop offset="50%" stop-color="#200a0d"/>
+                        <stop offset="100%" stop-color="#110507"/>
+                      </linearGradient>
+                    </defs>
+                    <rect width="80" height="80" rx="8" fill="url(#hudArtGrad)"/>
+                    <circle cx="40" cy="36" r="22" fill="#e01b24" fill-opacity="0.22"/>
+                    <path d="M40 18 L44 32 L58 34 L46 42 L50 56 L40 46 L30 56 L34 42 L22 34 L36 32 Z" fill="#e01b24" fill-opacity="0.88"/>
+                    <circle cx="40" cy="36" r="5" fill="#ffffff" fill-opacity="0.95"/>
+                  </svg>
+                </div>
+                <div class="hud-media-card__meta">
+                  <div class="hud-media-card__title">Gravity Chasm</div>
+                  <div class="hud-media-card__artist">Conan · Blood Eagle</div>
+                  <div class="hud-media-card__controls">
+                    <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M3.5 2.5a.75.75 0 0 1 .75.75v3.62l7.15-4.47A.75.75 0 0 1 12.5 3v10a.75.75 0 0 1-1.1.66L4.25 9.13v3.62a.75.75 0 0 1-1.5 0v-9.5a.75.75 0 0 1 .75-.75z"/></svg>
+                    <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M4.5 3a1 1 0 0 1 1 1v8a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1zm7 0a1 1 0 0 1 1 1v8a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1z"/></svg>
+                    <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M12.5 2.5a.75.75 0 0 0-.75.75v3.62L4.6 2.4A.75.75 0 0 0 3.5 3v10a.75.75 0 0 0 1.1.66l7.15-4.47v3.62a.75.75 0 0 0 1.5 0v-9.5a.75.75 0 0 0-.75-.75z"/></svg>
+                  </div>
+                </div>
+              </div>
+              <!-- Cairo wave equalizer -->
+              <div class="hud-media-card__waveform">
+                <span class="wave-bar is-played" style="--h: 30%"></span>
+                <span class="wave-bar is-played" style="--h: 45%"></span>
+                <span class="wave-bar is-played" style="--h: 68%"></span>
+                <span class="wave-bar is-played" style="--h: 86%"></span>
+                <span class="wave-bar is-played" style="--h: 72%"></span>
+                <span class="wave-bar is-played" style="--h: 56%"></span>
+                <span class="wave-bar is-played" style="--h: 75%"></span>
+                <span class="wave-bar is-active is-played" style="--h: 100%"></span>
+                <span class="wave-bar" style="--h: 80%"></span>
+                <span class="wave-bar" style="--h: 58%"></span>
+                <span class="wave-bar" style="--h: 76%"></span>
+                <span class="wave-bar" style="--h: 62%"></span>
+                <span class="wave-bar" style="--h: 47%"></span>
+                <span class="wave-bar" style="--h: 36%"></span>
+                <span class="wave-bar" style="--h: 26%"></span>
+                <span class="wave-bar" style="--h: 18%"></span>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hero copy — overlaid on screen area -->
+      <div class="hero-content">
+        <div class="hero-copy">
+          <div class="hero__badge">
+          <span class="badge-dot" aria-hidden="true"></span>
+          <span>GNOME 45–50 · GPL-3.0 · Native D-Bus</span>
+        </div>
+        <h1 class="hero__title">Your app menus, back in one bar.</h1>
+        <p class="hero__lede">
+          FUHGAWZ Global Menu brings application menubars directly into the GNOME Shell top panel, paired with an active live indicator. Track Nautilus file copies, stream media playback with animated Cairo wave equalizers, and extract menus across Wayland, GTK 4, GTK 3, and Qt apps.
+        </p>
+        <div class="hero__cta">
+          <a class="btn btn--primary btn--lg" href="#install">Install extension</a>
+          <a class="btn btn--ghost btn--lg" href="https://github.com/katon26/fuhgawz-global-menu/releases" rel="noopener" target="_blank">
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+              <path d="M8 .2a8 8 0 0 0-2.5 15.6c.4.1.6-.2.6-.4v-1.5c-2.2.5-2.7-1.1-2.7-1.1-.4-.9-.9-1.2-.9-1.2-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.9.9 2.4.7.1-.5.3-.9.5-1.1-1.8-.2-3.7-.9-3.7-4a3.1 3.1 0 0 1 .8-2.2c-.1-.2-.4-1 .1-2.2 0 0 .7-.2 2.2.8a7.7 7.7 0 0 1 4 0c1.5-1 2.2-.8 2.2-.8.5 1.2.2 2 .1 2.2.6.7.8 1.5.8 2.2 0 3.1-1.9 3.8-3.7 4 .3.3.6.8.6 1.6v2.4c0 .2.2.5.6.4A8 8 0 0 0 8 .2z"/>
+            </svg>
+            <span>GitHub Releases</span>
+          </a>
+          <div class="ego-btn-wrap">
+            <button class="btn btn--ghost btn--lg btn--ego" id="ego-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="ego-popover" title="Pending review on extensions.gnome.org · Click for status">
+              <svg class="gnome-foot-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+                <path d="M13.136 0c-3.328 0-3.953 4.74-2.08 4.74 1.872 0 5.409-4.74 2.08-4.74zM7.61 4.153C8.605 4.214 9.7.35 7.825.592c-1.873.243-1.214 3.5-.217 3.561zM3.04 6.555c.71-.312.091-3.365-1.114-2.532-1.206.833.405 2.844 1.114 2.532zM5.038 4.957c.844-.172.89-3.634-.615-3.013s-.228 3.186.615 3.013zM9.446 12.706c.15 1.144-.84 1.709-1.808.971-3.083-2.347 5.105-3.518 4.565-6.725-.448-2.662-8.615-1.842-9.545 2.323C2.028 12.092 5.249 16 8.61 16c1.653 0 3.56-1.493 3.917-3.384.273-1.442-3.206-.864-3.081.09z"/>
+              </svg>
+              <span>View on GNOME Extension</span>
+              <span class="btn-badge btn-badge--pending">In Review</span>
+            </button>
+
+            <!-- Status Popover informing user about pending review -->
+            <div class="ego-popover" id="ego-popover" role="dialog" aria-modal="false" aria-label="GNOME Extensions review status" hidden>
+              <div class="ego-popover__arrow" aria-hidden="true"></div>
+              <div class="ego-popover__header">
+                <span class="ego-status-dot" aria-hidden="true"></span>
+                <div class="ego-popover__title-wrap">
+                  <span class="ego-popover__title">In Review on extensions.gnome.org</span>
+                  <span class="ego-popover__badge">Available Soon</span>
+                </div>
+                <button class="ego-popover__close" id="ego-close" type="button" aria-label="Close notification">&times;</button>
+              </div>
+              <p class="ego-popover__body">
+                FUHGAWZ Global Menu has been submitted to <strong>extensions.gnome.org</strong> and is currently awaiting approval. Once published, one-click install will be enabled directly from the browser.
+              </p>
+              <div class="ego-popover__footer">
+                <a class="ego-popover__action" href="#install">Install pre-built release package below &darr;</a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick one-line terminal enable pill -->
+        <div class="hero-quick-pill">
+          <div class="quick-pill__body">
+            <span class="quick-pill__tag">Release</span>
+            <span class="quick-pill__prompt" aria-hidden="true">$</span>
+            <code class="quick-pill__cmd">curl -sLO https://github.com/katon26/fuhgawz-global-menu/releases/latest/download/fuhgawzglbmenu@katon26.github.io.shell-extension.zip &amp;&amp; gnome-extensions install --force fuhgawzglbmenu@katon26.github.io.shell-extension.zip &amp;&amp; gnome-extensions enable fuhgawzglbmenu@katon26.github.io</code>
+          </div>
+          <button class="copy-mini" type="button" data-copy="curl -sLO https://github.com/katon26/fuhgawz-global-menu/releases/latest/download/fuhgawzglbmenu@katon26.github.io.shell-extension.zip &amp;&amp; gnome-extensions install --force fuhgawzglbmenu@katon26.github.io.shell-extension.zip &amp;&amp; gnome-extensions enable fuhgawzglbmenu@katon26.github.io" aria-label="Copy release install command">copy</button>
+        </div>
+
+        <div class="hero__proof">
+          <span class="proof-tag"><span class="proof-check">✓</span> Live Media &amp; MPRIS</span>
+          <span class="proof-tag"><span class="proof-check">✓</span> Zero window clutter</span>
+          <span class="proof-tag"><span class="proof-check">✓</span> Wayland &amp; X11</span>
+        </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Showcase (moved from hero) -->
+    <section class="showcase" id="showcase" aria-labelledby="showcase-head">
+      <div class="showcase__inner">
+        <div class="showcase__header" data-reveal>
+          <h2 class="showcase__head" id="showcase-head">See it in action</h2>
+          <p class="showcase__sub">Click menus, hover the live indicator, explore the full desktop.</p>
+        </div>
+        <div class="hero-mockup-wrap is-in" data-reveal>
         <div class="mockup-glow" aria-hidden="true"></div>
         <div class="desktop-frame">
           <div class="desktop-bezel">
@@ -94,6 +289,16 @@
                       <path d="m9.5 3-3 10"/>
                     </svg>
                     <span>Code</span>
+                  </div>
+
+                  <!-- Dynamic Live Media Pill (MPRIS) -->
+                  <div class="gnome-live-pill" id="gnome-live-pill" role="button" tabindex="0" title="Dynamic Live Indicator (MPRIS / Nautilus Tasks)" aria-haspopup="dialog" aria-expanded="false" aria-controls="mockup-media-card">
+                    <span class="live-pill__equalizer" aria-hidden="true">
+                      <span class="eq-bar eq-bar--1"></span>
+                      <span class="eq-bar eq-bar--2"></span>
+                      <span class="eq-bar eq-bar--3"></span>
+                    </span>
+                    <span class="live-pill__text"><span class="live-pill__text-inner">Music &middot; Gravity Chasm - Conan</span></span>
                   </div>
 
                   <!-- FUHGAWZ Global Menu items -->
@@ -227,74 +432,104 @@
                     <kbd>Ctrl+Shift+W</kbd>
                   </div>
                 </div>
+
+                <!-- Floating Media Popover Card attached under .gnome-live-pill -->
+                <div class="mockup-media-card" id="mockup-media-card" role="dialog" aria-label="Media player controls" hidden>
+                  <div class="mockup-media-card__top">
+                    <!-- Album Cover Artwork Thumbnail -->
+                    <div class="mockup-media-card__art" aria-hidden="true">
+                      <svg class="mockup-media-card__art-graphic" viewBox="0 0 80 80" width="100%" height="100%">
+                        <defs>
+                          <linearGradient id="mediaArtGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#3b1115"/>
+                            <stop offset="50%" stop-color="#200a0d"/>
+                            <stop offset="100%" stop-color="#110507"/>
+                          </linearGradient>
+                        </defs>
+                        <rect width="80" height="80" rx="8" fill="url(#mediaArtGrad)"/>
+                        <circle cx="40" cy="36" r="22" fill="#e01b24" fill-opacity="0.22"/>
+                        <path d="M40 18 L44 32 L58 34 L46 42 L50 56 L40 46 L30 56 L34 42 L22 34 L36 32 Z" fill="#e01b24" fill-opacity="0.88"/>
+                        <circle cx="40" cy="36" r="5" fill="#ffffff" fill-opacity="0.95"/>
+                      </svg>
+                    </div>
+
+                    <!-- Track metadata, transport controls & Cairo waveform -->
+                    <div class="mockup-media-card__meta">
+                      <div class="mockup-media-card__title" id="mockup-track-title" title="Gravity Chasm">Gravity Chasm</div>
+                      <div class="mockup-media-card__artist" id="mockup-track-artist" title="Conan · Blood Eagle">Conan · Blood Eagle</div>
+
+                      <!-- Transport Controls -->
+                      <div class="mockup-media-card__controls" role="group" aria-label="Media transport controls">
+                        <button class="media-ctrl-btn" id="media-prev-btn" type="button" aria-label="Previous track" title="Previous track">
+                          <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor">
+                            <path d="M3.5 2.5a.75.75 0 0 1 .75.75v3.62l7.15-4.47A.75.75 0 0 1 12.5 3v10a.75.75 0 0 1-1.1.66L4.25 9.13v3.62a.75.75 0 0 1-1.5 0v-9.5a.75.75 0 0 1 .75-.75z"/>
+                          </svg>
+                        </button>
+                        <button class="media-ctrl-btn media-ctrl-btn--play" id="media-play-btn" type="button" aria-label="Pause playback" title="Pause playback">
+                          <svg class="media-pause-icon" viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+                            <path d="M4.5 3a1 1 0 0 1 1 1v8a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1zm7 0a1 1 0 0 1 1 1v8a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1z"/>
+                          </svg>
+                          <svg class="media-play-icon" viewBox="0 0 16 16" width="12" height="12" fill="currentColor" style="display: none;">
+                            <path d="m4.5 3 8 5-8 5V3z"/>
+                          </svg>
+                        </button>
+                        <button class="media-ctrl-btn" id="media-next-btn" type="button" aria-label="Next track" title="Next track">
+                          <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor">
+                            <path d="M12.5 2.5a.75.75 0 0 0-.75.75v3.62L4.6 2.4A.75.75 0 0 0 3.5 3v10a.75.75 0 0 0 1.1.66l7.15-4.47v3.62a.75.75 0 0 0 1.5 0v-9.5a.75.75 0 0 0-.75-.75z"/>
+                          </svg>
+                        </button>
+                      </div>
+
+                      <!-- Red Cairo waveform audio progress bar -->
+                      <div class="mockup-media-card__waveform" role="slider" tabindex="0" aria-label="Playback progress" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100" title="Seek position">
+                        <span class="wave-bar is-played" style="--h: 30%"></span>
+                        <span class="wave-bar is-played" style="--h: 45%"></span>
+                        <span class="wave-bar is-played" style="--h: 68%"></span>
+                        <span class="wave-bar is-played" style="--h: 86%"></span>
+                        <span class="wave-bar is-played" style="--h: 72%"></span>
+                        <span class="wave-bar is-played" style="--h: 56%"></span>
+                        <span class="wave-bar is-played" style="--h: 75%"></span>
+                        <span class="wave-bar is-active is-played" style="--h: 100%"></span>
+                        <span class="wave-bar" style="--h: 80%"></span>
+                        <span class="wave-bar" style="--h: 58%"></span>
+                        <span class="wave-bar" style="--h: 76%"></span>
+                        <span class="wave-bar" style="--h: 62%"></span>
+                        <span class="wave-bar" style="--h: 47%"></span>
+                        <span class="wave-bar" style="--h: 36%"></span>
+                        <span class="wave-bar" style="--h: 26%"></span>
+                        <span class="wave-bar" style="--h: 18%"></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Horizontal separator -->
+                  <div class="mockup-media-card__divider" role="separator"></div>
+
+                  <!-- Recently played section -->
+                  <div class="mockup-media-card__recent">
+                    <div class="recent-heading">Recently played</div>
+                    <div class="recent-list" role="list">
+                      <button class="recent-item" type="button" role="listitem" data-title="Hawk as Weapon" data-artist="Conan" title="Play Hawk as Weapon · Conan">
+                        <span class="recent-item__title">Hawk as Weapon</span>
+                        <span class="recent-item__sep">&middot;</span>
+                        <span class="recent-item__artist">Conan</span>
+                      </button>
+                      <button class="recent-item" type="button" role="listitem" data-title="Levitation Hoax" data-artist="Conan" title="Play Levitation Hoax · Conan">
+                        <span class="recent-item__title">Levitation Hoax</span>
+                        <span class="recent-item__sep">&middot;</span>
+                        <span class="recent-item__artist">Conan</span>
+                      </button>
+                      <button class="recent-item" type="button" role="listitem" data-title="Unknown Title" data-artist="" title="Play Unknown Title">
+                        <span class="recent-item__title">Unknown Title</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- Right side: Hero Copy, Badges, CTAs, and Quick Command Pill -->
-      <div class="hero__content is-in" data-reveal>
-        <div class="hero__badge">
-          <span class="badge-dot" aria-hidden="true"></span>
-          <span>GNOME 45–50 · GPL-3.0 · Native D-Bus</span>
-        </div>
-        <h1 class="hero__title">Your app menus, back in one bar.</h1>
-        <p class="hero__lede">
-          FUHGAWZ Global Menu brings application menubars directly into the GNOME Shell top bar. Powered by a 6-tier fallback engine, it extracts and renders menus across Wayland, GTK 4 / Libadwaita apps, GTK 3, Qt, and browser windows. Also include with system logo menu with user switcher, recent items, and force quit on the same key.
-        </p>
-        <div class="hero__cta">
-          <a class="btn btn--primary btn--lg" href="#install">Install extension</a>
-          <a class="btn btn--ghost btn--lg" href="https://github.com/katon26/fuhgawz-global-menu" rel="noopener" target="_blank">
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
-              <path d="M8 .2a8 8 0 0 0-2.5 15.6c.4.1.6-.2.6-.4v-1.5c-2.2.5-2.7-1.1-2.7-1.1-.4-.9-.9-1.2-.9-1.2-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.9.9 2.4.7.1-.5.3-.9.5-1.1-1.8-.2-3.7-.9-3.7-4a3.1 3.1 0 0 1 .8-2.2c-.1-.2-.4-1 .1-2.2 0 0 .7-.2 2.2.8a7.7 7.7 0 0 1 4 0c1.5-1 2.2-.8 2.2-.8.5 1.2.2 2 .1 2.2.6.7.8 1.5.8 2.2 0 3.1-1.9 3.8-3.7 4 .3.3.6.8.6 1.6v2.4c0 .2.2.5.6.4A8 8 0 0 0 8 .2z"/>
-            </svg>
-            <span>View on GitHub</span>
-          </a>
-          <div class="ego-btn-wrap">
-            <button class="btn btn--ghost btn--lg btn--ego" id="ego-trigger" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="ego-popover" title="Pending review on extensions.gnome.org · Click for status">
-              <svg class="gnome-foot-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
-                <path d="M13.136 0c-3.328 0-3.953 4.74-2.08 4.74 1.872 0 5.409-4.74 2.08-4.74zM7.61 4.153C8.605 4.214 9.7.35 7.825.592c-1.873.243-1.214 3.5-.217 3.561zM3.04 6.555c.71-.312.091-3.365-1.114-2.532-1.206.833.405 2.844 1.114 2.532zM5.038 4.957c.844-.172.89-3.634-.615-3.013s-.228 3.186.615 3.013zM9.446 12.706c.15 1.144-.84 1.709-1.808.971-3.083-2.347 5.105-3.518 4.565-6.725-.448-2.662-8.615-1.842-9.545 2.323C2.028 12.092 5.249 16 8.61 16c1.653 0 3.56-1.493 3.917-3.384.273-1.442-3.206-.864-3.081.09z"/>
-              </svg>
-              <span>View on GNOME Extension</span>
-              <span class="btn-badge btn-badge--pending">In Review</span>
-            </button>
-
-            <!-- Status Popover informing user about pending review -->
-            <div class="ego-popover" id="ego-popover" role="dialog" aria-modal="false" aria-label="GNOME Extensions review status" hidden>
-              <div class="ego-popover__arrow" aria-hidden="true"></div>
-              <div class="ego-popover__header">
-                <span class="ego-status-dot" aria-hidden="true"></span>
-                <div class="ego-popover__title-wrap">
-                  <span class="ego-popover__title">In Review on extensions.gnome.org</span>
-                  <span class="ego-popover__badge">Available Soon</span>
-                </div>
-                <button class="ego-popover__close" id="ego-close" type="button" aria-label="Close notification">&times;</button>
-              </div>
-              <p class="ego-popover__body">
-                FUHGAWZ Global Menu has been submitted to <strong>extensions.gnome.org</strong> and is currently awaiting approval. Once published, one-click install will be enabled directly from the browser.
-              </p>
-              <div class="ego-popover__footer">
-                <a class="ego-popover__action" href="#install">Install now via terminal script below &darr;</a>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Quick one-line terminal enable pill -->
-        <div class="hero-quick-pill">
-          <div class="quick-pill__body">
-            <span class="quick-pill__prompt" aria-hidden="true">$</span>
-            <code class="quick-pill__cmd">gnome-extensions enable fuhgawzglbmenu@katon26.github.io</code>
-          </div>
-          <button class="copy-mini" type="button" data-copy="gnome-extensions enable fuhgawzglbmenu@katon26.github.io" aria-label="Copy enable command">copy</button>
-        </div>
-
-        <div class="hero__proof">
-          <span class="proof-tag"><span class="proof-check">✓</span> Zero window clutter</span>
-          <span class="proof-tag"><span class="proof-check">✓</span> Automatic fallback</span>
-          <span class="proof-tag"><span class="proof-check">✓</span> Wayland &amp; X11</span>
-        </div>
       </div>
     </section>
 
@@ -329,7 +564,29 @@
           </div>
         </div>
 
-        <!-- Card 2: GTK 4 Fallback -->
+        <!-- Card 2: Dynamic Live Media & Task Indicator -->
+        <div class="spec-card spec-card--live">
+          <div class="spec-card__top">
+            <span class="spec-card__tag">Live Activity</span>
+            <span class="chip chip--ok">MPRIS + Nautilus I/O</span>
+          </div>
+          <h3 class="spec-card__title">Dynamic Live Indicator</h3>
+          <p class="spec-card__body">
+            More than a static menubar. As your media player streams or Nautilus transfers files, the top panel integrates an interactive live indicator capsule with Cairo wave equalizers, progress scrubbing, and Libadwaita hover cards.
+          </p>
+          <div class="spec-card__preview" aria-hidden="true">
+            <span class="spec-preview-pill spec-preview-pill--media">
+              <span class="pill-dot pill-dot--media"></span>
+              Media &middot; Playing
+            </span>
+            <span class="spec-preview-pill spec-preview-pill--task">
+              <span class="pill-dot pill-dot--task"></span>
+              Nautilus &middot; 84%
+            </span>
+          </div>
+        </div>
+
+        <!-- Card 3: GTK 4 Fallback -->
         <div class="spec-card">
           <div class="spec-card__top">
             <span class="spec-card__tag">Modern Apps</span>
@@ -337,11 +594,11 @@
           </div>
           <h3 class="spec-card__title">GTK 4 Action Grouping</h3>
           <p class="spec-card__body">
-            Modern libadwaita apps (such as GNOME Text Editor and GNOME Builder) don't export classic menus by default. The extension inspects <code>org.gtk.Actions</code> from active headerbars and groups them logically so modern apps never feel missing.
+            Modern libadwaita apps (such as GNOME Text Editor and GNOME Builder) do not export classic menus by default. The extension inspects <code>org.gtk.Actions</code> from active headerbars and groups them logically so modern apps stay fully accessible.
           </p>
         </div>
 
-        <!-- Card 3: D-Bus Registrar -->
+        <!-- Card 4: D-Bus Registrar -->
         <div class="spec-card">
           <div class="spec-card__top">
             <span class="spec-card__tag">Qt &amp; Electron</span>
@@ -353,7 +610,7 @@
           </p>
         </div>
 
-        <!-- Card 4: System Menu -->
+        <!-- Card 5: System Menu -->
         <div class="spec-card">
           <div class="spec-card__top">
             <span class="spec-card__tag">System Tools</span>
@@ -361,11 +618,11 @@
           </div>
           <h3 class="spec-card__title">Integrated System Menu</h3>
           <p class="spec-card__body">
-            User switcher, recent documents, force quit, and quick-settings hiders live on the exact same shortcut key as the app menu. Fast access when you need it, invisible when you don't.
+            User switcher, recent documents, force quit, and quick-settings hiders live on the exact same shortcut key as the app menu. Fast access when you need it, invisible when you do not.
           </p>
         </div>
 
-        <!-- Card 5: GNOME Compatibility -->
+        <!-- Card 6: GNOME Compatibility -->
         <div class="spec-card">
           <div class="spec-card__top">
             <span class="spec-card__tag">Compatibility</span>
@@ -373,11 +630,11 @@
           </div>
           <h3 class="spec-card__title">Modern GNOME Shell</h3>
           <p class="spec-card__body">
-            Maintained and verified across GNOME 45, 46, 47, 48, 49, and 50. Ships with a full libadwaita preferences dialog for menu placement, padding, and hotkey binding.
+            Maintained and verified across GNOME 45, 46, 47, 48, 49, and 50. Ships with a full libadwaita preferences dialog for menu placement, dynamic indicator tuning, and hotkey binding.
           </p>
         </div>
 
-        <!-- Card 6: Distro Agnostic Banner (Spans full grid width to balance the Bento layout) -->
+        <!-- Card 7: Distro Agnostic Banner (Spans full grid width to balance the Bento layout) -->
         <div class="spec-card spec-card--wide">
           <div class="spec-card__top">
             <span class="spec-card__tag">Universal Ecosystem</span>
@@ -387,7 +644,7 @@
             <div>
               <h3 class="spec-card__title">Distro-Agnostic &amp; Wayland-First</h3>
               <p class="spec-card__body">
-                Engineered for seamless compatibility across every major Linux distribution and custom desktop session. Installs purely in user space with no external package repositories, PPAs, or system tampering required.
+                Engineered for solid compatibility across every major Linux distribution and custom desktop session. Installs purely in user space with no external package repositories, PPAs, or system tampering required.
               </p>
             </div>
             <div class="distro-pills" aria-label="Supported Linux distributions">
@@ -443,9 +700,9 @@
               <span class="tier-card__badge">Shell</span>
             </div>
             <h3 class="tier-card__title">GNOME Top Bar</h3>
-            <code class="tier-card__proto">Clutter + systemMenu fallback</code>
+            <code class="tier-card__proto">Clutter + dynamic live indicator</code>
             <p class="tier-card__desc">
-              Rendered natively inside GNOME Shell with hover submenus, keyboard shortcuts, and a system menu fallback if no app menu answers.
+              Rendered natively inside GNOME Shell with hover submenus, live media capsules, and a system menu fallback if no app menu answers.
             </p>
           </article>
         </div>
@@ -459,22 +716,20 @@
       </div>
     </section>
 
-    <!-- Install CTA with GNOME Terminal window (Titlebar linuxgnome-like matching media_1788985350616.png) -->
+    <!-- Install CTA with GNOME Terminal window -->
     <section class="cta" id="install" aria-labelledby="cta-head">
       <div class="cta__layout">
         <div class="cta__copy" data-reveal>
           <h2 class="cta__head" id="cta-head">Install in two steps</h2>
           <p class="cta__text">
-            Clone the repository, run <code>./install.sh</code>, then enable the extension. The installer
-            copies the modules, compiles the GSettings schema, and configures the GTK 3 and GTK 2 modules for
-            menu export, with zero distro packaging required.
+            Get pre-packaged release builds directly from GitHub Releases, or compile from source if you are customizing the extension.
           </p>
           <div class="cta__steps">
             <div class="cta-step">
               <span class="cta-step__num">1</span>
               <div>
-                <strong>Clone &amp; Run Installer</strong>
-                <p>Configures GTK modules and schemas automatically in user space.</p>
+                <strong>Download GitHub Release</strong>
+                <p>Download the latest pre-built <code>.shell-extension.zip</code> from GitHub Releases and install in user space.</p>
               </div>
             </div>
             <div class="cta-step">
@@ -485,9 +740,17 @@
               </div>
             </div>
           </div>
+          <div class="cta__links">
+            <a class="btn btn--primary" href="https://github.com/katon26/fuhgawz-global-menu/releases" target="_blank" rel="noopener">
+              <span>Browse GitHub Releases</span>
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+                <path d="M8.636 3.5a.5.5 0 0 0-.5.5v1.5H3.5A1.5 1.5 0 0 0 2 7v5.5A1.5 1.5 0 0 0 3.5 14h5.5a1.5 1.5 0 0 0 1.5-1.5V10a.5.5 0 0 0-1 0v2.5a.5.5 0 0 1-.5.5h-5.5a.5.5 0 0 1-.5-.5V7a.5.5 0 0 1 .5-.5h4.636v1.5a.5.5 0 0 0 .854.354l3-3a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.354-.146z"/>
+              </svg>
+            </a>
+          </div>
         </div>
 
-        <!-- Terminal Card with Linux GNOME Titlebar Controls -->
+        <!-- Terminal Card with Release vs Source Tabs -->
         <figure class="code-card gnome-window-card" data-reveal>
           <div class="gnome-headerbar">
             <div class="gnome-headerbar__left">
@@ -495,14 +758,15 @@
                 <polyline points="3 4.5 7 8 3 11.5"></polyline>
                 <line x1="8" y1="12" x2="13" y2="12"></line>
               </svg>
-              <span class="gnome-headerbar__tab">install.sh</span>
-              <span class="chip chip--ok">bash</span>
+              <div class="gnome-headerbar__tabs" role="tablist" aria-label="Installation method tabs">
+                <button class="headerbar-tab is-active" id="tab-release" role="tab" aria-selected="true" aria-controls="install-code" data-target="release" type="button">GitHub Release</button>
+                <button class="headerbar-tab" id="tab-source" role="tab" aria-selected="false" aria-controls="install-code" data-target="source" type="button">Build from Source</button>
+              </div>
             </div>
 
             <div class="gnome-headerbar__right">
-              <button class="copy-mini" type="button" data-copy="git clone https://github.com/katon26/fuhgawz-global-menu
-cd fuhgawz-global-menu
-./install.sh
+              <button class="copy-mini" id="install-copy-btn" type="button" data-copy="curl -sLO https://github.com/katon26/fuhgawz-global-menu/releases/latest/download/fuhgawzglbmenu@katon26.github.io.shell-extension.zip
+gnome-extensions install --force fuhgawzglbmenu@katon26.github.io.shell-extension.zip
 gnome-extensions enable fuhgawzglbmenu@katon26.github.io" aria-label="Copy install script commands">copy</button>
 
               <!-- Authentic GNOME titlebar controls matching media_1788985350616.png -->
@@ -535,9 +799,8 @@ gnome-extensions enable fuhgawzglbmenu@katon26.github.io" aria-label="Copy insta
               </span>
             </div>
           </div>
-          <pre class="code" aria-label="Installation commands"><code><span class="tok-accent">$</span> git clone https://github.com/katon26/fuhgawz-global-menu
-<span class="tok-accent">$</span> cd fuhgawz-global-menu
-<span class="tok-accent">$</span> ./install.sh
+          <pre class="code" id="install-code" aria-label="Installation commands"><code><span class="tok-accent">$</span> curl -sLO https://github.com/katon26/fuhgawz-global-menu/releases/latest/download/fuhgawzglbmenu@katon26.github.io.shell-extension.zip
+<span class="tok-accent">$</span> gnome-extensions install --force fuhgawzglbmenu@katon26.github.io.shell-extension.zip
 <span class="tok-accent">$</span> gnome-extensions enable fuhgawzglbmenu@katon26.github.io</code></pre>
         </figure>
       </div>
@@ -582,6 +845,8 @@ gnome-extensions enable fuhgawzglbmenu@katon26.github.io" aria-label="Copy insta
       <span class="foot__links">
         <a class="foot__link" href="https://github.com/katon26/fuhgawz-global-menu" rel="noopener" target="_blank">GitHub</a>
         <span aria-hidden="true"> · </span>
+        <a class="foot__link" href="https://github.com/katon26/fuhgawz-global-menu/releases" rel="noopener" target="_blank">Releases</a>
+        <span aria-hidden="true"> · </span>
         <a class="foot__link" href="https://github.com/katon26/fuhgawz-global-menu/issues" rel="noopener" target="_blank">Issues</a>
       </span>
       <span>© 2026 katon26 · GPL-3.0-or-later · GNOME 45–50</span>
@@ -599,22 +864,21 @@ gnome-extensions enable fuhgawzglbmenu@katon26.github.io" aria-label="Copy insta
       </div>
       <ul class="palette__list" id="palette-list" role="listbox" aria-label="Commands">
         <li class="palette__item" role="option" data-action="goto" data-target="install">
-          <span>Install the extension</span><kbd aria-hidden="true">↵</kbd>
+          <span>Install the extension (GitHub Release)</span><kbd aria-hidden="true">↵</kbd>
         </li>
         <li class="palette__item" role="option" data-action="goto" data-target="menu">
-          <span>Menu features</span><kbd aria-hidden="true">↵</kbd>
+          <span>Menu features &amp; live indicator</span><kbd aria-hidden="true">↵</kbd>
         </li>
         <li class="palette__item" role="option" data-action="goto" data-target="fallbacks">
           <span>Architecture pipeline</span><kbd aria-hidden="true">↵</kbd>
         </li>
-        <li class="palette__item" role="option" data-action="copy" data-copy="git clone https://github.com/katon26/fuhgawz-global-menu
-cd fuhgawz-global-menu
-./install.sh
+        <li class="palette__item" role="option" data-action="copy" data-copy="curl -sLO https://github.com/katon26/fuhgawz-global-menu/releases/latest/download/fuhgawzglbmenu@katon26.github.io.shell-extension.zip
+gnome-extensions install --force fuhgawzglbmenu@katon26.github.io.shell-extension.zip
 gnome-extensions enable fuhgawzglbmenu@katon26.github.io">
-          <span>Copy install command</span><kbd aria-hidden="true">↵</kbd>
+          <span>Copy release install command</span><kbd aria-hidden="true">↵</kbd>
         </li>
-        <li class="palette__item" role="option" data-action="link" data-href="https://github.com/katon26/fuhgawz-global-menu">
-          <span>Open repository on GitHub</span><kbd aria-hidden="true">↵</kbd>
+        <li class="palette__item" role="option" data-action="link" data-href="https://github.com/katon26/fuhgawz-global-menu/releases">
+          <span>Open GitHub Releases</span><kbd aria-hidden="true">↵</kbd>
         </li>
         <li class="palette__item" role="option" data-action="custom" data-custom="ego-status">
           <span>GNOME Extensions status (In review · Available soon)</span><kbd aria-hidden="true">↵</kbd>

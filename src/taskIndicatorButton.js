@@ -8,6 +8,11 @@ import Pango from 'gi://Pango';
 import { TaskProgressBar } from './taskProgressBar.js';
 import { MediaFloatingCard } from './mediaFloatingCard.js';
 
+export const MARQUEE_MAX_CHARS = 28;
+export const MARQUEE_STEP_MS = 250;
+export const MARQUEE_PAUSE_MS = 2000;
+export const MARQUEE_DELIMITER = '   •   ';
+
 let St = null;
 try {
     const mod = await import('gi://St');
@@ -172,6 +177,11 @@ class BaseIndicatorLogic {
         this._isMediaDisplay = false;
         this._suppressMediaFocusCard = false;
         this._mediaSignalIds = [];
+        this._marqueeTimerId = 0;
+        this._marqueeIndex = 0;
+        this._marqueeFullText = '';
+        this._marqueeActiveText = null;
+        this._marqueeMaxChars = options.marqueeMaxChars ?? MARQUEE_MAX_CHARS;
 
         this._tmSignalIds = [];
         this._settingsSignalIds = [];
@@ -384,7 +394,15 @@ class BaseIndicatorLogic {
             return;
         }
 
-        const player = track.playerTitle || track.playerName || track.player || 'Media Player';
+        let player = track.playerTitle || track.playerName || track.player || 'Media Player';
+        if (typeof player === 'string') {
+            if (player.toLowerCase().includes('spotify')) {
+                player = 'Music';
+            } else if (player.includes('.')) {
+                const lastPart = player.split('.').at(-1);
+                player = lastPart ? (lastPart[0].toUpperCase() + lastPart.slice(1)) : player;
+            }
+        }
         const state = this._mediaPlaybackStatus === 'Playing' ? '▶' : '⏸';
         const title = String(track.title || 'Unknown track');
         const artist = String(track.artist || '');
@@ -1874,7 +1892,15 @@ class BaseIndicatorLogic {
                 }
                 return Clutter ? Clutter.EVENT_PROPAGATE : false;
             });
-            this._appMenuSignalIds.push(pId, rId);
+            const enterId = appMenuButton.connect('enter-event', () => {
+                if (this._isMediaDisplay)
+                    this.onPointerEnter();
+            });
+            const leaveId = appMenuButton.connect('leave-event', () => {
+                if (this._isMediaDisplay)
+                    this.onPointerLeave();
+            });
+            this._appMenuSignalIds.push(pId, rId, enterId, leaveId);
         }
 
         if (!this._origAppMenuToggle && appMenuButton.menu && typeof appMenuButton.menu.toggle === 'function') {
@@ -1939,14 +1965,21 @@ class BaseIndicatorLogic {
         }
 
         if (this._compactLabelWidget) {
-            this._compactLabelWidget.text = this._labelText;
             if (this._isMediaDisplay) {
                 this._compactLabelWidget.tooltip_text = this._labelText;
                 if (this._compactLabelWidget.clutter_text)
                     this._compactLabelWidget.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+                const charCount = Array.from(this._labelText).length;
+                if (this._mediaPlaybackStatus === 'Playing' && charCount > this._marqueeMaxChars) {
+                    this._startMediaMarquee(this._labelText);
+                } else {
+                    this._stopMediaMarquee();
+                }
             } else {
+                this._stopMediaMarquee();
                 this._compactLabelWidget.tooltip_text = '';
             }
+            this._compactLabelWidget.text = this._marqueeActiveText || this._labelText;
             if (this._isMediaDisplay) {
                 this._compactLabelWidget.add_style_class_name?.('fuhgawz-media-indicator-label');
                 if (this._mediaPlaybackStatus === 'Paused')
@@ -2116,12 +2149,89 @@ class BaseIndicatorLogic {
     }
 
     // ---------------------------------------------------------------------
+    // Running Text Marquee for Long Media Title/Artist
+    // ---------------------------------------------------------------------
+
+    _startMediaMarquee(fullText) {
+        if (this._destroyed) return;
+        if (this._marqueeFullText !== fullText) {
+            this._stopMediaMarquee();
+            this._marqueeFullText = fullText;
+            this._marqueeIndex = 0;
+            const fullChars = Array.from(fullText);
+            this._marqueeActiveText = fullChars.slice(0, this._marqueeMaxChars).join('');
+            this._scheduleNextMarqueeStep(MARQUEE_PAUSE_MS);
+        } else if (!this._marqueeTimerId && this._mediaPlaybackStatus === 'Playing') {
+            this._scheduleNextMarqueeStep(MARQUEE_STEP_MS);
+        }
+    }
+
+    _scheduleNextMarqueeStep(delayMs) {
+        if (this._marqueeTimerId || this._destroyed)
+            return;
+        this._marqueeTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delayMs, () => {
+            this._marqueeTimerId = 0;
+            if (this._destroyed || !this._isMediaDisplay || this._mediaPlaybackStatus !== 'Playing') {
+                return GLib.SOURCE_REMOVE;
+            }
+            this._stepMarquee();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _stepMarquee() {
+        if (this._destroyed || !this._isMediaDisplay || !this._marqueeFullText)
+            return;
+        const fullChars = Array.from(this._marqueeFullText);
+        if (fullChars.length <= this._marqueeMaxChars) {
+            this._marqueeActiveText = this._marqueeFullText;
+            if (this._compactLabelWidget) {
+                this._compactLabelWidget.text = this._marqueeActiveText;
+            }
+            return;
+        }
+        const streamChars = Array.from(this._marqueeFullText + MARQUEE_DELIMITER);
+        this._marqueeIndex = (this._marqueeIndex + 1) % streamChars.length;
+
+        let displayed = '';
+        for (let i = 0; i < this._marqueeMaxChars; i++) {
+            displayed += streamChars[(this._marqueeIndex + i) % streamChars.length];
+        }
+        this._marqueeActiveText = displayed;
+        if (this._compactLabelWidget) {
+            this._compactLabelWidget.text = this._marqueeActiveText;
+        }
+
+        const nextDelay = (this._marqueeIndex === 0) ? MARQUEE_PAUSE_MS : MARQUEE_STEP_MS;
+        this._scheduleNextMarqueeStep(nextDelay);
+    }
+
+    _stopMediaMarquee() {
+        if (this._marqueeTimerId) {
+            GLib.source_remove(this._marqueeTimerId);
+            this._marqueeTimerId = 0;
+        }
+        this._marqueeIndex = 0;
+        this._marqueeActiveText = null;
+        this._marqueeFullText = '';
+    }
+
+    getMarqueeText() {
+        return this._marqueeActiveText || this._labelText;
+    }
+
+    isMarqueeRunning() {
+        return Boolean(this._marqueeTimerId);
+    }
+
+    // ---------------------------------------------------------------------
     // Clean Teardown
     // ---------------------------------------------------------------------
 
     _destroyIndicator() {
         if (this._destroyed) return;
         this._destroyed = true;
+        this._stopMediaMarquee();
 
         this._activeTask = null;
         this._labelText = '';
@@ -2382,6 +2492,14 @@ if (hasStWidget) {
 
                 this.connect('enter-event', () => this.onPointerEnter());
                 this.connect('leave-event', () => this.onPointerLeave());
+                this._box.connect('enter-event', () => this.onPointerEnter());
+                this._box.connect('leave-event', () => this.onPointerLeave());
+                this._compactLabelWidget.connect('enter-event', () => this.onPointerEnter());
+                this._compactLabelWidget.connect('leave-event', () => this.onPointerLeave());
+                this._statusIconWidget.reactive = true;
+                this._statusIconWidget.track_hover = true;
+                this._statusIconWidget.connect('enter-event', () => this.onPointerEnter());
+                this._statusIconWidget.connect('leave-event', () => this.onPointerLeave());
                 this.connect('key-focus-in', () => this.onFocusEnter());
                 this.connect('key-focus-out', () => this.onFocusLeave());
                 this.can_focus = true;
