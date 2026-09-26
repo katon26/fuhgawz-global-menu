@@ -230,6 +230,82 @@ def test_dual_theme_bento_and_distro_marks():
 
     print("PASS: test_dual_theme_bento_and_distro_marks")
 
+def test_hero_stage_follows_theme():
+    """The .mockup-stage ground must track the active theme instead of staying graphite.
+
+    Regression guard for the bug where a light-theme visitor still saw a black hero
+    band: --color-stage has to be overridden in BOTH dark blocks (the explicit
+    data-theme one and the no-JS prefers-color-scheme mirror), and every hero-copy
+    colour has to ride an on-stage token rather than a hardcoded white.
+    """
+    tokens_path = REPO_ROOT / "docs" / "tokens.css"
+    css_path = REPO_ROOT / "docs" / "styles.css"
+
+    tokens_content = tokens_path.read_text(encoding="utf-8")
+    css_content = css_path.read_text(encoding="utf-8")
+
+    # 1. Every stage token must ship in all three blocks: light, dark, and the mirror
+    for token in (
+        "--color-stage:",
+        "--color-on-stage:",
+        "--color-on-stage-2:",
+        "--color-on-stage-3:",
+        "--color-stage-rule:",
+        "--color-stage-fill:",
+        "--color-accent-on-stage:",
+    ):
+        assert tokens_content.count(token) == 3, f"{token} must exist in light, dark, and mirrored blocks"
+
+    # 2. The light half must define a genuinely light plinth, not the graphite value
+    light_root = tokens_content.split(":root {", 1)[1].split("\n}", 1)[0]
+    light_stage = next(
+        line for line in light_root.splitlines() if line.strip().startswith("--color-stage:")
+    )
+    stage_value = light_stage.split(":", 1)[1].strip()
+    assert "graphite" not in stage_value, (
+        "--color-stage must not alias graphite in the light half; the hero band stayed black in light mode"
+    )
+    lightness = float(stage_value.split()[0].removeprefix("oklch(").rstrip("%"))
+    assert lightness > 80, f"light --color-stage must be a lit tone, got {stage_value}"
+
+    # 3. The stage background and its bottom fade must both be token-driven
+    assert "background: var(--color-stage);" in css_content, "hero ground is not driven by --color-stage"
+    assert css_content.count("var(--color-stage)") >= 4, (
+        "the mockup bottom fade must dissolve into --color-stage too, or the laptop will sit on a hard seam"
+    )
+
+    # 4. Hero copy must never hardcode white; it rides the on-stage ramp.
+    #    Anchor on the section comment: an earlier ".hero-copy" mention sits in
+    #    the mockup-wrap comment, and the mockup HUD below is a *photographed*
+    #    GNOME desktop that is meant to stay dark in both themes.
+    hero_copy = css_content.split("Hero copy renders on", 1)[1].split("Showcase Section", 1)[0]
+    for banned in ("#fff", "#ffffff", "255, 255, 255", "oklch(100%"):
+        assert banned not in hero_copy, f"hardcoded {banned} found in .hero-copy; use an on-stage token"
+    assert hero_copy.count("var(--color-on-stage") >= 5, "hero copy is not fully token-driven"
+
+    # 5. The hero copy sits ON the mocked GNOME screen (the laptop artboard is
+    #    118% wide at scale(1.15) and .hero-content stacks above it), and that
+    #    screen is dark in BOTH themes. So every on-stage ink must be a LIGHT
+    #    tone in BOTH the light and the dark block. The bug this guards: the
+    #    light half shipped 24%/36% greys, which render as unreadable grey
+    #    text on the dark screen. Assert the ramp, not just presence.
+    def _on_stage_lightness(block: str, token: str) -> float:
+        line = next(
+            ln for ln in block.splitlines() if ln.strip().startswith(f"{token}:")
+        )
+        return float(line.split(":", 1)[1].strip().split()[0].removeprefix("oklch(").rstrip("%"))
+
+    dark_block = tokens_content.split(':root[data-theme="dark"]', 1)[1].split("\n}\n", 1)[0]
+    for block_name, block in (("light", light_root), ("dark", dark_block)):
+        for token in ("--color-on-stage", "--color-on-stage-2", "--color-on-stage-3"):
+            lightness = _on_stage_lightness(block, token)
+            assert lightness >= 68, (
+                f"{token} in the {block_name} half is {lightness}% — the hero copy renders on the "
+                "dark mocked GNOME screen, so on-stage inks must stay light in both themes"
+            )
+
+    print("PASS: test_hero_stage_follows_theme")
+
 def main():
     test_font_tokens()
     test_font_html()
@@ -238,6 +314,7 @@ def main():
     test_dynamic_indicator_and_release_flow()
     test_floating_media_card_and_marquee()
     test_dual_theme_bento_and_distro_marks()
+    test_hero_stage_follows_theme()
     test_js_syntax()
     test_existing_suite()
     print("\nAll landing page and repository tests passed!")

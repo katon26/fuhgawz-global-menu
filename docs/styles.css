@@ -240,7 +240,7 @@ a { color: inherit; }
   position: relative;
   overflow: hidden;
   min-height: clamp(38rem, 82vh, 54rem);
-  background: var(--color-graphite);
+  background: var(--color-stage);
 }
 
 /* Mockup Stage — fills hero, clips bottom */
@@ -308,9 +308,9 @@ a { color: inherit; }
   background: linear-gradient(
     180deg,
     transparent 0%,
-    color-mix(in oklch, var(--color-graphite) 55%, transparent) 45%,
-    var(--color-graphite) 65%,
-    var(--color-graphite) 100%
+    color-mix(in oklch, var(--color-stage) 55%, transparent) 45%,
+    var(--color-stage) 65%,
+    var(--color-stage) 100%
   );
 }
 
@@ -555,7 +555,9 @@ a { color: inherit; }
   padding-top: clamp(0.3rem, 0.35cqw, 0.5rem);
 }
 
-/* Hero Copy — overlaid on the dark laptop screen, right-aligned column */
+/* Hero Copy — right-aligned column on the right 46% of the stage. It stacks
+   ABOVE the laptop (z-index 10 vs 1) and the artboard spans the whole hero, so
+   this text lands on the mocked GNOME screen, which is dark in both themes. */
 .hero-content {
   position: relative;
   z-index: 10;
@@ -569,19 +571,21 @@ a { color: inherit; }
   pointer-events: auto;
 }
 
-/* Override hero copy children for dark background */
+/* Hero copy renders on the dark mocked GNOME screen in BOTH themes, so the
+   on-stage inks are the light-on-dark set in both halves and only differ in
+   intensity. Never hardcode rgba(255,255,255,…) inside .hero-copy. */
 .hero-copy .hero__badge {
-  color: rgba(255, 255, 255, 0.62);
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--color-on-stage-2);
+  background: var(--color-stage-fill);
+  border-color: var(--color-stage-rule);
 }
-.hero-copy .badge-dot { background: var(--color-accent-bright); box-shadow: 0 0 6px var(--color-accent-bright); }
+.hero-copy .badge-dot { background: var(--color-accent-on-stage); box-shadow: 0 0 6px var(--color-accent-on-stage); }
 .hero-copy .hero__title {
-  color: #f0f1f5;
+  color: var(--color-on-stage);
   max-width: 16ch;
 }
 .hero-copy .hero__lede {
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--color-on-stage-2);
   max-width: 34rem;
 }
 .hero-copy .hero__cta .btn--primary {
@@ -589,42 +593,44 @@ a { color: inherit; }
   color: var(--color-accent-ink);
 }
 .hero-copy .hero__cta .btn--ghost {
-  border-color: rgba(255, 255, 255, 0.18);
-  color: rgba(255, 255, 255, 0.85);
+  border-color: var(--color-stage-rule);
+  color: var(--color-on-stage);
+  background: var(--color-stage-fill);
 }
 .hero-copy .hero__cta .btn--ghost:hover {
-  border-color: rgba(255, 255, 255, 0.4);
-  color: #fff;
+  border-color: var(--color-accent-on-stage);
+  color: var(--color-accent-on-stage);
+  background: var(--color-stage-fill);
 }
 .hero-copy .hero__cta .btn--ego {
-  border-color: rgba(255, 255, 255, 0.18);
-  color: rgba(255, 255, 255, 0.85);
+  border-color: var(--color-stage-rule);
+  color: var(--color-on-stage);
 }
 .hero-copy .hero-quick-pill {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.10);
+  background: var(--color-stage-fill);
+  border-color: var(--color-stage-rule);
 }
 .hero-copy .quick-pill__body {
-  background: rgba(255, 255, 255, 0.04);
+  background: transparent;
 }
 .hero-copy .quick-pill__tag {
-  color: var(--color-accent-bright);
+  color: var(--color-accent-on-stage);
 }
 .hero-copy .quick-pill__prompt {
-  color: var(--color-accent-bright);
+  color: var(--color-accent-on-stage);
 }
 .hero-copy .quick-pill__cmd {
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--color-on-stage-2);
 }
 .hero-copy .copy-mini {
-  color: rgba(255, 255, 255, 0.45);
-  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--color-on-stage-3);
+  border-color: var(--color-stage-rule);
 }
 .hero-copy .hero__proof {
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--color-on-stage-3);
 }
 .hero-copy .proof-tag {
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--color-on-stage-2);
 }
 .hero-copy .proof-check {
   color: var(--color-success);
