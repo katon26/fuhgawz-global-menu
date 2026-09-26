@@ -13,6 +13,9 @@ function assert(condition, message) {
         throw new Error(`Assertion failed: ${message}`);
     }
 }
+assert.strictEqual = function (actual, expected, message) {
+    assert(actual === expected, message || `${actual} === ${expected}`);
+};
 
 console.log('Testing TaskIndicatorButton panel UI controller, interaction modes, collision clamping & dropdown...');
 
@@ -27,7 +30,19 @@ class MockSettings extends GObject.Object {
             ['task-indicator-mode', 'compact'],
             ['task-auto-hide-seconds', 1], // 1s for fast tests
             ['task-sync-recent-items', true],
+            ['task-indicator-reveal', 'slide-fade'],
+            ['task-indicator-reveal-ms', 180],
+            ['task-indicator-reduced-motion', true],
+            ['task-indicator-details', true],
+            ['yank-indicator', false],
+            ['yank-indicator-return', 'zone-leave'],
         ]);
+    }
+
+    get_value(key) {
+        if (!this._values.has(key))
+            return null;
+        return this._values.get(key);
     }
 
     get_boolean(key) {
@@ -1306,3 +1321,72 @@ fakeMedia.publishStatus('Paused');
 assert(fakeCard.shownFor.length === shownCountAfterDestroy, 'destroyed indicator must not react to later manager signals');
 assert(mediaConnectionIds.length === 2 && mediaIndicator._mediaSignalIds.length === 0, 'indicator teardown should disconnect media manager handlers');
 console.log('-> Dynamic media/task integration requirements PASSED.');
+
+// ---------------------------------------------------------------------
+// 12. Live indicator accessibility & click-to-open media card
+// ---------------------------------------------------------------------
+console.log('12. Verifying accessible names and click-to-open media card...');
+const a11ySettings = new MockSettingsClass();
+a11ySettings._values.set('enable-media-indicator', true);
+a11ySettings._values.set('media-persistent-idle', true);
+a11ySettings._values.set('media-hover-popover', false);
+const a11yMedia = new MockMediaManagerClass();
+const a11yTasks = new MockTaskManagerForMediaClass();
+const a11yCard = new MockMediaCard();
+const a11yIndicator = new TaskIndicatorButton(a11ySettings, a11yTasks, {
+    mediaManager: a11yMedia,
+    mediaCard: a11yCard,
+});
+a11yMedia.publishTrack({
+    player: 'org.mpris.MediaPlayer2.spotify',
+    playerTitle: 'Music',
+    title: 'Flower',
+    artist: 'Soundgarden',
+});
+a11yMedia.publishStatus('Playing');
+assert(a11yIndicator.accessible_name.includes('Flower') && a11yIndicator.accessible_name.includes('Soundgarden'), `media accessible name must name the track: ${a11yIndicator.accessible_name}`);
+assert(/Playing/.test(a11yIndicator.accessible_name), `media accessible name must state the playback state: ${a11yIndicator.accessible_name}`);
+const a11yShownBefore = a11yCard.shownFor.length;
+a11yIndicator.toggleMediaCard();
+assert(a11yCard.shownFor.length === a11yShownBefore + 1, 'clicking the media label must open the card when the hover popover is disabled');
+a11yCard.isOpen = () => true;
+a11yIndicator.toggleMediaCard();
+assert(a11yCard.hidden === true, 'clicking again must close the media card');
+a11yTasks.add({ id: 'download:2', title: 'Download.iso', progress: 0.5, state: 'running' });
+assert(a11yIndicator.accessible_name.includes('50 percent'), `file task accessible name must state progress: ${a11yIndicator.accessible_name}`);
+a11yTasks.remove('download:2');
+a11yIndicator.destroy();
+console.log('-> Accessible name and click-to-open media card PASSED.');
+
+// ---------------------------------------------------------------------
+// 13. Live Indicator GSettings schema keys
+// ---------------------------------------------------------------------
+console.log('13. Verifying new Live Indicator GSettings schema keys...');
+const newKeys = [
+    { key: 'task-indicator-reveal', default: 'slide-fade' },
+    { key: 'task-indicator-reveal-ms', default: 180 },
+    { key: 'task-indicator-reduced-motion', default: true },
+    { key: 'task-indicator-details', default: true },
+    { key: 'yank-indicator', default: false },
+    { key: 'yank-indicator-return', default: 'zone-leave' },
+];
+for (const item of newKeys) {
+    assert(indicator._settings.get_value(item.key) !== null, `Missing GSettings key ${item.key}`);
+    assert.strictEqual(indicator._settings.get_string ? indicator._settings.get_string(item.key) : indicator._settings[item.key], item.default);
+}
+
+const schemaDir = Gio.File.new_for_path('./schemas');
+const schemaSource = Gio.SettingsSchemaSource.new_from_directory(
+    schemaDir.get_path(),
+    Gio.SettingsSchemaSource.get_default(),
+    false
+);
+const compiledSchema = schemaSource.lookup('org.gnome.shell.extensions.fuhgawzglbmenu', false);
+assert(compiledSchema !== null, 'Compiled schema org.gnome.shell.extensions.fuhgawzglbmenu not found');
+for (const item of newKeys) {
+    assert(compiledSchema.has_key(item.key), `Compiled schema missing key ${item.key}`);
+    const schemaKey = compiledSchema.get_key(item.key);
+    assert.strictEqual(schemaKey.get_default_value().deep_unpack(), item.default);
+}
+console.log('-> Live Indicator GSettings schema keys PASSED.');
+

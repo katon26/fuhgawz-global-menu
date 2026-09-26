@@ -174,5 +174,35 @@
       <summary>Show the interactive media card</summary>
       <description>Open the media card when hovering over or moving keyboard focus to the panel indicator.</description>
     </key>
+    <key name="task-indicator-reveal" type="s">
+      <default>'slide-fade'</default>
+      <summary>Task indicator reveal animation style</summary>
+      <description>Animation style when revealing: slide-fade, fade, or none.</description>
+    </key>
+    <key name="task-indicator-reveal-ms" type="i">
+      <default>180</default>
+      <summary>Task indicator reveal animation duration</summary>
+      <description>Duration in milliseconds for the reveal animation (0 to 400).</description>
+    </key>
+    <key name="task-indicator-reduced-motion" type="b">
+      <default>true</default>
+      <summary>Respect system reduced motion</summary>
+      <description>Disable or simplify reveal animations when system animations are disabled.</description>
+    </key>
+    <key name="task-indicator-details" type="b">
+      <default>true</default>
+      <summary>Show transfer details in indicator</summary>
+      <description>Whether to show bytes and transfer speed telemetry in expanded chip.</description>
+    </key>
+    <key name="yank-indicator" type="b">
+      <default>false</default>
+      <summary>Enable yank indicator motion</summary>
+      <description>Yank the media chip out of the slot when the menu pointer zone is entered.</description>
+    </key>
+    <key name="yank-indicator-return" type="s">
+      <default>'zone-leave'</default>
+      <summary>Yank indicator return trigger</summary>
+      <description>Trigger condition to return yanked chip: zone-leave, click, or never.</description>
+    </key>
   </schema>
 </schemalist>
