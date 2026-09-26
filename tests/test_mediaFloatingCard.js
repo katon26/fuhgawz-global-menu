@@ -289,6 +289,17 @@ await wait(GRACE_PERIOD_MS + 50);
 assert(!card.isOpen() && !card.visible, 'leaving both anchor and card must close after the grace period');
 assert(card._easeOptions.some(({ opacity }) => opacity === 0), 'closing must fade the card opacity');
 
+anchor.isPinned = true;
+card.showForActor(anchor, { title: 'Pinned playback' }, 'Playing');
+await wait(OPEN_DELAY_MS + 50);
+assert(card.isOpen(), 'card must be open');
+card.hover = false;
+card.emit('notify::hover');
+await wait(GRACE_PERIOD_MS + 50);
+assert(card.isOpen() && card.visible, 'pinned anchor must prevent card from closing after grace period');
+anchor.isPinned = false;
+card.hideCard();
+
 card.showForActor(anchor, { title: 'Keyboard playback' }, 'Playing');
 await wait(OPEN_DELAY_MS + 50);
 assert(card.isOpen(), 'card must be available for keyboard interaction after opening');

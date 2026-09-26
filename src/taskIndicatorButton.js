@@ -87,6 +87,8 @@ class FallbackPopupMenu {
         this.items = [];
         this.isOpen = false;
         this._handlers = new Map();
+        this._actorHandlers = new Map();
+        this._nextId = 1;
         this.actor = {
             show: () => {
                 this.isOpen = true;
@@ -97,6 +99,27 @@ class FallbackPopupMenu {
                 this.isOpen = false;
                 this.actor.visible = false;
                 this._emit('open-state-changed', false);
+            },
+            connect: (sig, handler) => {
+                if (!this._actorHandlers.has(sig)) this._actorHandlers.set(sig, []);
+                const id = this._nextId++;
+                this._actorHandlers.get(sig).push({ id, handler });
+                return id;
+            },
+            disconnect: (id) => {
+                for (const list of this._actorHandlers.values()) {
+                    const idx = list.findIndex(h => h.id === id);
+                    if (idx >= 0) {
+                        list.splice(idx, 1);
+                        return;
+                    }
+                }
+            },
+            emit: (sig, ...args) => {
+                const list = (this._actorHandlers.get(sig) || []).slice();
+                for (const { handler } of list) {
+                    try { handler(this.actor, ...args); } catch (e) {}
+                }
             },
             visible: false,
             opacity: 255,
@@ -113,7 +136,7 @@ class FallbackPopupMenu {
 
     connect(sig, handler) {
         if (!this._handlers.has(sig)) this._handlers.set(sig, []);
-        const id = this._handlers.get(sig).length + 1;
+        const id = this._nextId++;
         this._handlers.get(sig).push({ id, handler });
         return id;
     }
@@ -129,10 +152,14 @@ class FallbackPopupMenu {
     }
 
     _emit(sig, ...args) {
-        const list = this._handlers.get(sig) || [];
+        const list = (this._handlers.get(sig) || []).slice();
         for (const { handler } of list) {
             try { handler(this, ...args); } catch (e) {}
         }
+    }
+
+    emit(sig, ...args) {
+        this._emit(sig, ...args);
     }
 
     addMenuItem(item) {
@@ -248,6 +275,14 @@ class BaseIndicatorLogic {
         if (this.menu && !this._menuOpenStateId && typeof this.menu.connect === 'function') {
             this._menuOpenStateId = this.menu.connect('open-state-changed', (m, isOpen) => {
                 this._isDropdownOpen = isOpen;
+                if (!isOpen) {
+                    this._isPinned = false;
+                    this._clearStaggerTimers();
+                    if (this._menuKeyId && this.menu?.actor && typeof this.menu.actor.disconnect === 'function') {
+                        try { this.menu.actor.disconnect(this._menuKeyId); } catch (e) {}
+                        this._menuKeyId = 0;
+                    }
+                }
                 this._updateUiComponents();
                 if (typeof this.emit === 'function') {
                     this.emit('dropdown-toggled', isOpen);
@@ -2023,14 +2058,17 @@ class BaseIndicatorLogic {
         const keyF = Clutter?.KEY_F ?? 0x46;
         const keyEscape = Clutter?.KEY_Escape ?? 0xff1b;
         const mod1Mask = Clutter?.ModifierType?.MOD1_MASK ?? 8;
+        const ctrlMask = Clutter?.ModifierType?.CONTROL_MASK ?? 4;
+        const shiftMask = Clutter?.ModifierType?.SHIFT_MASK ?? 1;
 
         const isF10 = symbol === keyF10 || symbol === 'F10';
         const isF = symbol === keyf || symbol === keyF || symbol === 'f' || symbol === 'F';
         const isAlt = Boolean(state & mod1Mask);
-        const isAltF = isF && isAlt;
+        const isPlainF10 = isF10 && !(state & (mod1Mask | ctrlMask | shiftMask));
+        const isPureAltF = isF && isAlt && !(state & ctrlMask);
         const isEscape = symbol === keyEscape || symbol === 'Escape' || event?.keyName === 'Escape';
 
-        if (isF10 || isAltF) {
+        if (isPlainF10 || isPureAltF) {
             this.togglePinned();
             return Clutter?.EVENT_STOP ?? true;
         }

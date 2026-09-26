@@ -1079,10 +1079,12 @@ class MediaFloatingCardLogic {
     }
 
     _startGraceTimer() {
-        if (this._graceTimerId || this._destroyed)
+        if (this._graceTimerId || this._destroyed || this._anchorActor?.isPinned)
             return;
         this._graceTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, this._gracePeriodMs, () => {
             this._graceTimerId = 0;
+            if (this._anchorActor?.isPinned)
+                return GLib.SOURCE_REMOVE;
             if (!this._isPointerOver(this._anchorActor) && !this._isPointerOver(this) && !this._hasKeyboardFocus())
                 this.hideCard();
             return GLib.SOURCE_REMOVE;

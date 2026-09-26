@@ -71,6 +71,17 @@ class MockSettings extends GObject.Object {
         this._values.set(key, val);
         this.emit(`changed::${key}`, key);
     }
+
+    bind(key, object, property, flags) {
+        if (property in object) {
+            object[property] = this._values.get(key);
+        }
+        return this.connect(`changed::${key}`, () => {
+            if (property in object) {
+                object[property] = this._values.get(key);
+            }
+        });
+    }
 }
 
 const MockSettingsClass = GObject.registerClass(
@@ -1424,6 +1435,7 @@ class MockPrefRow extends GObject.Object {
         this.selected = props.selected ?? 0;
         this.active = props.active ?? false;
         this.value = props.value ?? 0;
+        this.sensitive = props.sensitive ?? true;
     }
 }
 const MockPrefRowClass = GObject.registerClass({
@@ -1432,6 +1444,7 @@ const MockPrefRowClass = GObject.registerClass({
         'selected': GObject.ParamSpec.int('selected', 'selected', 'selected', GObject.ParamFlags.READWRITE, -1, 100, 0),
         'active': GObject.ParamSpec.boolean('active', 'active', 'active', GObject.ParamFlags.READWRITE, false),
         'value': GObject.ParamSpec.int('value', 'value', 'value', GObject.ParamFlags.READWRITE, 0, 1000, 0),
+        'sensitive': GObject.ParamSpec.boolean('sensitive', 'sensitive', 'sensitive', GObject.ParamFlags.READWRITE, true),
     },
 }, MockPrefRow);
 
@@ -1584,6 +1597,14 @@ assert.strictEqual(testSettings.get_string('yank-indicator-return'), 'never', 'S
 testSettings.set_string('yank-indicator-return', 'zone-leave');
 assert.strictEqual(testYankReturnRow.selected, 0, 'Setting yank-indicator-return to zone-leave must update row selected to 0');
 testSettings.disconnect(yankReturnSigId);
+
+// 7. yankReturnRow sensitivity binding to yank-indicator
+const testSensBindId = testSettings.bind('yank-indicator', testYankReturnRow, 'sensitive', Gio.SettingsBindFlags.DEFAULT);
+testSettings.set_boolean('yank-indicator', false);
+assert.strictEqual(testYankReturnRow.sensitive, false, 'yankReturnRow must become insensitive when yank-indicator is false');
+testSettings.set_boolean('yank-indicator', true);
+assert.strictEqual(testYankReturnRow.sensitive, true, 'yankReturnRow must become sensitive when yank-indicator is true');
+testSettings.disconnect(testSensBindId);
 
 console.log('-> Preferences UI settings bidirectional bindings PASSED.');
 
@@ -2157,6 +2178,30 @@ assert.strictEqual(pinIndicator._yankNaturalWidth, yankedNaturalWidth, 'Cached n
 // 2. Turning off yank-indicator setting while yanked immediately calls yankChipIn
 pinSettings.set_boolean('yank-indicator', false);
 assert.strictEqual(pinIndicator.isYanked, false, 'Setting yank-indicator to false while yanked must restore chip');
+
+// 3. Pure modifier filtering checks on F10 and Alt+F
+const ctrlF10Event = new MockKeyInputEvent(KEY_F10_CODE, 4); // Ctrl+F10
+assert.strictEqual(pinIndicator.handleKeyPress(ctrlF10Event), false, 'Ctrl+F10 must be ignored');
+const shiftF10Event = new MockKeyInputEvent(KEY_F10_CODE, 1); // Shift+F10
+assert.strictEqual(pinIndicator.handleKeyPress(shiftF10Event), false, 'Shift+F10 must be ignored');
+const altF10Event = new MockKeyInputEvent(KEY_F10_CODE, 8); // Alt+F10
+assert.strictEqual(pinIndicator.handleKeyPress(altF10Event), false, 'Alt+F10 must be ignored');
+const ctrlAltFEvent = new MockKeyInputEvent(KEY_f_CODE, 12); // Ctrl+Alt+F
+assert.strictEqual(pinIndicator.handleKeyPress(ctrlAltFEvent), false, 'Ctrl+Alt+F must be ignored');
+assert.strictEqual(pinIndicator.isPinned, false, 'Unwanted modifier combinations must not trigger pinning');
+
+// 4. open-state-changed false resets isPinned, clears stagger timers, and disconnects _menuKeyId
+pinIndicator.openDropdown();
+pinIndicator.pin();
+assert.strictEqual(pinIndicator.isPinned, true, 'Indicator is pinned');
+pinIndicator._staggerMenuItems([{ opacity: 0 }, { opacity: 0 }], 20);
+assert(pinIndicator._staggerTimerIds.length > 0, 'Stagger timers scheduled');
+assert(pinIndicator._menuKeyId > 0, '_menuKeyId connected');
+
+pinIndicator.menu.emit('open-state-changed', false);
+assert.strictEqual(pinIndicator.isPinned, false, 'open-state-changed false must reset isPinned');
+assert.strictEqual(pinIndicator._staggerTimerIds.length, 0, 'open-state-changed false must clear stagger timers');
+assert.strictEqual(pinIndicator._menuKeyId, 0, 'open-state-changed false must disconnect _menuKeyId');
 
 pinIndicator.destroy();
 console.log('-> Keyboard Pinning & Quality Fixes PASSED.');

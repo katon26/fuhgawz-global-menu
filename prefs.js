@@ -733,6 +733,12 @@ function createGlobalMenuPage(settings, gettextFunc) {
     yankReturnRow.connect('unrealize', () => {
         try { settings.disconnect(yankReturnSignalId); } catch (error) {}
     });
+    settings.bind(
+        'yank-indicator',
+        yankReturnRow,
+        'sensitive',
+        Gio.SettingsBindFlags.DEFAULT
+    );
     mediaGroup.add(yankReturnRow);
 
     return page;
