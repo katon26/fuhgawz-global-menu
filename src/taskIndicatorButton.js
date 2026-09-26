@@ -188,6 +188,8 @@ class BaseIndicatorLogic {
         this._leaveGraceTimerId = 0;
         this._staggerTimerIds = [];
         this._isPinned = false;
+        this._yankNaturalWidth = 0;
+        this._menuKeyId = 0;
         this._interfaceSettings = options.interfaceSettings ?? null;
         this._cardDwellMs = options.cardDwellMs ?? CARD_DWELL_MS;
         this._leaveGraceMs = (options.leaveGraceMs !== undefined) ? options.leaveGraceMs : (this._settings ? LEAVE_GRACE_MS : 0);
@@ -313,6 +315,9 @@ class BaseIndicatorLogic {
                     const id = this._settings.connect(`changed::${key}`, () => {
                         if (this._destroyed)
                             return;
+                        if (key === 'yank-indicator' && !this._yankEnabled && this._isYanked) {
+                            this.yankChipIn();
+                        }
                         this._updateUiComponents();
                     });
                     this._settingsSignalIds.push(id);
@@ -1311,7 +1316,7 @@ class BaseIndicatorLogic {
     }
 
     onPointerLeave(options = {}) {
-        if (this._destroyed) return;
+        if (this._destroyed || this._isPinned) return;
         this._cancelCardDwellTimer();
 
         const graceMs = options.graceMs ?? this._leaveGraceMs;
@@ -1786,6 +1791,9 @@ class BaseIndicatorLogic {
 
     set _yankEnabled(val) {
         this._customYankEnabled = Boolean(val);
+        if (!this._customYankEnabled && this._isYanked) {
+            this.yankChipIn();
+        }
     }
 
     isYankEnabled() {
@@ -1843,6 +1851,8 @@ class BaseIndicatorLogic {
     }
 
     yankChipOut() {
+        if (this._isYanked)
+            return;
         if (!this._yankEnabled || this._hasActiveTask() || this.isCardOpen())
             return;
         if (!this._isMediaDisplay)
@@ -1853,6 +1863,10 @@ class BaseIndicatorLogic {
                     return;
             } catch (e) {}
         }
+        this._yankNaturalWidth = typeof this._chipActor.get_preferred_width === 'function'
+            ? this._chipActor.get_preferred_width(-1)[1]
+            : (this._chipActor._naturalWidth ?? this._chipActor.width ?? 120);
+
         this._isYanked = true;
         if (this._shouldReduceMotion()) {
             this._chipActor.opacity = 0;
@@ -1871,12 +1885,13 @@ class BaseIndicatorLogic {
         if (!this._isYanked)
             return;
         this._isYanked = false;
-        const naturalWidth = typeof this._chipActor.get_preferred_width === 'function'
+        const naturalWidth = this._yankNaturalWidth || (typeof this._chipActor.get_preferred_width === 'function'
             ? this._chipActor.get_preferred_width(-1)[1]
-            : (this._chipActor._naturalWidth ?? this._chipActor.width ?? 120);
+            : (this._chipActor._naturalWidth ?? this._chipActor.width ?? 120));
         if (this._shouldReduceMotion()) {
             this._chipActor.width = naturalWidth;
             this._chipActor.opacity = 255;
+            this._chipActor.width = -1;
             return;
         }
         this._chipActor.ease({
@@ -1884,6 +1899,9 @@ class BaseIndicatorLogic {
             opacity: 255,
             duration: 200,
             mode: Clutter?.AnimationMode?.EASE_IN_CUBIC ?? 31,
+            onComplete: () => {
+                this._chipActor.width = -1;
+            },
         });
     }
 
@@ -1901,7 +1919,7 @@ class BaseIndicatorLogic {
     }
 
     onMenuZoneLeave(options = {}) {
-        if (this._destroyed) return;
+        if (this._destroyed || this._isPinned) return;
         if (this._isYanked) {
             if (this.getYankReturnTrigger() === 'zone-leave') {
                 const graceMs = options.graceMs ?? this._leaveGraceMs;
@@ -1932,6 +1950,103 @@ class BaseIndicatorLogic {
         if (this._isYanked && this.getYankReturnTrigger() === 'click') {
             this.yankChipIn();
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Keyboard Pinning (F10 / Alt+F / Esc) & Pinning State Machine
+    // ---------------------------------------------------------------------
+
+    get isPinned() {
+        return Boolean(this._isPinned);
+    }
+
+    set isPinned(val) {
+        this._isPinned = Boolean(val);
+    }
+
+    pin() {
+        this._isPinned = true;
+        if (!this.isCardOpen()) {
+            if (this._isMediaDisplay) {
+                if (typeof this._mediaCard?.showForKeyboardActor === 'function') {
+                    this._mediaCard.showForKeyboardActor(this, this._mediaTrack, this._mediaPlaybackStatus);
+                } else if (typeof this._mediaCard?.showForActor === 'function') {
+                    this._mediaCard.showForActor(this, this._mediaTrack, this._mediaPlaybackStatus);
+                }
+            } else {
+                this.openDropdown();
+            }
+        }
+    }
+
+    unpin() {
+        this._isPinned = false;
+    }
+
+    togglePinned() {
+        if (this._isPinned) {
+            this.unpin();
+            this.closeCard();
+        } else {
+            this.pin();
+        }
+        return this._isPinned;
+    }
+
+    closeCard(options = {}) {
+        if (this._isMediaDisplay) {
+            this._mediaCard?.hideCard?.();
+        }
+        if (this._floatingCardActor) {
+            if (typeof this._floatingCardActor.hideCard === 'function')
+                this._floatingCardActor.hideCard();
+            else if (typeof this._floatingCardActor.hide === 'function')
+                this._floatingCardActor.hide();
+        }
+        if (this.isDropdownOpen()) {
+            this.closeDropdown(options);
+        }
+    }
+
+    handleKeyPress(event) {
+        if (this._destroyed || !event) return Clutter?.EVENT_PROPAGATE ?? false;
+
+        const symbol = (typeof event.get_key_symbol === 'function')
+            ? event.get_key_symbol()
+            : (event.keyval ?? event.symbol ?? event.key);
+        const state = (typeof event.get_state === 'function')
+            ? event.get_state()
+            : (event.state ?? event.modifier ?? event.modifiers ?? 0);
+
+        const keyF10 = Clutter?.KEY_F10 ?? 0xffc7;
+        const keyf = Clutter?.KEY_f ?? 0x66;
+        const keyF = Clutter?.KEY_F ?? 0x46;
+        const keyEscape = Clutter?.KEY_Escape ?? 0xff1b;
+        const mod1Mask = Clutter?.ModifierType?.MOD1_MASK ?? 8;
+
+        const isF10 = symbol === keyF10 || symbol === 'F10';
+        const isF = symbol === keyf || symbol === keyF || symbol === 'f' || symbol === 'F';
+        const isAlt = Boolean(state & mod1Mask);
+        const isAltF = isF && isAlt;
+        const isEscape = symbol === keyEscape || symbol === 'Escape' || event?.keyName === 'Escape';
+
+        if (isF10 || isAltF) {
+            this.togglePinned();
+            return Clutter?.EVENT_STOP ?? true;
+        }
+
+        if (isEscape) {
+            if (this._isPinned) {
+                this.unpin();
+                this.closeCard();
+                return Clutter?.EVENT_STOP ?? true;
+            } else if (this.isCardOpen()) {
+                this.closeCard();
+                return Clutter?.EVENT_STOP ?? true;
+            }
+        }
+
+        return Clutter?.EVENT_PROPAGATE ?? false;
     }
 
 
@@ -1970,6 +2085,11 @@ class BaseIndicatorLogic {
         }
 
         if (this.menu?.actor) {
+            if (!this._menuKeyId && typeof this.menu.actor.connect === 'function') {
+                this._menuKeyId = this.menu.actor.connect('key-press-event', (_actor, event) => {
+                    return this.handleKeyPress(event);
+                });
+            }
             this._revealMenuWithMotion(this.menu.actor);
         }
 
@@ -1986,7 +2106,12 @@ class BaseIndicatorLogic {
 
     closeDropdown(options = {}) {
         if (this._destroyed) return;
+        this._isPinned = false;
         this._clearStaggerTimers();
+        if (this._menuKeyId && this.menu?.actor && typeof this.menu.actor.disconnect === 'function') {
+            try { this.menu.actor.disconnect(this._menuKeyId); } catch (e) {}
+            this._menuKeyId = 0;
+        }
         this._isDropdownOpen = false;
 
         const finalizeClose = () => {
@@ -2445,7 +2570,10 @@ class BaseIndicatorLogic {
             const leaveId = appMenuButton.connect('leave-event', () => {
                 this.onMenuZoneLeave();
             });
-            this._appMenuSignalIds.push(pId, rId, enterId, leaveId);
+            const keyId = appMenuButton.connect('key-press-event', (actor, event) => {
+                return this.handleKeyPress(event);
+            });
+            this._appMenuSignalIds.push(pId, rId, enterId, leaveId, keyId);
         }
 
         if (!this._origAppMenuToggle && appMenuButton.menu && typeof appMenuButton.menu.toggle === 'function') {
@@ -2830,6 +2958,11 @@ class BaseIndicatorLogic {
         this._isCompressed = false;
         this._customChipActor = null;
         this._floatingCardActor = null;
+        this._isPinned = false;
+        if (this._menuKeyId && this.menu?.actor && typeof this.menu.actor.disconnect === 'function') {
+            try { this.menu.actor.disconnect(this._menuKeyId); } catch (e) {}
+            this._menuKeyId = 0;
+        }
 
         if (this.menu) {
             if (this._menuOpenStateId && typeof this.menu.disconnect === 'function') {
@@ -3049,6 +3182,10 @@ if (hasStWidget) {
                     return this._handleIndicatorButtonPress(event);
                 });
 
+                this.connect('key-press-event', (actor, event) => {
+                    return this.handleKeyPress(event);
+                });
+
                 this.connect('enter-event', () => this.onPointerEnter());
                 this.connect('leave-event', () => this.onPointerLeave());
                 this._box.connect('enter-event', () => this.onPointerEnter());
@@ -3220,6 +3357,10 @@ if (hasStWidget) {
                     param_types: [GObject.TYPE_JSOBJECT],
                     return_type: GObject.TYPE_BOOLEAN,
                 },
+                'key-press-event': {
+                    param_types: [GObject.TYPE_JSOBJECT],
+                    return_type: GObject.TYPE_BOOLEAN,
+                },
                 'key-focus-in': {},
                 'key-focus-out': {},
                 'destroy': {},
@@ -3333,6 +3474,10 @@ if (hasStWidget) {
 
                 this.connect('button-press-event', (actor, event) => {
                     return this._handleIndicatorButtonPress(event);
+                });
+
+                this.connect('key-press-event', (actor, event) => {
+                    return this.handleKeyPress(event);
                 });
 
                 this.connect('enter-event', () => this.onPointerEnter());

@@ -1184,13 +1184,29 @@ class MockMediaCard {
         this.shownFor = [];
         this.states = [];
         this.destroyed = false;
+        this._isOpen = false;
     }
-    showForActor(actor, track, status) { this.shownFor.push({ actor, track, status }); }
-    showForKeyboardActor(actor, track, status) { this.shownFor.push({ actor, track, status, keyboard: true }); }
+    showForActor(actor, track, status) {
+        this.shownFor.push({ actor, track, status });
+        this._isOpen = true;
+    }
+    showForKeyboardActor(actor, track, status) {
+        this.shownFor.push({ actor, track, status, keyboard: true });
+        this._isOpen = true;
+    }
     scheduleKeyboardFocusClose() { this.keyboardCloseScheduled = true; }
     updateState(track, status) { this.states.push({ track, status }); }
-    hideCard() { this.hidden = true; }
-    destroy() { this.destroyed = true; }
+    hideCard() {
+        this.hidden = true;
+        this._isOpen = false;
+    }
+    isOpen() {
+        return this._isOpen;
+    }
+    destroy() {
+        this.destroyed = true;
+        this._isOpen = false;
+    }
 }
 
 class MockPointerEvent {
@@ -1846,7 +1862,8 @@ assert.strictEqual(yankIndicator._chipActor._easeParams.opacity, 0, 'Yank out ta
 yankIndicator.yankChipIn();
 assert.strictEqual(yankIndicator.isYanked, false, 'isYanked must be false after yankChipIn');
 assert.strictEqual(yankIndicator._chipActor.opacity, 255, 'Restored chip opacity must be 255');
-assert(yankIndicator._chipActor.width > 0, 'Restored chip width must be natural width > 0');
+assert(yankIndicator._chipActor._easeParams.width > 0, 'Restored chip target width must be natural width > 0');
+assert.strictEqual(yankIndicator._chipActor.width, -1, 'Chip width should be reset to -1 upon completion to allow dynamic layout');
 assert.strictEqual(yankIndicator._chipActor._easeParams.duration, 200, 'Yank in duration must be 200ms');
 assert.strictEqual(yankIndicator._chipActor._easeParams.opacity, 255, 'Yank in target opacity must be 255');
 
@@ -1989,6 +2006,161 @@ indPolish.destroy();
 
 yankIndicator.destroy();
 console.log('-> Yank indicator motion & contention arbitration PASSED.');
+
+// ---------------------------------------------------------------------
+// 17. Keyboard Pinning (F10 / Alt+F / Esc) & Pinning State Machine
+// ---------------------------------------------------------------------
+console.log('17. Verifying Keyboard Pinning (F10 / Alt+F / Esc), leave grace suppression & quality items...');
+
+const pinSettings = new MockSettingsClass();
+pinSettings._values.set('enable-task-indicator', true);
+pinSettings._values.set('task-indicator-mode', 'compact');
+pinSettings._values.set('yank-indicator', true);
+pinSettings._values.set('yank-indicator-return', 'zone-leave');
+
+const pinTasks = new MockTaskManagerForMediaClass();
+pinTasks.add({ id: 'task-pin-1', title: 'Archive.zip', progress: 0.5 });
+
+const pinMedia = new MockMediaManagerClass();
+const pinCard = new MockMediaCard();
+
+const pinIndicator = new TaskIndicatorButton(pinSettings, pinTasks, {
+    mediaManager: pinMedia,
+    mediaCard: pinCard,
+    leaveGraceMs: 120,
+});
+
+class MockKeyInputEvent {
+    constructor(keyval, state = 0) {
+        this._keyval = keyval;
+        this._state = state;
+    }
+    get_key_symbol() {
+        return this._keyval;
+    }
+    get_state() {
+        return this._state;
+    }
+}
+
+const KEY_F10_CODE = 0xffc7;
+const KEY_f_CODE = 0x66;
+const KEY_F_CODE = 0x46;
+const KEY_ESCAPE_CODE = 0xff1b;
+const MOD1_MASK_CODE = 8; // Alt mask
+
+// A. Initial pinning state and API
+assert.strictEqual(pinIndicator.isPinned, false, 'Initial isPinned must be false');
+assert(typeof pinIndicator.togglePinned === 'function', 'togglePinned must exist');
+assert(typeof pinIndicator.pin === 'function', 'pin must exist');
+assert(typeof pinIndicator.unpin === 'function', 'unpin must exist');
+
+// B. togglePinned() sets isPinned = true
+const toggled = pinIndicator.togglePinned();
+assert.strictEqual(toggled, true, 'togglePinned() should return true when toggling on');
+assert.strictEqual(pinIndicator.isPinned, true, 'isPinned must be true after togglePinned()');
+assert.strictEqual(pinIndicator.isDropdownOpen(), true, 'togglePinned() on closed indicator should open dropdown');
+
+// Unpin via togglePinned()
+const toggledOff = pinIndicator.togglePinned();
+assert.strictEqual(toggledOff, false, 'togglePinned() should return false when toggling off');
+assert.strictEqual(pinIndicator.isPinned, false, 'isPinned must be false after togglePinned() off');
+assert.strictEqual(pinIndicator.isDropdownOpen(), false, 'togglePinned() off must dismiss dropdown');
+
+// C. Pressing F10 pins open card/menu
+pinIndicator.openDropdown();
+assert.strictEqual(pinIndicator.isDropdownOpen(), true, 'Dropdown is open');
+assert.strictEqual(pinIndicator.isPinned, false, 'Indicator not yet pinned');
+
+// Send F10 key event
+const f10Event = new MockKeyInputEvent(KEY_F10_CODE, 0);
+const resF10 = pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(f10Event) : pinIndicator.emit('key-press-event', f10Event);
+assert.strictEqual(pinIndicator.isPinned, true, 'Pressing F10 must pin the indicator');
+assert.strictEqual(pinIndicator.isDropdownOpen(), true, 'Dropdown must remain open when pinned');
+assert.strictEqual(resF10, true, 'F10 key event must be consumed (return true)');
+
+// D. While pinned, pointer leave does NOT hide card/menu
+pinIndicator.onPointerLeave({ immediate: true });
+assert.strictEqual(pinIndicator.isDropdownOpen(), true, 'Pointer leave must NOT close dropdown while pinned');
+assert.strictEqual(pinIndicator.isPinned, true, 'Indicator remains pinned');
+
+// Also test timer-based leave grace while pinned
+pinIndicator.onPointerLeave({ graceMs: 50 });
+const pinGraceLoop = new GLib.MainLoop(null, false);
+GLib.timeout_add(GLib.PRIORITY_DEFAULT, 70, () => {
+    pinGraceLoop.quit();
+    return GLib.SOURCE_REMOVE;
+});
+pinGraceLoop.run();
+assert.strictEqual(pinIndicator.isDropdownOpen(), true, 'Leave grace timer must NOT close dropdown while pinned');
+
+// E. Pressing Escape unpins and dismisses
+const escEvent = new MockKeyInputEvent(KEY_ESCAPE_CODE, 0);
+const resEsc = pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(escEvent) : pinIndicator.emit('key-press-event', escEvent);
+assert.strictEqual(pinIndicator.isPinned, false, 'Escape key must unpin indicator');
+assert.strictEqual(pinIndicator.isDropdownOpen(), false, 'Escape key must dismiss/close dropdown');
+assert.strictEqual(resEsc, true, 'Escape key event must be consumed (return true)');
+
+// F. Pressing Alt+F pins open card/menu and pressing F10 again unpins and dismisses
+const altFEvent = new MockKeyInputEvent(KEY_f_CODE, MOD1_MASK_CODE);
+const resAltF = pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(altFEvent) : pinIndicator.emit('key-press-event', altFEvent);
+assert.strictEqual(pinIndicator.isPinned, true, 'Pressing Alt+F must pin open card/menu');
+assert.strictEqual(pinIndicator.isDropdownOpen(), true, 'Dropdown must be open after Alt+F pin');
+assert.strictEqual(resAltF, true, 'Alt+F key event must be consumed (return true)');
+
+// F10 again releases/dismisses
+const f10ReleaseEvent = new MockKeyInputEvent(KEY_F10_CODE, 0);
+pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(f10ReleaseEvent) : pinIndicator.emit('key-press-event', f10ReleaseEvent);
+assert.strictEqual(pinIndicator.isPinned, false, 'Pressing F10 again must unpin indicator');
+assert.strictEqual(pinIndicator.isDropdownOpen(), false, 'Pressing F10 again must dismiss dropdown');
+
+// G. Media card pinning via keyboard
+pinMedia.publishTrack({
+    player: 'org.mpris.MediaPlayer2.spotify',
+    title: 'Rusty Cage',
+    artist: 'Soundgarden',
+});
+pinMedia.publishStatus('Playing');
+pinTasks.remove('task-pin-1');
+pinIndicator._activeTask = null;
+pinIndicator._syncIndicatorDisplay();
+assert.strictEqual(pinIndicator._isMediaDisplay, true, 'Indicator in media mode');
+
+// Alt+F with capital F pins media card
+const altFCapEvent = new MockKeyInputEvent(KEY_F_CODE, MOD1_MASK_CODE);
+pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(altFCapEvent) : pinIndicator.emit('key-press-event', altFCapEvent);
+assert.strictEqual(pinIndicator.isPinned, true, 'Alt+Shift+F / Alt+F (capital) must pin media card');
+assert.strictEqual(pinCard.isOpen(), true, 'Media card must be open after pinning');
+
+// Pointer leave does NOT close media card while pinned
+pinIndicator.onPointerLeave({ immediate: true });
+assert.strictEqual(pinCard.isOpen(), true, 'Pointer leave must NOT close media card while pinned');
+
+// Escape unpins and closes media card
+pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(escEvent) : pinIndicator.emit('key-press-event', escEvent);
+assert.strictEqual(pinIndicator.isPinned, false, 'Escape unpins media card');
+assert.strictEqual(pinCard.isOpen(), false, 'Escape closes media card');
+
+// H. Task 4 quality fixes:
+// 1. yankChipOut idempotency
+pinIndicator._isYanked = false;
+pinIndicator.yankChipOut();
+assert.strictEqual(pinIndicator.isYanked, true, 'Chip yanked');
+const yankedNaturalWidth = pinIndicator._yankNaturalWidth;
+assert(yankedNaturalWidth > 0, '_yankNaturalWidth should be cached before ease');
+
+// Call yankChipOut again while already yanked (idempotency check)
+pinIndicator.yankChipOut();
+assert.strictEqual(pinIndicator.isYanked, true, 'Second yankChipOut must be idempotent');
+assert.strictEqual(pinIndicator._yankNaturalWidth, yankedNaturalWidth, 'Cached natural width preserved');
+
+// 2. Turning off yank-indicator setting while yanked immediately calls yankChipIn
+pinSettings.set_boolean('yank-indicator', false);
+assert.strictEqual(pinIndicator.isYanked, false, 'Setting yank-indicator to false while yanked must restore chip');
+
+pinIndicator.destroy();
+console.log('-> Keyboard Pinning & Quality Fixes PASSED.');
+
 
 
 
