@@ -68,8 +68,8 @@ jobs:
         run: |
           if [ -f "docs/RELEASE_NOTES_${GITHUB_REF_NAME}.md" ]; then
             echo "path=docs/RELEASE_NOTES_${GITHUB_REF_NAME}.md" >> $GITHUB_OUTPUT
-          elif [ -f "docs/RELEASE_NOTES_v1.0.0.md" ]; then
-            echo "path=docs/RELEASE_NOTES_v1.0.0.md" >> $GITHUB_OUTPUT
+          elif [ -f "docs/RELEASE_NOTES_${GITHUB_REF_NAME#v}.md" ]; then
+            echo "path=docs/RELEASE_NOTES_${GITHUB_REF_NAME#v}.md" >> $GITHUB_OUTPUT
           else
             echo "path=CHANGELOG.md" >> $GITHUB_OUTPUT
           fi
