@@ -150,6 +150,12 @@
       return;
     } else if (action === 'link') {
       window.open(item.dataset.href, '_blank', 'noopener');
+    } else if (action === 'custom' && item.dataset.custom === 'theme') {
+      close();
+      if (typeof cycleTheme === 'function') {
+        cycleTheme();
+      }
+      return;
     } else if (action === 'custom' && item.dataset.custom === 'ego-status') {
       close();
       const egoBtn = document.getElementById('ego-trigger');
@@ -828,5 +834,63 @@
         }
       });
     });
+  }
+
+  /* ── 8 · Theme — system · light · dark ───────────────────────────────── */
+  const THEME_KEY = 'fuhgawz-theme';
+  const THEME_FACES = {
+    system: { label: 'Theme: system. Switch to light', title: 'System theme' },
+    light: { label: 'Theme: light. Switch to dark', title: 'Light theme' },
+    dark: { label: 'Theme: dark. Switch to system', title: 'Dark theme' },
+  };
+  const THEME_COLORS = { light: '#f8fafd', dark: '#191d24' };
+
+  const themeToggle = document.getElementById('theme-toggle');
+  const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+  const schemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+  function applyTheme(preference, persist) {
+    const root = document.documentElement;
+    const resolved = preference === 'system'
+      ? (schemeQuery.matches ? 'dark' : 'light')
+      : preference;
+
+    root.dataset.theme = resolved;
+    root.dataset.themePreference = preference;
+    if (persist) {
+      try { localStorage.setItem(THEME_KEY, preference); } catch (_) { /* storage blocked */ }
+    }
+
+    if (themeToggle) {
+      themeToggle.dataset.themeValue = preference;
+      themeToggle.setAttribute('aria-label', THEME_FACES[preference].label);
+      themeToggle.title = THEME_FACES[preference].title;
+    }
+    if (themeColorMeta) {
+      themeColorMeta.setAttribute('content', THEME_COLORS[resolved]);
+    }
+  }
+
+  function cycleTheme() {
+    const order = ['system', 'light', 'dark'];
+    const current = document.documentElement.dataset.themePreference || 'system';
+    applyTheme(order[(order.indexOf(current) + 1) % order.length], true);
+  }
+
+  if (themeToggle) {
+    /* the head bootstrap already picked the theme; this only syncs the control */
+    applyTheme(document.documentElement.dataset.themePreference || 'system', false);
+    themeToggle.addEventListener('click', cycleTheme);
+
+    const followSystem = () => {
+      if ((document.documentElement.dataset.themePreference || 'system') === 'system') {
+        applyTheme('system', false);
+      }
+    };
+    if (schemeQuery.addEventListener) {
+      schemeQuery.addEventListener('change', followSystem);
+    } else if (schemeQuery.addListener) {
+      schemeQuery.addListener(followSystem);
+    }
   }
 })();

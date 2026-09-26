@@ -1,12 +1,20 @@
 /* Hallmark · theme: Cobalt · genre: modern-minimal
  * paper: cool near-white oklch(98.5% 0.004 250) · accent: electric cobalt oklch(55% 0.21 256)
  * accent-bright: on-dark text variant oklch(72% 0.16 256)
+ * dark half: "Cobalt Nocturne" — graphite ground oklch(23% 0.014 258), accent lifted to
+ * oklch(66% 0.19 256) so the same signal carries on a dark surface.
  * display: Space Grotesk · body: Inter · outlier/mono: JetBrains Mono
  * All colours and fonts in styles.css must reference these tokens by name.
  * Contrast-tuned: accent fill carries accent-ink at 4.57:1 (gate 41); muted lifted
  * to 4.7:1 on paper (gate 40); accent-bright carries accent text on graphite at 4.6:1.
+ * Dark gates: ink 15.6:1 on paper · ink-2 10.6:1 on paper-2 · muted 7.9:1 on paper ·
+ * accent-text 6.8:1 on paper-2 · accent-ink 6.0:1 on the accent fill.
+ * Theming: <html data-theme="light|dark"> is stamped by the inline bootstrap in
+ * index.html; the dark palette is declared twice so the page still themes with no JS.
  */
 :root {
+  color-scheme: light;
+
   /* colour — cool engineered ground, ink, one cobalt signal */
   --color-paper:        oklch(98.5% 0.004 250);
   --color-paper-2:      oklch(96.5% 0.006 250);
@@ -21,6 +29,9 @@
   --color-accent-ink:   oklch(98% 0.008 250);
   --color-accent-soft:  oklch(60% 0.18 256 / 0.30);
   --color-accent-bright: oklch(72% 0.16 256);
+  --color-accent-text:  oklch(50% 0.20 256);
+  --color-live:         oklch(70% 0.17 150);
+  --color-live-text:    oklch(46% 0.14 152);
   --color-focus:        oklch(58% 0.20 256);
   --color-focus-on-accent: oklch(24% 0.02 258);
   --color-graphite:     oklch(22% 0.016 260);
@@ -60,7 +71,7 @@
 
   /* radius — drawn with a ruler */
   --radius-sm: 6px;
-  --radius-md: 10px;
+  --radius-md: 12px;
   --radius-lg: 14px;
   --radius-xl: 18px;
 
@@ -91,4 +102,72 @@
   /* layout */
   --page-gutter: clamp(1rem, 4vw, 4rem);
   --content-max: 78rem;
+}
+
+/* ── Cobalt Nocturne — the dark half ──────────────────────────────────────
+ * Same single cobalt signal on a graphite ground. Written out twice on purpose:
+ * once for the toggle's explicit choice, once for a visitor whose OS asks for
+ * dark and who never touches the control (or browses with no JavaScript).
+ * Keep both copies in sync.
+ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-paper:        oklch(23% 0.014 258);
+  --color-paper-2:      oklch(28% 0.016 258);
+  --color-ink:          oklch(96% 0.006 250);
+  --color-ink-2:        oklch(87% 0.012 254);
+  --color-muted:        oklch(74% 0.016 256);
+  --color-rule:         oklch(32% 0.012 256);
+  --color-rule-2:       oklch(44% 0.014 256);
+  --color-accent:       oklch(66% 0.19 256);
+  --color-accent-hover: oklch(70% 0.19 256);
+  --color-accent-active: oklch(62% 0.19 256);
+  --color-accent-ink:   oklch(17% 0.02 258);
+  --color-accent-soft:  oklch(66% 0.19 256 / 0.22);
+  --color-accent-bright: oklch(78% 0.15 256);
+  --color-accent-text:  oklch(78% 0.15 256);
+  --color-live:         oklch(78% 0.17 150);
+  --color-live-text:    oklch(80% 0.17 150);
+  --color-focus:        oklch(80% 0.14 256);
+  --color-focus-on-accent: oklch(17% 0.02 258);
+  --color-graphite:     oklch(14% 0.012 260);
+  --color-graphite-2:   oklch(21% 0.014 260);
+  --color-on-graphite:  oklch(92% 0.01 255);
+  --color-on-graphite-2: oklch(72% 0.018 258);
+  --color-success:      oklch(78% 0.15 152);
+  --color-scrim:        oklch(8% 0.02 260 / 0.62);
+  --shadow-card:        0 1px 2px oklch(10% 0.02 260 / 0.5);
+  --shadow-modal:       0 24px 64px -24px oklch(6% 0.02 260 / 0.72);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-paper:        oklch(23% 0.014 258);
+    --color-paper-2:      oklch(28% 0.016 258);
+    --color-ink:          oklch(96% 0.006 250);
+    --color-ink-2:        oklch(87% 0.012 254);
+    --color-muted:        oklch(74% 0.016 256);
+    --color-rule:         oklch(32% 0.012 256);
+    --color-rule-2:       oklch(44% 0.014 256);
+    --color-accent:       oklch(66% 0.19 256);
+    --color-accent-hover: oklch(70% 0.19 256);
+    --color-accent-active: oklch(62% 0.19 256);
+    --color-accent-ink:   oklch(17% 0.02 258);
+    --color-accent-soft:  oklch(66% 0.19 256 / 0.22);
+    --color-accent-bright: oklch(78% 0.15 256);
+    --color-accent-text:  oklch(78% 0.15 256);
+    --color-live:         oklch(78% 0.17 150);
+    --color-live-text:    oklch(80% 0.17 150);
+    --color-focus:        oklch(80% 0.14 256);
+    --color-focus-on-accent: oklch(17% 0.02 258);
+    --color-graphite:     oklch(14% 0.012 260);
+    --color-graphite-2:   oklch(21% 0.014 260);
+    --color-on-graphite:  oklch(92% 0.01 255);
+    --color-on-graphite-2: oklch(72% 0.018 258);
+    --color-success:      oklch(78% 0.15 152);
+    --color-scrim:        oklch(8% 0.02 260 / 0.62);
+    --shadow-card:        0 1px 2px oklch(10% 0.02 260 / 0.5);
+    --shadow-modal:       0 24px 64px -24px oklch(6% 0.02 260 / 0.72);
+  }
 }

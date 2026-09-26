@@ -176,6 +176,60 @@ def test_floating_media_card_and_marquee():
 
     print("PASS: test_floating_media_card_and_marquee")
 
+def test_dual_theme_bento_and_distro_marks():
+    tokens_path = REPO_ROOT / "docs" / "tokens.css"
+    html_path = REPO_ROOT / "docs" / "index.html"
+    css_path = REPO_ROOT / "docs" / "styles.css"
+    js_path = REPO_ROOT / "docs" / "app.js"
+
+    tokens_content = tokens_path.read_text(encoding="utf-8")
+    html_content = html_path.read_text(encoding="utf-8")
+    css_content = css_path.read_text(encoding="utf-8")
+    js_content = js_path.read_text(encoding="utf-8")
+
+    # 1. Palette: light default, explicit dark block, and a no-JS mirror kept in sync
+    assert "color-scheme: light;" in tokens_content, "light color-scheme missing in tokens.css"
+    assert ':root[data-theme="dark"]' in tokens_content, "explicit dark palette missing in tokens.css"
+    assert "@media (prefers-color-scheme: dark)" in tokens_content, "no-JS dark mirror missing in tokens.css"
+    assert ':root:not([data-theme="light"])' in tokens_content, "no-JS dark mirror selector missing in tokens.css"
+    assert tokens_content.count("color-scheme: dark;") == 2, "color-scheme must ship in both dark blocks"
+    for token in ("--color-accent-text:", "--color-live:", "--color-live-text:"):
+        assert tokens_content.count(token) == 3, f"{token} must exist in light, dark, and mirrored blocks"
+    assert "--radius-md: 12px;" in tokens_content, "--radius-md should be raised to 12px"
+
+    # 2. Pre-paint bootstrap, cycling toggle, and the palette command
+    assert "fuhgawz-theme" in html_content, "theme storage key missing in index.html bootstrap"
+    assert "root.dataset.themePreference" in html_content, "bootstrap must stamp the resolved preference"
+    assert 'id="theme-toggle"' in html_content, "theme toggle button missing in index.html"
+    assert html_content.count('class="theme-toggle__icon"') == 3, "expected system/light/dark toggle icons"
+    assert 'data-custom="theme"' in html_content, "palette theme command missing in index.html"
+    assert "Switch theme (system / light / dark)" in html_content, "palette theme label missing in index.html"
+    assert "THEME_KEY = 'fuhgawz-theme'" in js_content, "app.js storage key is out of sync with the bootstrap"
+    assert "function applyTheme(" in js_content, "applyTheme missing in app.js"
+    assert "function cycleTheme(" in js_content, "cycleTheme missing in app.js"
+    assert "localStorage.setItem(THEME_KEY" in js_content, "theme preference is not persisted"
+    assert "prefers-color-scheme" in js_content, "system theme listener missing in app.js"
+    assert 'meta[name="theme-color"]' in js_content, "theme-color meta sync missing in app.js"
+    assert "dataset.custom === 'theme'" in js_content, "palette command is not wired to cycleTheme"
+
+    # 3. Bento: six-column track so every row fills edge to edge
+    assert "grid-template-columns: repeat(6, minmax(0, 1fr))" in css_content, "spec grid is not a six-column bento track"
+    assert ".spec-card--featured" in css_content, "featured bento card span rule missing in styles.css"
+    assert "grid-column: span 2" in css_content, "base bento card span missing in styles.css"
+    assert "grid-column: span 4" in css_content, "wide bento card span missing in styles.css"
+
+    # 4. Distro row: the four major distributions, each drawn as its own mark
+    assert 'class="distro-pills"' in html_content, "distro pill row missing in index.html"
+    assert html_content.count('class="distro-pill"') == 4, "expected exactly four distribution pills"
+    for name in ("Fedora", "Arch Linux", "Ubuntu", "Debian"):
+        assert f">{name}</span>" in html_content, f"{name} pill label missing in index.html"
+    assert html_content.count('class="distro-pill__icon"') == 4, "each pill needs its own inline mark"
+    assert 'aria-label="Supported Linux distributions"' in html_content, "distro row needs a labelled list"
+    assert "distro-pill__dot" not in html_content, "dead dot markup should be removed"
+    assert "distro-pill__dot" not in css_content, "dead dot styles should be removed"
+
+    print("PASS: test_dual_theme_bento_and_distro_marks")
+
 def main():
     test_font_tokens()
     test_font_html()
@@ -183,6 +237,7 @@ def main():
     test_hero_cta_gnome_extension()
     test_dynamic_indicator_and_release_flow()
     test_floating_media_card_and_marquee()
+    test_dual_theme_bento_and_distro_marks()
     test_js_syntax()
     test_existing_suite()
     print("\nAll landing page and repository tests passed!")
