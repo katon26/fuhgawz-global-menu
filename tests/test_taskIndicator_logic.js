@@ -1372,7 +1372,12 @@ const newKeys = [
 ];
 for (const item of newKeys) {
     assert(indicator._settings.get_value(item.key) !== null, `Missing GSettings key ${item.key}`);
-    assert.strictEqual(indicator._settings.get_string ? indicator._settings.get_string(item.key) : indicator._settings[item.key], item.default);
+    const val = item.key.endsWith('-ms')
+        ? indicator._settings.get_int(item.key)
+        : (typeof item.default === 'boolean'
+            ? indicator._settings.get_boolean(item.key)
+            : indicator._settings.get_string(item.key));
+    assert.strictEqual(val, item.default);
 }
 
 const schemaDir = Gio.File.new_for_path('./schemas');

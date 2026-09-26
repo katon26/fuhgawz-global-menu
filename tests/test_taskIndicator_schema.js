@@ -29,6 +29,12 @@ const requiredKeys = {
     'media-visualizer-style': { type: 's', defaultVal: 'wave', choices: ['wave', 'bar'] },
     'media-persistent-idle': { type: 'b', defaultVal: true },
     'media-hover-popover': { type: 'b', defaultVal: true },
+    'task-indicator-reveal': { type: 's', defaultVal: 'slide-fade', choices: ['slide-fade', 'fade', 'none'] },
+    'task-indicator-reveal-ms': { type: 'i', defaultVal: 180 },
+    'task-indicator-reduced-motion': { type: 'b', defaultVal: true },
+    'task-indicator-details': { type: 'b', defaultVal: true },
+    'yank-indicator': { type: 'b', defaultVal: false },
+    'yank-indicator-return': { type: 's', defaultVal: 'zone-leave', choices: ['zone-leave', 'click', 'never'] },
 };
 
 // 1. Validate schema keys, types, defaults, and choices

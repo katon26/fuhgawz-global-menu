@@ -175,11 +175,17 @@
       <description>Open the media card when hovering over or moving keyboard focus to the panel indicator.</description>
     </key>
     <key name="task-indicator-reveal" type="s">
+      <choices>
+        <choice value="slide-fade"/>
+        <choice value="fade"/>
+        <choice value="none"/>
+      </choices>
       <default>'slide-fade'</default>
       <summary>Task indicator reveal animation style</summary>
       <description>Animation style when revealing: slide-fade, fade, or none.</description>
     </key>
     <key name="task-indicator-reveal-ms" type="i">
+      <range min="0" max="400"/>
       <default>180</default>
       <summary>Task indicator reveal animation duration</summary>
       <description>Duration in milliseconds for the reveal animation (0 to 400).</description>
@@ -200,6 +206,11 @@
       <description>Yank the media chip out of the slot when the menu pointer zone is entered.</description>
     </key>
     <key name="yank-indicator-return" type="s">
+      <choices>
+        <choice value="zone-leave"/>
+        <choice value="click"/>
+        <choice value="never"/>
+      </choices>
       <default>'zone-leave'</default>
       <summary>Yank indicator return trigger</summary>
       <description>Trigger condition to return yanked chip: zone-leave, click, or never.</description>
