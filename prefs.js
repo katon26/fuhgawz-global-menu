@@ -495,14 +495,101 @@ function createGlobalMenuPage(settings, gettextFunc) {
             settings.set_string('task-indicator-mode', mode);
         }
     });
-    settings.connect('changed::task-indicator-mode', () => {
+    const modeSettingsSignalId = settings.connect('changed::task-indicator-mode', () => {
         const mode = settings.get_string('task-indicator-mode');
         const idx = indicatorModes.indexOf(mode);
         if (idx !== -1 && modeRow.selected !== idx) {
             modeRow.selected = idx;
         }
     });
+    modeRow.connect('unrealize', () => {
+        try { settings.disconnect(modeSettingsSignalId); } catch (error) {}
+    });
     taskIndicatorGroup.add(modeRow);
+
+    // Combo row for task-indicator-reveal
+    const revealList = new Gtk.StringList();
+    revealList.append(gettextFunc('Slide & Fade'));
+    revealList.append(gettextFunc('Fade Only'));
+    revealList.append(gettextFunc('None'));
+
+    const revealStyles = ['slide-fade', 'fade', 'none'];
+    const currentReveal = settings.get_string('task-indicator-reveal');
+    const initialRevealIndex = Math.max(0, revealStyles.indexOf(currentReveal));
+
+    const revealRow = new Adw.ComboRow({
+        title: gettextFunc('Reveal Animation'),
+        subtitle: gettextFunc('Style of entrance animation.'),
+        model: revealList,
+        selected: initialRevealIndex,
+    });
+    revealRow.connect('notify::selected', (widget) => {
+        if (widget.selected < 0 || widget.selected >= revealStyles.length) {
+            return;
+        }
+        const style = revealStyles[widget.selected];
+        if (settings.get_string('task-indicator-reveal') !== style) {
+            settings.set_string('task-indicator-reveal', style);
+        }
+    });
+    const revealSettingsSignalId = settings.connect('changed::task-indicator-reveal', () => {
+        const style = settings.get_string('task-indicator-reveal');
+        const idx = revealStyles.indexOf(style);
+        if (idx !== -1 && revealRow.selected !== idx) {
+            revealRow.selected = idx;
+        }
+    });
+    revealRow.connect('unrealize', () => {
+        try { settings.disconnect(revealSettingsSignalId); } catch (error) {}
+    });
+    taskIndicatorGroup.add(revealRow);
+
+    // Spin row for task-indicator-reveal-ms (0 to 400 ms, step 10)
+    const revealDurationAdjustment = new Gtk.Adjustment({
+        lower: 0,
+        upper: 400,
+        step_increment: 10,
+        page_increment: 50,
+        value: settings.get_int('task-indicator-reveal-ms'),
+    });
+    const durationRow = new Adw.SpinRow({
+        title: gettextFunc('Reveal Duration (ms)'),
+        subtitle: gettextFunc('Total duration for reveal ease.'),
+        adjustment: revealDurationAdjustment,
+    });
+    settings.bind(
+        'task-indicator-reveal-ms',
+        revealDurationAdjustment,
+        'value',
+        Gio.SettingsBindFlags.DEFAULT
+    );
+    taskIndicatorGroup.add(durationRow);
+
+    // Switch row for task-indicator-reduced-motion
+    const reducedMotionRow = new Adw.SwitchRow({
+        title: gettextFunc('Follow Reduced Motion'),
+        subtitle: gettextFunc('Honor org.gnome.desktop.interface.enable-animations.'),
+    });
+    settings.bind(
+        'task-indicator-reduced-motion',
+        reducedMotionRow,
+        'active',
+        Gio.SettingsBindFlags.DEFAULT
+    );
+    taskIndicatorGroup.add(reducedMotionRow);
+
+    // Switch row for task-indicator-details
+    const detailsRow = new Adw.SwitchRow({
+        title: gettextFunc('Show Transfer Details'),
+        subtitle: gettextFunc('Show speed and remaining bytes in expanded chip.'),
+    });
+    settings.bind(
+        'task-indicator-details',
+        detailsRow,
+        'active',
+        Gio.SettingsBindFlags.DEFAULT
+    );
+    taskIndicatorGroup.add(detailsRow);
 
     // Spin row for task-auto-hide-seconds (1 to 10 seconds)
     const autoHideAdjustment = new Gtk.Adjustment({
@@ -597,6 +684,56 @@ function createGlobalMenuPage(settings, gettextFunc) {
     });
     settings.bind('media-hover-popover', hoverPopoverRow, 'active', Gio.SettingsBindFlags.DEFAULT);
     mediaGroup.add(hoverPopoverRow);
+
+    // Switch row for yank-indicator
+    const yankRow = new Adw.SwitchRow({
+        title: gettextFunc('Yank Indicator'),
+        subtitle: gettextFunc('Collapse chip when pointer enters menu trigger zone.'),
+    });
+    settings.bind(
+        'yank-indicator',
+        yankRow,
+        'active',
+        Gio.SettingsBindFlags.DEFAULT
+    );
+    mediaGroup.add(yankRow);
+
+    // Combo row for yank-indicator-return
+    const yankReturnList = new Gtk.StringList();
+    yankReturnList.append(gettextFunc('Pointer Leaves Zone'));
+    yankReturnList.append(gettextFunc('On Click'));
+    yankReturnList.append(gettextFunc('Never'));
+
+    const yankReturnStyles = ['zone-leave', 'click', 'never'];
+    const currentYankReturn = settings.get_string('yank-indicator-return');
+    const initialYankReturnIndex = Math.max(0, yankReturnStyles.indexOf(currentYankReturn));
+
+    const yankReturnRow = new Adw.ComboRow({
+        title: gettextFunc('Yank Return Trigger'),
+        subtitle: gettextFunc('Condition to return the indicator after being yanked.'),
+        model: yankReturnList,
+        selected: initialYankReturnIndex,
+    });
+    yankReturnRow.connect('notify::selected', (widget) => {
+        if (widget.selected < 0 || widget.selected >= yankReturnStyles.length) {
+            return;
+        }
+        const style = yankReturnStyles[widget.selected];
+        if (settings.get_string('yank-indicator-return') !== style) {
+            settings.set_string('yank-indicator-return', style);
+        }
+    });
+    const yankReturnSignalId = settings.connect('changed::yank-indicator-return', () => {
+        const style = settings.get_string('yank-indicator-return');
+        const idx = yankReturnStyles.indexOf(style);
+        if (idx !== -1 && yankReturnRow.selected !== idx) {
+            yankReturnRow.selected = idx;
+        }
+    });
+    yankReturnRow.connect('unrealize', () => {
+        try { settings.disconnect(yankReturnSignalId); } catch (error) {}
+    });
+    mediaGroup.add(yankReturnRow);
 
     return page;
 }

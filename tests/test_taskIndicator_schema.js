@@ -189,6 +189,22 @@ const expectedPrefsTokens = [
     'Adw.SwitchRow',
     'Adw.ComboRow',
     'Adw.SpinRow',
+    'task-indicator-reveal',
+    'task-indicator-reveal-ms',
+    'task-indicator-reduced-motion',
+    'task-indicator-details',
+    'yank-indicator',
+    'yank-indicator-return',
+    'Reveal Animation',
+    'Reveal Duration (ms)',
+    'Follow Reduced Motion',
+    'Show Transfer Details',
+    'Yank Indicator',
+    'Yank Return Trigger',
+    'Slide & Fade',
+    'Fade Only',
+    'Pointer Leaves Zone',
+    'On Click',
 ];
 
 for (const token of expectedPrefsTokens) {

@@ -1395,3 +1395,179 @@ for (const item of newKeys) {
 }
 console.log('-> Live Indicator GSettings schema keys PASSED.');
 
+// ---------------------------------------------------------------------
+// 14. Preferences UI settings bidirectional bindings
+// ---------------------------------------------------------------------
+console.log('14. Verifying preferences UI settings bidirectional bindings...');
+
+const testSettings = new MockSettingsClass();
+
+class MockPrefRow extends GObject.Object {
+    _init(props = {}) {
+        super._init();
+        this.selected = props.selected ?? 0;
+        this.active = props.active ?? false;
+        this.value = props.value ?? 0;
+    }
+}
+const MockPrefRowClass = GObject.registerClass({
+    GTypeName: 'MockPrefRowTest',
+    Properties: {
+        'selected': GObject.ParamSpec.int('selected', 'selected', 'selected', GObject.ParamFlags.READWRITE, -1, 100, 0),
+        'active': GObject.ParamSpec.boolean('active', 'active', 'active', GObject.ParamFlags.READWRITE, false),
+        'value': GObject.ParamSpec.int('value', 'value', 'value', GObject.ParamFlags.READWRITE, 0, 1000, 0),
+    },
+}, MockPrefRow);
+
+// 1. task-indicator-reveal ComboRow logic
+const revealStyles = ['slide-fade', 'fade', 'none'];
+const testRevealRow = new MockPrefRowClass({
+    selected: Math.max(0, revealStyles.indexOf(testSettings.get_string('task-indicator-reveal'))),
+});
+testRevealRow.connect('notify::selected', (widget) => {
+    if (widget.selected < 0 || widget.selected >= revealStyles.length) return;
+    const style = revealStyles[widget.selected];
+    if (testSettings.get_string('task-indicator-reveal') !== style) {
+        testSettings.set_string('task-indicator-reveal', style);
+    }
+});
+const revealSigId = testSettings.connect('changed::task-indicator-reveal', () => {
+    const style = testSettings.get_string('task-indicator-reveal');
+    const idx = revealStyles.indexOf(style);
+    if (idx !== -1 && testRevealRow.selected !== idx) {
+        testRevealRow.selected = idx;
+    }
+});
+
+// UI -> Settings
+testRevealRow.selected = 1;
+assert.strictEqual(testSettings.get_string('task-indicator-reveal'), 'fade', 'Selecting index 1 must set task-indicator-reveal to fade');
+testRevealRow.selected = 2;
+assert.strictEqual(testSettings.get_string('task-indicator-reveal'), 'none', 'Selecting index 2 must set task-indicator-reveal to none');
+
+// Settings -> UI
+testSettings.set_string('task-indicator-reveal', 'slide-fade');
+assert.strictEqual(testRevealRow.selected, 0, 'Setting task-indicator-reveal to slide-fade must update row selected to 0');
+testSettings.disconnect(revealSigId);
+
+// 2. task-indicator-reveal-ms SpinRow logic
+const testDurationRow = new MockPrefRowClass({
+    value: testSettings.get_int('task-indicator-reveal-ms'),
+});
+testDurationRow.connect('notify::value', (widget) => {
+    if (testSettings.get_int('task-indicator-reveal-ms') !== widget.value) {
+        testSettings.set_int('task-indicator-reveal-ms', widget.value);
+    }
+});
+const durationSigId = testSettings.connect('changed::task-indicator-reveal-ms', () => {
+    const val = testSettings.get_int('task-indicator-reveal-ms');
+    if (testDurationRow.value !== val) {
+        testDurationRow.value = val;
+    }
+});
+
+testDurationRow.value = 240;
+assert.strictEqual(testSettings.get_int('task-indicator-reveal-ms'), 240, 'Spinning to 240ms must update setting');
+testSettings.set_int('task-indicator-reveal-ms', 120);
+assert.strictEqual(testDurationRow.value, 120, 'Updating setting to 120 must sync to row value');
+testSettings.disconnect(durationSigId);
+
+// 3. task-indicator-reduced-motion SwitchRow logic
+const testReducedMotionRow = new MockPrefRowClass({
+    active: testSettings.get_boolean('task-indicator-reduced-motion'),
+});
+testReducedMotionRow.connect('notify::active', (widget) => {
+    if (testSettings.get_boolean('task-indicator-reduced-motion') !== widget.active) {
+        testSettings.set_boolean('task-indicator-reduced-motion', widget.active);
+    }
+});
+const redMotionSigId = testSettings.connect('changed::task-indicator-reduced-motion', () => {
+    const active = testSettings.get_boolean('task-indicator-reduced-motion');
+    if (testReducedMotionRow.active !== active) {
+        testReducedMotionRow.active = active;
+    }
+});
+
+testReducedMotionRow.active = false;
+assert.strictEqual(testSettings.get_boolean('task-indicator-reduced-motion'), false, 'Toggling reduced motion switch must update setting to false');
+testSettings.set_boolean('task-indicator-reduced-motion', true);
+assert.strictEqual(testReducedMotionRow.active, true, 'Setting reduced motion to true must sync to switch');
+testSettings.disconnect(redMotionSigId);
+
+// 4. task-indicator-details SwitchRow logic
+const testDetailsRow = new MockPrefRowClass({
+    active: testSettings.get_boolean('task-indicator-details'),
+});
+testDetailsRow.connect('notify::active', (widget) => {
+    if (testSettings.get_boolean('task-indicator-details') !== widget.active) {
+        testSettings.set_boolean('task-indicator-details', widget.active);
+    }
+});
+const detailsSigId = testSettings.connect('changed::task-indicator-details', () => {
+    const active = testSettings.get_boolean('task-indicator-details');
+    if (testDetailsRow.active !== active) {
+        testDetailsRow.active = active;
+    }
+});
+
+testDetailsRow.active = false;
+assert.strictEqual(testSettings.get_boolean('task-indicator-details'), false, 'Toggling details switch must update setting to false');
+testSettings.set_boolean('task-indicator-details', true);
+assert.strictEqual(testDetailsRow.active, true, 'Setting details to true must sync to switch');
+testSettings.disconnect(detailsSigId);
+
+// 5. yank-indicator SwitchRow logic
+const testYankRow = new MockPrefRowClass({
+    active: testSettings.get_boolean('yank-indicator'),
+});
+testYankRow.connect('notify::active', (widget) => {
+    if (testSettings.get_boolean('yank-indicator') !== widget.active) {
+        testSettings.set_boolean('yank-indicator', widget.active);
+    }
+});
+const yankSigId = testSettings.connect('changed::yank-indicator', () => {
+    const active = testSettings.get_boolean('yank-indicator');
+    if (testYankRow.active !== active) {
+        testYankRow.active = active;
+    }
+});
+
+testYankRow.active = true;
+assert.strictEqual(testSettings.get_boolean('yank-indicator'), true, 'Toggling yank switch to true must update setting');
+testSettings.set_boolean('yank-indicator', false);
+assert.strictEqual(testYankRow.active, false, 'Setting yank to false must sync to switch');
+testSettings.disconnect(yankSigId);
+
+// 6. yank-indicator-return ComboRow logic
+const yankReturnStyles = ['zone-leave', 'click', 'never'];
+const testYankReturnRow = new MockPrefRowClass({
+    selected: Math.max(0, yankReturnStyles.indexOf(testSettings.get_string('yank-indicator-return'))),
+});
+testYankReturnRow.connect('notify::selected', (widget) => {
+    if (widget.selected < 0 || widget.selected >= yankReturnStyles.length) return;
+    const style = yankReturnStyles[widget.selected];
+    if (testSettings.get_string('yank-indicator-return') !== style) {
+        testSettings.set_string('yank-indicator-return', style);
+    }
+});
+const yankReturnSigId = testSettings.connect('changed::yank-indicator-return', () => {
+    const style = testSettings.get_string('yank-indicator-return');
+    const idx = yankReturnStyles.indexOf(style);
+    if (idx !== -1 && testYankReturnRow.selected !== idx) {
+        testYankReturnRow.selected = idx;
+    }
+});
+
+// UI -> Settings
+testYankReturnRow.selected = 1;
+assert.strictEqual(testSettings.get_string('yank-indicator-return'), 'click', 'Selecting index 1 must set yank-indicator-return to click');
+testYankReturnRow.selected = 2;
+assert.strictEqual(testSettings.get_string('yank-indicator-return'), 'never', 'Selecting index 2 must set yank-indicator-return to never');
+
+// Settings -> UI
+testSettings.set_string('yank-indicator-return', 'zone-leave');
+assert.strictEqual(testYankReturnRow.selected, 0, 'Setting yank-indicator-return to zone-leave must update row selected to 0');
+testSettings.disconnect(yankReturnSigId);
+
+console.log('-> Preferences UI settings bidirectional bindings PASSED.');
+
