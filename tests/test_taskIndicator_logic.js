@@ -1571,3 +1571,221 @@ testSettings.disconnect(yankReturnSigId);
 
 console.log('-> Preferences UI settings bidirectional bindings PASSED.');
 
+// ---------------------------------------------------------------------
+// 15. Verifying Reveal Timing Spec, Dwell Delay, Leave Grace & Reduced Motion
+// ---------------------------------------------------------------------
+console.log('15. Verifying reveal timing spec, dwell delay, leave grace & reduced motion...');
+
+// Mock Interface Settings for testing system animations
+class MockInterfaceSettings extends GObject.Object {
+    _init(enableAnimations = true) {
+        super._init();
+        this._enableAnimations = enableAnimations;
+    }
+    get_boolean(key) {
+        if (key === 'enable-animations') return this._enableAnimations;
+        return true;
+    }
+    set_boolean(key, val) {
+        if (key === 'enable-animations') {
+            this._enableAnimations = val;
+            this.emit('changed::enable-animations', key);
+        }
+    }
+}
+const MockInterfaceSettingsClass = GObject.registerClass(
+    {
+        GTypeName: 'MockInterfaceSettingsIndicatorTest',
+        Signals: {
+            'changed': {
+                flags: GObject.SignalFlags.RUN_LAST | GObject.SignalFlags.DETAILED,
+                param_types: [GObject.TYPE_STRING],
+            },
+        },
+    },
+    MockInterfaceSettings
+);
+
+const timingSettings = new MockSettingsClass();
+const mockIface = new MockInterfaceSettingsClass(true);
+
+const indTiming = new TaskIndicatorButton(timingSettings, null, {
+    interfaceSettings: mockIface,
+});
+
+// A. Reveal timing spec (180ms ease-out-cubic)
+assert.strictEqual(indTiming.getRevealDurationMs(), 180, 'Default reveal duration must be 180ms');
+timingSettings.set_int('task-indicator-reveal-ms', 240);
+assert.strictEqual(indTiming.getRevealDurationMs(), 240, 'Updated reveal duration must be 240ms');
+timingSettings.set_int('task-indicator-reveal-ms', 180);
+
+let easedParams = null;
+let mockActorHideCalled = false;
+const mockMenuActor = {
+    opacity: 255,
+    visible: true,
+    ease(params) {
+        easedParams = params;
+        this.opacity = params.opacity;
+    },
+    show() {
+        this.visible = true;
+    },
+    hide() {
+        this.visible = false;
+        mockActorHideCalled = true;
+    },
+};
+
+indTiming._revealMenuWithMotion(mockMenuActor, 180);
+assert(easedParams !== null, '_revealMenuWithMotion must call ease on actor');
+assert.strictEqual(easedParams.opacity, 255, 'Ease target opacity must be 255');
+assert.strictEqual(easedParams.duration, 180, 'Ease duration must be 180ms');
+
+easedParams = null;
+indTiming._revealWithMotion(mockMenuActor, { duration: 180 });
+assert(easedParams !== null, '_revealWithMotion must call ease');
+assert.strictEqual(easedParams.opacity, 255, 'Target opacity must be 255');
+assert.strictEqual(easedParams.duration, 180, 'Duration must be 180ms');
+
+easedParams = null;
+mockActorHideCalled = false;
+indTiming._dismissWithMotion(mockMenuActor, { duration: 180 });
+assert(easedParams !== null, '_dismissWithMotion must call ease');
+assert.strictEqual(easedParams.opacity, 0, 'Target opacity must be 0');
+assert.strictEqual(easedParams.duration, 180, 'Duration must be 180ms');
+if (typeof easedParams.onComplete === 'function') {
+    easedParams.onComplete();
+}
+assert.strictEqual(mockActorHideCalled, true, '_dismissWithMotion must hide actor on complete');
+
+// B. Reduced motion fallback
+// 1. When task-indicator-reduced-motion is true and system enable-animations is false
+timingSettings.set_boolean('task-indicator-reduced-motion', true);
+mockIface.set_boolean('enable-animations', false);
+assert.strictEqual(indTiming._shouldReduceMotion(), true, '_shouldReduceMotion must be true when system animations disabled');
+assert.strictEqual(indTiming.getRevealDurationMs(), 0, 'Reveal duration must be 0 when reduced motion active');
+
+easedParams = null;
+mockMenuActor.opacity = 0;
+indTiming._revealMenuWithMotion(mockMenuActor, 180);
+assert.strictEqual(easedParams, null, 'Ease MUST NOT be called when reduced motion is active');
+assert.strictEqual(mockMenuActor.opacity, 255, 'Opacity must immediately be set to 255 under reduced motion');
+
+// 2. When task-indicator-reduced-motion is false, ignore system enable-animations
+timingSettings.set_boolean('task-indicator-reduced-motion', false);
+assert.strictEqual(indTiming._shouldReduceMotion(), false, '_shouldReduceMotion must be false when setting is false');
+assert.strictEqual(indTiming.getRevealDurationMs(), 180, 'Reveal duration must be 180 when reduced motion setting is false');
+
+// Restore normal animation settings
+timingSettings.set_boolean('task-indicator-reduced-motion', true);
+mockIface.set_boolean('enable-animations', true);
+assert.strictEqual(indTiming._shouldReduceMotion(), false, '_shouldReduceMotion must be false when animations enabled');
+
+// C. Hover Card Dwell Delay (350ms)
+indTiming.updateTask({ id: 'task-1', title: 'File transfer', progress: 0.5 });
+assert.strictEqual(indTiming._cardDwellTimerId, 0, 'Dwell timer should initially be 0');
+
+// Pointer enter starts dwell timer
+indTiming.onPointerEnter();
+assert(indTiming._cardDwellTimerId !== 0, 'Pointer enter must start _cardDwellTimerId');
+assert.strictEqual(indTiming.isDropdownOpen(), false, 'Dropdown should NOT be open immediately on enter');
+
+// Early leave cancels dwell timer before 350ms
+indTiming.onPointerLeave();
+assert.strictEqual(indTiming._cardDwellTimerId, 0, 'Pointer leave must cancel pending _cardDwellTimerId');
+assert.strictEqual(indTiming.isDropdownOpen(), false, 'Dropdown must NOT open after early leave');
+
+// Wait for full dwell (350ms)
+indTiming.onPointerEnter();
+assert(indTiming._cardDwellTimerId !== 0, 'Dwell timer started');
+const dwellLoop = new GLib.MainLoop(null, false);
+GLib.timeout_add(GLib.PRIORITY_DEFAULT, 360, () => {
+    dwellLoop.quit();
+    return GLib.SOURCE_REMOVE;
+});
+dwellLoop.run();
+
+assert.strictEqual(indTiming._cardDwellTimerId, 0, 'Dwell timer should be cleared to 0 after firing');
+assert.strictEqual(indTiming.isDropdownOpen(), true, 'Dropdown should be opened after 350ms dwell');
+
+// D. Leave Grace Delay (120ms)
+assert.strictEqual(indTiming._leaveGraceTimerId, 0, 'Leave grace timer initially 0');
+
+// Pointer leave starts grace timer
+indTiming.onPointerLeave();
+assert(indTiming._leaveGraceTimerId !== 0, 'Pointer leave must start _leaveGraceTimerId');
+assert.strictEqual(indTiming.isDropdownOpen(), true, 'Dropdown must remain open during grace period');
+
+// Pointer re-entry before grace expires cancels grace timer
+indTiming.onPointerEnter();
+assert.strictEqual(indTiming._leaveGraceTimerId, 0, 'Pointer re-entry must cancel _leaveGraceTimerId');
+assert.strictEqual(indTiming.isDropdownOpen(), true, 'Dropdown remains open on re-entry');
+
+// Start leave grace again and let it expire (120ms)
+indTiming.onPointerLeave();
+assert(indTiming._leaveGraceTimerId !== 0, 'Leave grace started');
+const graceLoop = new GLib.MainLoop(null, false);
+GLib.timeout_add(GLib.PRIORITY_DEFAULT, 130, () => {
+    graceLoop.quit();
+    return GLib.SOURCE_REMOVE;
+});
+graceLoop.run();
+
+assert.strictEqual(indTiming._leaveGraceTimerId, 0, 'Grace timer should be cleared to 0 after firing');
+assert.strictEqual(indTiming.isDropdownOpen(), false, 'Dropdown must be closed after 120ms grace expires');
+
+// Pinned state check
+indTiming.openDropdown();
+assert.strictEqual(indTiming.isDropdownOpen(), true);
+indTiming._isPinned = true;
+indTiming.onPointerLeave();
+const pinnedLoop = new GLib.MainLoop(null, false);
+GLib.timeout_add(GLib.PRIORITY_DEFAULT, 130, () => {
+    pinnedLoop.quit();
+    return GLib.SOURCE_REMOVE;
+});
+pinnedLoop.run();
+assert.strictEqual(indTiming.isDropdownOpen(), true, 'Pinned dropdown must NOT close on pointer leave');
+indTiming._isPinned = false;
+indTiming.closeDropdown();
+
+// E. Safe teardown of timers on destroy()
+indTiming.onPointerEnter();
+indTiming.onPointerLeave();
+assert(indTiming._leaveGraceTimerId !== 0, 'Grace timer running before destroy');
+
+indTiming.destroy();
+assert.strictEqual(indTiming._cardDwellTimerId, 0, 'Card dwell timer must be 0 after destroy');
+assert.strictEqual(indTiming._leaveGraceTimerId, 0, 'Leave grace timer must be 0 after destroy');
+assert.strictEqual(indTiming._staggerTimerIds.length, 0, 'Stagger timers array must be empty after destroy');
+
+// F. Item stagger timing and reduced motion
+const mockItem1 = { opacity: 0, actor: { opacity: 0, show() { this.visible = true; }, ease(params) { this.opacity = params.opacity; } } };
+const mockItem2 = { opacity: 0, actor: { opacity: 0, show() { this.visible = true; }, ease(params) { this.opacity = params.opacity; } } };
+const mockItem3 = { opacity: 0, actor: { opacity: 0, show() { this.visible = true; }, ease(params) { this.opacity = params.opacity; } } };
+
+const indStagger = new TaskIndicatorButton(timingSettings, null);
+indStagger._staggerMenuItems([mockItem1, mockItem2, mockItem3], 24);
+assert.strictEqual(indStagger._staggerTimerIds.length, 2, 'Item 2 and 3 should have scheduled stagger timers (index 1 & 2)');
+assert.strictEqual(mockItem1.actor.opacity, 255, 'Item 1 (index 0) eases immediately');
+
+indStagger.destroy();
+assert.strictEqual(indStagger._staggerTimerIds.length, 0, 'Stagger timers must be cleared on destroy');
+
+// Under reduced motion
+mockIface.set_boolean('enable-animations', false);
+timingSettings.set_boolean('task-indicator-reduced-motion', true);
+const indStaggerReduced = new TaskIndicatorButton(timingSettings, null, { interfaceSettings: mockIface });
+mockItem1.actor.opacity = 0;
+mockItem2.actor.opacity = 0;
+indStaggerReduced._staggerMenuItems([mockItem1, mockItem2]);
+assert.strictEqual(indStaggerReduced._staggerTimerIds.length, 0, 'No stagger timers should be scheduled under reduced motion');
+assert.strictEqual(mockItem1.actor.opacity, 255, 'Item 1 immediately opacity 255 under reduced motion');
+assert.strictEqual(mockItem2.actor.opacity, 255, 'Item 2 immediately opacity 255 under reduced motion');
+indStaggerReduced.destroy();
+mockIface.set_boolean('enable-animations', true);
+
+console.log('-> Reveal timing spec, dwell delay, leave grace & reduced motion PASSED.');
+
+

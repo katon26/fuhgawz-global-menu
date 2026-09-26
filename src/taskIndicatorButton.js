@@ -13,6 +13,12 @@ export const MARQUEE_STEP_MS = 250;
 export const MARQUEE_PAUSE_MS = 2000;
 export const MARQUEE_DELIMITER = '   •   ';
 
+export const CARD_DWELL_MS = 350;
+export const LEAVE_GRACE_MS = 120;
+export const DEFAULT_REVEAL_MS = 180;
+export const ITEM_STAGGER_MS = 24;
+
+
 let St = null;
 try {
     const mod = await import('gi://St');
@@ -93,6 +99,15 @@ class FallbackPopupMenu {
                 this._emit('open-state-changed', false);
             },
             visible: false,
+            opacity: 255,
+            ease: (params) => {
+                if (params && params.opacity !== undefined) {
+                    this.actor.opacity = params.opacity;
+                }
+                if (typeof params?.onComplete === 'function') {
+                    params.onComplete();
+                }
+            },
         };
     }
 
@@ -169,6 +184,13 @@ class BaseIndicatorLogic {
         this._appLabel = this._options?.appLabel || '';
         this._lastCopiedPath = null;
         this._autoHideTimerId = 0;
+        this._cardDwellTimerId = 0;
+        this._leaveGraceTimerId = 0;
+        this._staggerTimerIds = [];
+        this._isPinned = false;
+        this._interfaceSettings = options.interfaceSettings ?? null;
+        this._cardDwellMs = options.cardDwellMs ?? CARD_DWELL_MS;
+        this._leaveGraceMs = (options.leaveGraceMs !== undefined) ? options.leaveGraceMs : (this._settings ? LEAVE_GRACE_MS : 0);
         this._destroyed = false;
         this._mediaManager = options.mediaManager ?? null;
         this._mediaCard = options.mediaCard ?? null;
@@ -273,6 +295,17 @@ class BaseIndicatorLogic {
                             this._mediaCard?.hideCard?.();
                         else
                             this._refreshMediaIndicator();
+                    });
+                    this._settingsSignalIds.push(id);
+                } catch (e) {}
+            }
+
+            for (const key of ['task-indicator-reveal', 'task-indicator-reveal-ms', 'task-indicator-reduced-motion']) {
+                try {
+                    const id = this._settings.connect(`changed::${key}`, () => {
+                        if (this._destroyed)
+                            return;
+                        this._updateUiComponents();
                     });
                     this._settingsSignalIds.push(id);
                 } catch (e) {}
@@ -1229,20 +1262,90 @@ class BaseIndicatorLogic {
 
     onPointerEnter() {
         if (this._destroyed) return;
+        this._cancelLeaveGraceTimer();
         this._syncIndicatorDisplay();
+
         if (this._isMediaDisplay && this._readMediaSetting('media-hover-popover', true)) {
             this._mediaCard?.showForActor?.(this, this._mediaTrack, this._mediaPlaybackStatus);
         }
         if (this._mode === 'hover') {
             this.setExpanded(true);
         }
+
+        this._cancelCardDwellTimer();
+        const dwellMs = this._cardDwellMs;
+        if (dwellMs <= 0) {
+            this._handleCardDwellTrigger();
+        } else {
+            this._cardDwellTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, dwellMs, () => {
+                this._cardDwellTimerId = 0;
+                if (this._destroyed) return GLib.SOURCE_REMOVE;
+                this._handleCardDwellTrigger();
+                return GLib.SOURCE_REMOVE;
+            });
+        }
     }
 
-    onPointerLeave() {
+    _handleCardDwellTrigger() {
         if (this._destroyed) return;
+        if (this._activeTask) {
+            if (this._settings?.get_boolean('task-indicator-details') ?? true) {
+                this.openDropdown();
+            }
+        }
+    }
+
+    onPointerLeave(options = {}) {
+        if (this._destroyed) return;
+        this._cancelCardDwellTimer();
+
+        const graceMs = options.graceMs ?? this._leaveGraceMs;
+        if (options.immediate || graceMs <= 0) {
+            this._cancelLeaveGraceTimer();
+            this._handleLeaveGraceTrigger();
+            return;
+        }
+
+        this._cancelLeaveGraceTimer();
+        this._leaveGraceTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, graceMs, () => {
+            this._leaveGraceTimerId = 0;
+            if (this._destroyed) return GLib.SOURCE_REMOVE;
+            this._handleLeaveGraceTrigger();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _handleLeaveGraceTrigger() {
+        if (this._destroyed || this._isPinned) return;
         if (this._mode === 'hover') {
             this.setExpanded(false);
         }
+        if (this._isMediaDisplay) {
+            this._mediaCard?.hideCard?.();
+        } else if (this.isDropdownOpen()) {
+            this.closeDropdown();
+        }
+    }
+
+    _cancelCardDwellTimer() {
+        if (this._cardDwellTimerId) {
+            GLib.source_remove(this._cardDwellTimerId);
+            this._cardDwellTimerId = 0;
+        }
+    }
+
+    _cancelLeaveGraceTimer() {
+        if (this._leaveGraceTimerId) {
+            GLib.source_remove(this._leaveGraceTimerId);
+            this._leaveGraceTimerId = 0;
+        }
+    }
+
+    _clearStaggerTimers() {
+        for (const id of this._staggerTimerIds) {
+            try { GLib.source_remove(id); } catch (e) {}
+        }
+        this._staggerTimerIds = [];
     }
 
     onFocusEnter() {
@@ -1458,6 +1561,180 @@ class BaseIndicatorLogic {
         this.accessible_name = parts.join(', ');
     }
 
+    getRevealDurationMs() {
+        if (this._shouldReduceMotion()) return 0;
+        try {
+            const val = this._settings?.get_int('task-indicator-reveal-ms');
+            return (val !== null && val !== undefined) ? val : DEFAULT_REVEAL_MS;
+        } catch (e) {
+            return DEFAULT_REVEAL_MS;
+        }
+    }
+
+    getRevealStyle() {
+        try {
+            return this._settings?.get_string('task-indicator-reveal') || 'slide-fade';
+        } catch (e) {
+            return 'slide-fade';
+        }
+    }
+
+    _shouldReduceMotion() {
+        const respectReducedMotion = this._settings?.get_boolean('task-indicator-reduced-motion') ?? true;
+        if (!respectReducedMotion) {
+            return false;
+        }
+
+        if (this._interfaceSettings) {
+            try {
+                if (typeof this._interfaceSettings.get_boolean === 'function') {
+                    return !this._interfaceSettings.get_boolean('enable-animations');
+                }
+            } catch (e) {}
+        }
+
+        try {
+            if (Clutter?.Settings?.get_default) {
+                const cs = Clutter.Settings.get_default();
+                if (cs && 'enable_animations' in cs) {
+                    return !cs.enable_animations;
+                }
+            }
+        } catch (e) {}
+
+        try {
+            if (!this._interfaceSettings && Gio?.Settings) {
+                this._interfaceSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.interface' });
+                return !this._interfaceSettings.get_boolean('enable-animations');
+            }
+        } catch (e) {}
+
+        return false;
+    }
+
+    _revealWithMotion(actor, options = {}) {
+        if (!actor) return;
+        const duration = options.duration ?? this.getRevealDurationMs();
+        const style = options.style ?? this.getRevealStyle();
+
+        if (this._shouldReduceMotion() || duration <= 0 || style === 'none') {
+            actor.opacity = 255;
+            if (typeof actor.show === 'function') actor.show();
+            actor.visible = true;
+            options.onComplete?.();
+            return;
+        }
+
+        actor.opacity = 0;
+        if (typeof actor.show === 'function') actor.show();
+        actor.visible = true;
+
+        const easeParams = {
+            opacity: 255,
+            duration,
+            mode: Clutter?.AnimationMode?.EASE_OUT_CUBIC ?? 32,
+        };
+        if (options.onComplete) {
+            easeParams.onComplete = options.onComplete;
+        }
+
+        if (typeof actor.ease === 'function') {
+            actor.ease(easeParams);
+        } else {
+            actor.opacity = 255;
+            options.onComplete?.();
+        }
+    }
+
+    _dismissWithMotion(actor, options = {}) {
+        if (!actor) return;
+        const duration = options.duration ?? (this._shouldReduceMotion() ? 0 : this.getRevealDurationMs());
+
+        if (this._shouldReduceMotion() || duration <= 0) {
+            actor.opacity = 0;
+            if (typeof actor.hide === 'function') actor.hide();
+            actor.visible = false;
+            options.onComplete?.();
+            return;
+        }
+
+        const easeParams = {
+            opacity: 0,
+            duration,
+            mode: Clutter?.AnimationMode?.EASE_OUT_CUBIC ?? 32,
+            onComplete: () => {
+                if (typeof actor.hide === 'function') actor.hide();
+                actor.visible = false;
+                options.onComplete?.();
+            },
+        };
+
+        if (typeof actor.ease === 'function') {
+            actor.ease(easeParams);
+        } else {
+            actor.opacity = 0;
+            if (typeof actor.hide === 'function') actor.hide();
+            actor.visible = false;
+            options.onComplete?.();
+        }
+    }
+
+    _revealMenuWithMotion(menuActor, durationMs = null) {
+        if (!menuActor) return;
+        const duration = durationMs ?? this.getRevealDurationMs();
+        if (this._shouldReduceMotion() || duration <= 0) {
+            menuActor.opacity = 255;
+            return;
+        }
+        menuActor.opacity = 0;
+        if (typeof menuActor.ease === 'function') {
+            menuActor.ease({
+                opacity: 255,
+                duration,
+                mode: Clutter?.AnimationMode?.EASE_OUT_CUBIC ?? 32,
+            });
+        } else {
+            menuActor.opacity = 255;
+        }
+    }
+
+    _staggerMenuItems(items, stepMs = ITEM_STAGGER_MS) {
+        if (!Array.isArray(items) || items.length === 0) return;
+        this._clearStaggerTimers();
+
+        if (this._shouldReduceMotion()) {
+            for (const item of items) {
+                const actor = item.actor || item;
+                if (actor) {
+                    actor.opacity = 255;
+                    if (typeof actor.show === 'function') actor.show();
+                    actor.visible = true;
+                }
+            }
+            return;
+        }
+
+        const totalDuration = this.getRevealDurationMs();
+        items.forEach((item, index) => {
+            const actor = item.actor || item;
+            if (!actor) return;
+            actor.opacity = 0;
+            const delay = index * stepMs;
+            if (delay === 0) {
+                this._revealWithMotion(actor, { duration: Math.max(60, totalDuration) });
+            } else {
+                const timerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+                    const idx = this._staggerTimerIds.indexOf(timerId);
+                    if (idx !== -1) this._staggerTimerIds.splice(idx, 1);
+                    if (this._destroyed) return GLib.SOURCE_REMOVE;
+                    this._revealWithMotion(actor, { duration: Math.max(60, totalDuration - delay) });
+                    return GLib.SOURCE_REMOVE;
+                });
+                this._staggerTimerIds.push(timerId);
+            }
+        });
+    }
+
     toggleDropdown() {
         if (this._destroyed) return;
         if (this.isDropdownOpen()) {
@@ -1492,6 +1769,14 @@ class BaseIndicatorLogic {
             this.menu.open();
         }
 
+        if (this.menu?.actor) {
+            this._revealMenuWithMotion(this.menu.actor);
+        }
+
+        if (this.menu?.items?.length > 0) {
+            this._staggerMenuItems(this.menu.items);
+        }
+
         this._updateUiComponents();
 
         if (typeof this.emit === 'function') {
@@ -1499,18 +1784,26 @@ class BaseIndicatorLogic {
         }
     }
 
-    closeDropdown() {
+    closeDropdown(options = {}) {
         if (this._destroyed) return;
         this._isDropdownOpen = false;
 
-        if (typeof this.menu?.close === 'function') {
-            this.menu.close();
-        }
+        const finalizeClose = () => {
+            if (typeof this.menu?.close === 'function') {
+                this.menu.close();
+            }
+            this._updateUiComponents();
+            if (typeof this.emit === 'function') {
+                this.emit('dropdown-toggled', false);
+            }
+        };
 
-        this._updateUiComponents();
-
-        if (typeof this.emit === 'function') {
-            this.emit('dropdown-toggled', false);
+        if (options.immediate || this._shouldReduceMotion() || !this.menu?.actor || typeof this.menu.actor.ease !== 'function') {
+            finalizeClose();
+        } else {
+            this._dismissWithMotion(this.menu.actor, {
+                onComplete: finalizeClose,
+            });
         }
     }
 
@@ -2285,6 +2578,10 @@ class BaseIndicatorLogic {
         if (this._destroyed) return;
         this._destroyed = true;
         this._stopMediaMarquee();
+        this._cancelCardDwellTimer();
+        this._cancelLeaveGraceTimer();
+        this._clearStaggerTimers();
+        this._interfaceSettings = null;
 
         this._activeTask = null;
         this._labelText = '';
