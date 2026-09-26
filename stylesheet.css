@@ -162,11 +162,11 @@
   padding-right: 10px;
   font-weight: 600;
   border-radius: 6px;
-  background-color: rgba(53, 132, 228, 0.14);
+  background-color: st-mix(-st-accent-color, transparent, 14%);
   border-width: 1px;
   border-style: solid;
-  border-color: rgba(53, 132, 228, 0.28);
-  color: #9ac1f0;
+  border-color: st-mix(-st-accent-color, transparent, 28%);
+  color: -st-accent-fg-color;
   transition-duration: 150ms;
 }
 
@@ -174,9 +174,9 @@
 .fuhgawz-task-indicator.standalone:hover,
 .panel-button.fuhgawz-task-indicator:hover,
 .panel-button.fuhgawz-task-indicator-standalone:hover {
-  background-color: rgba(53, 132, 228, 0.24);
-  border-color: rgba(53, 132, 228, 0.45);
-  color: #ffffff;
+  background-color: st-mix(-st-accent-color, transparent, 24%);
+  border-color: st-mix(-st-accent-color, transparent, 45%);
+  color: -st-accent-fg-color;
 }
 
 .fuhgawz-task-indicator-standalone:active,
@@ -187,9 +187,9 @@
 .panel-button.fuhgawz-task-indicator:checked,
 .panel-button.fuhgawz-task-indicator-standalone:active,
 .panel-button.fuhgawz-task-indicator-standalone:checked {
-  background-color: rgba(53, 132, 228, 0.35);
-  border-color: rgba(53, 132, 228, 0.55);
-  color: #ffffff;
+  background-color: st-mix(-st-accent-color, transparent, 35%);
+  border-color: st-mix(-st-accent-color, transparent, 55%);
+  color: -st-accent-fg-color;
 }
 
 .fuhgawz-task-indicator-standalone.completed,
@@ -212,7 +212,7 @@
   border-radius: 99px;
   background-color: -st-accent-color;
   color: -st-accent-fg-color;
-  font-size: 11px;
+  font-size: 0.85em;
   font-weight: bold;
 }
 
@@ -229,7 +229,7 @@
 }
 
 .fuhgawz-task-indicator-label {
-  font-size: 13px;
+  font-size: 1em;
   font-weight: 600;
   color: inherit;
 }
@@ -250,7 +250,7 @@
 }
 
 .fuhgawz-task-telemetry-label {
-  font-size: 12px;
+  font-size: 0.9em;
   font-weight: normal;
   color: rgba(255, 255, 255, 0.7);
   padding: 0 2px;
@@ -263,7 +263,7 @@
   padding: 2px 7px;
   margin: 0 2px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 0.85em;
   font-weight: bold;
   color: rgba(255, 255, 255, 0.85);
   background-color: rgba(255, 255, 255, 0.10);
@@ -290,12 +290,12 @@
   border-color: rgba(255, 255, 255, 0.45);
 }
 
-/* Hairline Progress Bar: crisp 2px height, Adwaita blue accent (#3584e4) and completed green (#2ec27e) */
+/* Hairline Progress Bar: crisp 2px height, theme accent (-st-accent-color) and completed green (#2ec27e) */
 .fuhgawz-task-progress-bar {
   height: 2px;
   margin: 0;
   padding: 0;
-  color: #3584e4;
+  color: -st-accent-color;
 }
 
 .fuhgawz-task-progress-bar.completed {
@@ -371,7 +371,7 @@
 .fuhgawz-popover-card {
   width: 320px;
   padding: 12px;
-  background-color: #2d2d2d;
+  background-color: rgba(0, 0, 0, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   spacing: 8px;
@@ -381,7 +381,7 @@
   spacing: 8px;
   color: #ffffff;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 1em;
 }
 
 .fuhgawz-popover-header-icon {
@@ -402,24 +402,24 @@
 }
 
 .fuhgawz-popover-stats {
-  font-size: 12px;
+  font-size: 0.9em;
   color: rgba(255, 255, 255, 0.65);
 }
 
 .fuhgawz-popover-stat-time {
-  font-size: 12px;
+  font-size: 0.9em;
   color: rgba(255, 255, 255, 0.65);
 }
 
 .fuhgawz-popover-stat-speed {
-  font-size: 12px;
+  font-size: 0.9em;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.85);
   text-align: center;
 }
 
 .fuhgawz-popover-stat-bytes {
-  font-size: 12px;
+  font-size: 0.9em;
   color: rgba(255, 255, 255, 0.65);
   text-align: right;
 }
@@ -437,7 +437,7 @@
   background-color: rgba(255, 255, 255, 0.06);
   border-radius: 6px;
   padding: 6px 4px;
-  font-size: 11px;
+  font-size: 0.85em;
   font-weight: 600;
   color: #f6f5f4;
   transition-duration: 150ms;
@@ -452,6 +452,13 @@
   background-color: rgba(255, 255, 255, 0.22);
 }
 
+/* Destructive action: the card's Cancel stops a running task (Adwaita destructive tokens) */
+.fuhgawz-pop-btn-cancel,
+.fuhgawz-pop-btn.cancel {
+  background-color: rgba(224, 27, 36, 0.18);
+  color: #ffb4ab;
+}
+
 .fuhgawz-pop-btn.cancel:hover,
 .fuhgawz-pop-btn-cancel:hover {
   background-color: rgba(224, 27, 36, 0.25);
@@ -459,10 +466,9 @@
 }
 
 .fuhgawz-popover-recent-title {
-  font-size: 11px;
+  font-size: 0.85em;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.4);
-  text-transform: uppercase;
   margin-top: 4px;
   margin-bottom: 2px;
 }
@@ -470,7 +476,7 @@
 .fuhgawz-popover-recent-item {
   padding: 6px 8px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 0.9em;
   color: rgba(255, 255, 255, 0.65);
   transition-duration: 120ms;
 }
@@ -487,12 +493,12 @@
 }
 
 .fuhgawz-popover-recent-label {
-  font-size: 12px;
+  font-size: 0.9em;
   color: inherit;
 }
 
 .fuhgawz-popover-recent-time {
-  font-size: 11px;
+  font-size: 0.85em;
   color: rgba(255, 255, 255, 0.4);
 }
 
@@ -529,12 +535,12 @@
 }
 
 .fuhgawz-media-title {
-  font-size: 13px;
+  font-size: 1em;
   font-weight: 700;
 }
 
 .fuhgawz-media-artist {
-  font-size: 11px;
+  font-size: 0.85em;
   opacity: 0.72;
 }
 
@@ -595,7 +601,7 @@
 }
 
 .fuhgawz-media-recent-title {
-  font-size: 10px;
+  font-size: 0.8em;
   font-weight: 600;
   opacity: 0.68;
 }
@@ -617,5 +623,5 @@
 }
 
 .fuhgawz-media-recent-label {
-  font-size: 11px;
+  font-size: 0.85em;
 }

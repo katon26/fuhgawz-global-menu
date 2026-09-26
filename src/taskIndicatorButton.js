@@ -1391,6 +1391,73 @@ class BaseIndicatorLogic {
     // Dropdown Menu Generation & Action Handlers
     // ---------------------------------------------------------------------
 
+    /**
+     * Click and keyboard path for the media card.
+     *
+     * Hover and key focus already open the floating card (onPointerEnter /
+     * onFocusEnter), but with 'media-hover-popover' disabled there was no way
+     * to reach the card's controls at all: the label used to swallow every
+     * click. Clicking now toggles it, so no action in the card is hover-only.
+     *
+     * @returns {void}
+     */
+    toggleMediaCard() {
+        if (this._destroyed || !this._isMediaDisplay)
+            return;
+        if (this._mediaCard?.isOpen?.()) {
+            this._mediaCard.hideCard?.();
+        } else {
+            this._mediaCard?.showForActor?.(this, this._mediaTrack, this._mediaPlaybackStatus);
+        }
+    }
+
+    /**
+     * Builds the screen-reader name for the panel indicator.
+     *
+     * A visible label of "42% · 4m" tells a screen-reader user nothing, so the
+     * accessible name spells out the task, the percentage and the estimate.
+     *
+     * @returns {void}
+     */
+    _updateAccessibleName() {
+        if (this._destroyed)
+            return;
+
+        if (this._isMediaDisplay) {
+            const track = this._mediaTrack;
+            const title = track?.title || this._labelText?.trim() || '';
+            const artist = track?.artist ? ` by ${track.artist}` : '';
+            const status = this._mediaPlaybackStatus === 'Playing' ? 'Playing' : this._mediaPlaybackStatus === 'Paused' ? 'Paused' : '';
+            this.accessible_name = [title + artist, status].filter(Boolean).join(', ');
+            return;
+        }
+
+        const task = this._activeTask;
+        if (!task) {
+            this.accessible_name = this._isCompleted ? 'Task completed' : '';
+            return;
+        }
+
+        const appLabel = this.getAppLabel?.() || task.appLabel || '';
+        const name = [appLabel, task.title || task.summary].filter(Boolean).join(' ');
+        if (this._isCompleted || task.state === 'completed') {
+            this.accessible_name = `${name || 'Task'} completed`;
+            return;
+        }
+
+        const parts = [name || 'Task in progress'];
+        const raw = Number(task.progress);
+        if (task.indeterminate || !Number.isFinite(raw)) {
+            parts.push('progress unknown');
+        } else {
+            const value = Math.max(0, raw);
+            parts.push(`${Math.min(100, Math.round(value > 1.0 ? value : value * 100))} percent`);
+        }
+        if (task.etaText)
+            parts.push(`about ${String(task.etaText).replace(/\s*left$/i, '').trim()} left`);
+        this.accessible_name = parts.join(', ');
+    }
+
     toggleDropdown() {
         if (this._destroyed) return;
         if (this.isDropdownOpen()) {
@@ -1589,13 +1656,8 @@ class BaseIndicatorLogic {
                     can_focus: true,
                     x_expand: true,
                 });
-                const pauseContent = new St.BoxLayout({ vertical: true, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
-                const pauseIcon = new St.Icon({
-                    icon_name: card.paused ? 'media-playback-start-symbolic' : 'media-playback-pause-symbolic',
-                    style_class: 'fuhgawz-pop-btn-icon',
-                });
+                const pauseContent = new St.BoxLayout({ vertical: false, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
                 const pauseText = new St.Label({ text: card.paused ? 'Resume' : 'Pause' });
-                pauseContent.add_child(pauseIcon);
                 pauseContent.add_child(pauseText);
                 pauseBtn.set_child(pauseContent);
                 pauseBtn.connect('clicked', () => {
@@ -1611,13 +1673,8 @@ class BaseIndicatorLogic {
                     can_focus: true,
                     x_expand: true,
                 });
-                const cancelContent = new St.BoxLayout({ vertical: true, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
-                const cancelIcon = new St.Icon({
-                    icon_name: 'process-stop-symbolic',
-                    style_class: 'fuhgawz-pop-btn-icon',
-                });
+                const cancelContent = new St.BoxLayout({ vertical: false, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
                 const cancelText = new St.Label({ text: 'Cancel' });
-                cancelContent.add_child(cancelIcon);
                 cancelContent.add_child(cancelText);
                 cancelBtn.set_child(cancelContent);
                 cancelBtn.connect('clicked', () => {
@@ -1633,13 +1690,8 @@ class BaseIndicatorLogic {
                     can_focus: true,
                     x_expand: true,
                 });
-                const revealContent = new St.BoxLayout({ vertical: true, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
-                const revealIcon = new St.Icon({
-                    icon_name: 'folder-symbolic',
-                    style_class: 'fuhgawz-pop-btn-icon',
-                });
+                const revealContent = new St.BoxLayout({ vertical: false, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
                 const revealText = new St.Label({ text: 'Show in Files' });
-                revealContent.add_child(revealIcon);
                 revealContent.add_child(revealText);
                 revealBtn.set_child(revealContent);
                 revealBtn.connect('clicked', () => {
@@ -1654,7 +1706,7 @@ class BaseIndicatorLogic {
             // 2. Recent Tasks inside the Card
             if (data.recentItems.length > 0) {
                 const recentTitle = new St.Label({
-                    text: 'RECENT TASKS',
+                    text: 'Recent tasks',
                     style_class: 'fuhgawz-popover-recent-title',
                 });
                 cardBox.add_child(recentTitle);
@@ -2146,6 +2198,7 @@ class BaseIndicatorLogic {
                 }
             }
         }
+        this._updateAccessibleName();
     }
 
     // ---------------------------------------------------------------------
@@ -2413,7 +2466,10 @@ if (hasStWidget) {
                     if (this._isMediaDisplay) {
                         let button = 0;
                         try { button = event?.get_button?.() ?? 0; } catch (e) {}
-                        return button === 3 ? Clutter.EVENT_PROPAGATE : Clutter.EVENT_STOP;
+                        if (button === 3)
+                            return Clutter.EVENT_PROPAGATE;
+                        this.toggleMediaCard();
+                        return Clutter.EVENT_STOP;
                     }
                     this.toggleDropdown();
                     return Clutter ? Clutter.EVENT_STOP : true;
