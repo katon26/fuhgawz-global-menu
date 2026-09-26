@@ -96,6 +96,7 @@ export const MediaManager = GObject.registerClass(
             this._subscriptions = [];
             this._spotifyWatcherId = 0;
             this._spotifyPriority = options.spotifyPriority ?? this._readSpotifyPriority();
+            this._isSeeking = false;
 
             const cacheRoot = GLib.build_filenamev([GLib.get_user_cache_dir(), 'fuhgawz-global-menu']);
             this._cacheFile = options.cacheFile ?? GLib.build_filenamev([cacheRoot, 'recent-tracks.json']);
@@ -574,18 +575,28 @@ export const MediaManager = GObject.registerClass(
         }
 
         seek(positionMs) {
+            this._isSeeking = true;
+            const finish = () => { this._isSeeking = false; };
             const player = this._activePlayerName ? this._players.get(this._activePlayerName) : null;
             const track = player ? this._trackForPlayer(player) : null;
-            if (!player || !track)
+            if (!player || !track) {
+                finish();
                 return Promise.reject(new Error('No active track to seek'));
+            }
             const targetUs = Math.max(0, Math.round((Number(positionMs) || 0) * 1000));
             if (track.trackId && track.trackId !== NO_TRACK_ID) {
                 return this._call(player.owner, MPRIS_OBJECT_PATH, MPRIS_PLAYER_INTERFACE, 'SetPosition',
-                    new GLib.Variant('(ox)', [track.trackId, targetUs]));
+                    new GLib.Variant('(ox)', [track.trackId, targetUs]))
+                    .then(r => { finish(); return r; }, err => { finish(); throw err; });
             }
             const offset = targetUs - track.positionUs;
             return this._call(player.owner, MPRIS_OBJECT_PATH, MPRIS_PLAYER_INTERFACE, 'Seek',
-                new GLib.Variant('(x)', [offset]));
+                new GLib.Variant('(x)', [offset]))
+                .then(r => { finish(); return r; }, err => { finish(); throw err; });
+        }
+
+        isSeeking() {
+            return Boolean(this._isSeeking);
         }
 
         raise() {

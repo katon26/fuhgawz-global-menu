@@ -204,6 +204,14 @@ class BaseIndicatorLogic {
         this._marqueeFullText = '';
         this._marqueeActiveText = null;
         this._marqueeMaxChars = options.marqueeMaxChars ?? MARQUEE_MAX_CHARS;
+        this._isYanked = false;
+        this._isCompressed = false;
+        this._floatingCardActor = options.floatingCardActor ?? null;
+        this._customChipActor = null;
+        this._customYankEnabled = undefined;
+        this._customYankReturn = undefined;
+        this.clip_to_allocation = true;
+        if (this._box) this._box.clip_to_allocation = true;
 
         this._tmSignalIds = [];
         this._settingsSignalIds = [];
@@ -300,7 +308,7 @@ class BaseIndicatorLogic {
                 } catch (e) {}
             }
 
-            for (const key of ['task-indicator-reveal', 'task-indicator-reveal-ms', 'task-indicator-reduced-motion']) {
+            for (const key of ['task-indicator-reveal', 'task-indicator-reveal-ms', 'task-indicator-reduced-motion', 'yank-indicator', 'yank-indicator-return']) {
                 try {
                     const id = this._settings.connect(`changed::${key}`, () => {
                         if (this._destroyed)
@@ -371,6 +379,9 @@ class BaseIndicatorLogic {
                 this._mediaTrack = track ?? manager.getActiveTrack?.() ?? null;
                 this._mediaPlaybackStatus = manager.getPlaybackStatus?.() ?? this._mediaPlaybackStatus;
                 this._mediaCard?.updateState?.(this._mediaTrack, this._mediaPlaybackStatus);
+                if (this._isYanked) {
+                    this.yankChipIn();
+                }
                 this._refreshMediaIndicator();
             }));
             this._mediaSignalIds.push(manager.connect('status-changed', (_manager, status) => {
@@ -378,6 +389,9 @@ class BaseIndicatorLogic {
                 this._mediaPlaybackStatus = status || manager.getPlaybackStatus?.() || 'Stopped';
                 this._mediaTrack = manager.getActiveTrack?.() ?? this._mediaTrack;
                 this._mediaCard?.updateState?.(this._mediaTrack, this._mediaPlaybackStatus);
+                if (this._isYanked) {
+                    this.yankChipIn();
+                }
                 this._refreshMediaIndicator();
             }));
         } catch (error) {
@@ -462,6 +476,7 @@ class BaseIndicatorLogic {
     }
 
     _handleIndicatorButtonPress(event) {
+        this.handleYankReturnClick();
         const source = event?.get_source ? event.get_source() : (event?.target || null);
         if (this.isDescendantOf(source, this._sliderToggleWidget) || this.isDescendantOf(source, this._actionButton))
             return Clutter ? Clutter.EVENT_STOP : true;
@@ -1322,6 +1337,9 @@ class BaseIndicatorLogic {
         }
         if (this._isMediaDisplay) {
             this._mediaCard?.hideCard?.();
+            if (this._isYanked && this.getYankReturnTrigger() === 'zone-leave') {
+                this.yankChipIn();
+            }
         } else if (this.isDropdownOpen()) {
             this.closeDropdown();
         }
@@ -1735,6 +1753,188 @@ class BaseIndicatorLogic {
         });
     }
 
+    // ---------------------------------------------------------------------
+    // Yank Indicator Motion & Contention Arbitration
+    // ---------------------------------------------------------------------
+
+    get isYanked() {
+        return Boolean(this._isYanked);
+    }
+
+    get isCompressed() {
+        return Boolean(this._isCompressed);
+    }
+
+    get _chipActor() {
+        return this._customChipActor || this._box || this;
+    }
+
+    set _chipActor(actor) {
+        this._customChipActor = actor;
+    }
+
+    get _yankEnabled() {
+        if (this._customYankEnabled !== undefined)
+            return this._customYankEnabled;
+        if (this._settings) {
+            try {
+                return this._settings.get_boolean('yank-indicator');
+            } catch (e) {}
+        }
+        return false;
+    }
+
+    set _yankEnabled(val) {
+        this._customYankEnabled = Boolean(val);
+    }
+
+    isYankEnabled() {
+        return this._yankEnabled;
+    }
+
+    getYankReturnTrigger() {
+        if (this._customYankReturn !== undefined)
+            return this._customYankReturn;
+        if (this._settings) {
+            try {
+                return this._settings.get_string('yank-indicator-return') || 'zone-leave';
+            } catch (e) {}
+        }
+        return 'zone-leave';
+    }
+
+    get _yankReturnTrigger() {
+        return this.getYankReturnTrigger();
+    }
+
+    set _yankReturnTrigger(val) {
+        this._customYankReturn = val;
+    }
+
+    _hasActiveTask() {
+        if (this._activeTask) return true;
+        if (this._activeTaskId) return true;
+        if (this._isCompleted) return true;
+        if (this._taskManager) {
+            try {
+                const tasks = this._taskManager.getAllActiveTasks?.() ?? [];
+                if (tasks.length > 0) return true;
+            } catch (e) {}
+        }
+        return false;
+    }
+
+    isCardOpen() {
+        if (this._mediaCard) {
+            if (typeof this._mediaCard.isOpen === 'function' && this._mediaCard.isOpen())
+                return true;
+            if (this._mediaCard.visible)
+                return true;
+        }
+        if (this._floatingCardActor) {
+            if (typeof this._floatingCardActor.isOpen === 'function' && this._floatingCardActor.isOpen())
+                return true;
+            if (this._floatingCardActor.visible)
+                return true;
+        }
+        if (typeof this.isDropdownOpen === 'function' && this.isDropdownOpen())
+            return true;
+        return false;
+    }
+
+    yankChipOut() {
+        if (!this._yankEnabled || this._hasActiveTask() || this.isCardOpen())
+            return;
+        if (!this._isMediaDisplay)
+            return;
+        if (this._mediaManager) {
+            try {
+                if (typeof this._mediaManager.isSeeking === 'function' && this._mediaManager.isSeeking())
+                    return;
+            } catch (e) {}
+        }
+        this._isYanked = true;
+        if (this._shouldReduceMotion()) {
+            this._chipActor.opacity = 0;
+            this._chipActor.width = 0;
+            return;
+        }
+        this._chipActor.ease({
+            width: 0,
+            opacity: 0,
+            duration: 160,
+            mode: Clutter?.AnimationMode?.EASE_OUT_CUBIC ?? 32,
+        });
+    }
+
+    yankChipIn() {
+        if (!this._isYanked)
+            return;
+        this._isYanked = false;
+        const naturalWidth = typeof this._chipActor.get_preferred_width === 'function'
+            ? this._chipActor.get_preferred_width(-1)[1]
+            : (this._chipActor._naturalWidth ?? this._chipActor.width ?? 120);
+        if (this._shouldReduceMotion()) {
+            this._chipActor.width = naturalWidth;
+            this._chipActor.opacity = 255;
+            return;
+        }
+        this._chipActor.ease({
+            width: naturalWidth,
+            opacity: 255,
+            duration: 200,
+            mode: Clutter?.AnimationMode?.EASE_IN_CUBIC ?? 31,
+        });
+    }
+
+    onMenuZoneEnter() {
+        if (this._destroyed) return;
+        this._cancelLeaveGraceTimer();
+        if (this._isMediaDisplay) {
+            if (this._yankEnabled) {
+                this.yankChipOut();
+            } else {
+                this._isCompressed = true;
+                this.onPointerEnter();
+            }
+        }
+    }
+
+    onMenuZoneLeave(options = {}) {
+        if (this._destroyed) return;
+        if (this._isYanked) {
+            if (this.getYankReturnTrigger() === 'zone-leave') {
+                const graceMs = options.graceMs ?? this._leaveGraceMs;
+                if (options.immediate || graceMs <= 0) {
+                    this._cancelLeaveGraceTimer();
+                    this.yankChipIn();
+                } else {
+                    this._cancelLeaveGraceTimer();
+                    this._leaveGraceTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, graceMs, () => {
+                        this._leaveGraceTimerId = 0;
+                        if (this._destroyed) return GLib.SOURCE_REMOVE;
+                        if (this._isYanked && this.getYankReturnTrigger() === 'zone-leave' && !this._isPinned) {
+                            this.yankChipIn();
+                        }
+                        return GLib.SOURCE_REMOVE;
+                    });
+                }
+            }
+        } else {
+            this._isCompressed = false;
+            if (this._isMediaDisplay) {
+                this.onPointerLeave(options);
+            }
+        }
+    }
+
+    handleYankReturnClick() {
+        if (this._isYanked && this.getYankReturnTrigger() === 'click') {
+            this.yankChipIn();
+        }
+    }
+
+
     toggleDropdown() {
         if (this._destroyed) return;
         if (this.isDropdownOpen()) {
@@ -1786,6 +1986,7 @@ class BaseIndicatorLogic {
 
     closeDropdown(options = {}) {
         if (this._destroyed) return;
+        this._clearStaggerTimers();
         this._isDropdownOpen = false;
 
         const finalizeClose = () => {
@@ -2231,6 +2432,7 @@ class BaseIndicatorLogic {
                 return Clutter ? Clutter.EVENT_PROPAGATE : false;
             });
             const rId = appMenuButton.connect('button-release-event', (actor, event) => {
+                this.handleYankReturnClick();
                 const source = event?.get_source ? event.get_source() : (event?.target || null);
                 if (this._isChildButton(source)) {
                     return Clutter ? Clutter.EVENT_STOP : true;
@@ -2238,12 +2440,10 @@ class BaseIndicatorLogic {
                 return Clutter ? Clutter.EVENT_PROPAGATE : false;
             });
             const enterId = appMenuButton.connect('enter-event', () => {
-                if (this._isMediaDisplay)
-                    this.onPointerEnter();
+                this.onMenuZoneEnter();
             });
             const leaveId = appMenuButton.connect('leave-event', () => {
-                if (this._isMediaDisplay)
-                    this.onPointerLeave();
+                this.onMenuZoneLeave();
             });
             this._appMenuSignalIds.push(pId, rId, enterId, leaveId);
         }
@@ -2626,6 +2826,10 @@ class BaseIndicatorLogic {
         this._mediaManager = null;
         this._mediaTrack = null;
         this._isMediaDisplay = false;
+        this._isYanked = false;
+        this._isCompressed = false;
+        this._customChipActor = null;
+        this._floatingCardActor = null;
 
         if (this.menu) {
             if (this._menuOpenStateId && typeof this.menu.disconnect === 'function') {
@@ -2736,7 +2940,9 @@ if (hasStWidget) {
                     style_class: 'fuhgawz-task-indicator-box',
                     reactive: true,
                     track_hover: true,
+                    clip_to_allocation: true,
                 });
+                this.clip_to_allocation = true;
 
                 this._separatorWidget = new St.Label({
                     style_class: 'fuhgawz-task-separator',
@@ -3024,9 +3230,12 @@ if (hasStWidget) {
                 super._init();
                 this.x = 0;
                 this.y = 0;
-                this.width = 0;
+                this.width = 120;
                 this.height = 0;
+                this.opacity = 255;
                 this.visible = true;
+                this.clip_to_allocation = true;
+                this._naturalWidth = 120;
                 this.children = [];
                 this.container = this;
                 this.style_class = 'fuhgawz-task-indicator';
@@ -3183,6 +3392,20 @@ if (hasStWidget) {
 
             get_height() {
                 return this.height;
+            }
+
+            get_preferred_width(forHeight = -1) {
+                const natWidth = this._naturalWidth !== undefined ? this._naturalWidth : (this.width || 120);
+                return [this._minWidth ?? 0, natWidth];
+            }
+
+            ease(params) {
+                this._easeParams = params;
+                if (params.opacity !== undefined) this.opacity = params.opacity;
+                if (params.width !== undefined) this.width = params.width;
+                if (typeof params.onComplete === 'function') {
+                    params.onComplete();
+                }
             }
 
             get_parent() {

@@ -1788,4 +1788,207 @@ mockIface.set_boolean('enable-animations', true);
 
 console.log('-> Reveal timing spec, dwell delay, leave grace & reduced motion PASSED.');
 
+// ---------------------------------------------------------------------
+// 16. Verifying Yank Indicator Motion & Contention Arbitration
+// ---------------------------------------------------------------------
+console.log('16. Verifying yank indicator motion & contention arbitration...');
+
+const yankSettings = new MockSettingsClass();
+yankSettings._values.set('enable-media-indicator', true);
+yankSettings._values.set('media-persistent-idle', true);
+yankSettings._values.set('media-hover-popover', false);
+yankSettings._values.set('yank-indicator', true);
+yankSettings._values.set('yank-indicator-return', 'zone-leave');
+yankSettings._values.set('task-indicator-reduced-motion', true);
+
+const yankIface = new MockInterfaceSettingsClass(true);
+const yankMedia = new MockMediaManagerClass();
+const yankTasks = new MockTaskManagerForMediaClass();
+const yankCard = new MockMediaCard();
+
+const yankIndicator = new TaskIndicatorButton(yankSettings, yankTasks, {
+    mediaManager: yankMedia,
+    mediaCard: yankCard,
+    interfaceSettings: yankIface,
+    leaveGraceMs: 120,
+});
+
+const sampleTrack = {
+    player: 'org.mpris.MediaPlayer2.spotify',
+    playerTitle: 'Music',
+    title: 'Outshined',
+    artist: 'Soundgarden',
+};
+
+// A. Verification that yank is disabled by default unless preference enabled
+yankSettings.set_boolean('yank-indicator', false);
+yankMedia.publishTrack(sampleTrack);
+yankMedia.publishStatus('Playing');
+assert.strictEqual(yankIndicator.visible, true, 'Indicator should be visible for active media');
+assert.strictEqual(yankIndicator.isYanked, false, 'isYanked must initially be false');
+yankIndicator.yankChipOut();
+assert.strictEqual(yankIndicator.isYanked, false, 'yankChipOut must NOT yank when yank-indicator is false');
+
+// B. Enable yank-indicator and verify motion (160ms ease-out-cubic)
+yankSettings.set_boolean('yank-indicator', true);
+assert.strictEqual(yankIndicator._yankEnabled, true, 'yankEnabled must be true when setting enabled');
+
+yankIndicator.yankChipOut();
+assert.strictEqual(yankIndicator.isYanked, true, 'isYanked must be true after yankChipOut');
+assert.strictEqual(yankIndicator._chipActor.opacity, 0, 'Yanked chip opacity must be 0');
+assert.strictEqual(yankIndicator._chipActor.width, 0, 'Yanked chip width must be 0');
+assert(yankIndicator._chipActor._easeParams !== null, 'yankChipOut must call ease on chip actor');
+assert.strictEqual(yankIndicator._chipActor._easeParams.duration, 160, 'Yank out duration must be 160ms');
+assert.strictEqual(yankIndicator._chipActor._easeParams.width, 0, 'Yank out target width must be 0');
+assert.strictEqual(yankIndicator._chipActor._easeParams.opacity, 0, 'Yank out target opacity must be 0');
+
+// C. Verify restore motion (200ms ease-in-cubic)
+yankIndicator.yankChipIn();
+assert.strictEqual(yankIndicator.isYanked, false, 'isYanked must be false after yankChipIn');
+assert.strictEqual(yankIndicator._chipActor.opacity, 255, 'Restored chip opacity must be 255');
+assert(yankIndicator._chipActor.width > 0, 'Restored chip width must be natural width > 0');
+assert.strictEqual(yankIndicator._chipActor._easeParams.duration, 200, 'Yank in duration must be 200ms');
+assert.strictEqual(yankIndicator._chipActor._easeParams.opacity, 255, 'Yank in target opacity must be 255');
+
+// D. Contention Guard 1: Active file task prevents yank
+yankTasks.add({ id: 'dl-yank-1', title: 'File.iso', progress: 0.2 });
+yankIndicator.updateTask(yankTasks.getActiveTask('dl-yank-1'));
+assert.strictEqual(yankIndicator._hasActiveTask(), true, '_hasActiveTask must be true when file task active');
+yankIndicator.yankChipOut();
+assert.strictEqual(yankIndicator.isYanked, false, 'yankChipOut MUST NOT yank when file task owns slot');
+yankTasks.remove('dl-yank-1');
+yankIndicator._activeTask = null;
+yankIndicator._syncIndicatorDisplay();
+
+// Contention Guard 2: Open card prevents yank
+yankCard.isOpen = () => true;
+assert.strictEqual(yankIndicator.isCardOpen(), true, 'isCardOpen must be true when card isOpen is true');
+yankIndicator.yankChipOut();
+assert.strictEqual(yankIndicator.isYanked, false, 'yankChipOut MUST NOT yank when card is open');
+yankCard.isOpen = () => false;
+
+// Contention Guard 3: MPRIS seek in progress prevents yank
+yankMedia.isSeeking = () => true;
+yankIndicator.yankChipOut();
+assert.strictEqual(yankIndicator.isYanked, false, 'yankChipOut MUST NOT yank during MPRIS seek');
+yankMedia.isSeeking = () => false;
+
+// Contention Guard 4: Non-media display does not yank
+yankIndicator._isMediaDisplay = false;
+yankIndicator.yankChipOut();
+assert.strictEqual(yankIndicator.isYanked, false, 'yankChipOut MUST NOT yank when media is not displayed');
+yankIndicator._isMediaDisplay = true;
+
+// E. Reduced motion fallback for yank
+yankIface.set_boolean('enable-animations', false);
+yankIndicator._chipActor._easeParams = null;
+yankIndicator.yankChipOut();
+assert.strictEqual(yankIndicator.isYanked, true, 'Yank out works under reduced motion');
+assert.strictEqual(yankIndicator._chipActor._easeParams, null, 'No ease call under reduced motion for yankChipOut');
+assert.strictEqual(yankIndicator._chipActor.width, 0, 'Width immediately 0 under reduced motion');
+assert.strictEqual(yankIndicator._chipActor.opacity, 0, 'Opacity immediately 0 under reduced motion');
+
+yankIndicator.yankChipIn();
+assert.strictEqual(yankIndicator.isYanked, false, 'Yank in works under reduced motion');
+assert.strictEqual(yankIndicator._chipActor._easeParams, null, 'No ease call under reduced motion for yankChipIn');
+assert.strictEqual(yankIndicator._chipActor.opacity, 255, 'Opacity immediately 255 under reduced motion');
+yankIface.set_boolean('enable-animations', true);
+
+// F. Return trigger: 'zone-leave' with 120ms leave grace
+const hostMenu = new MockActor();
+hostMenu._box = new MockActor();
+yankIndicator.bindToAppMenu(hostMenu);
+
+yankSettings.set_string('yank-indicator-return', 'zone-leave');
+yankIndicator.onMenuZoneEnter();
+assert.strictEqual(yankIndicator.isYanked, true, 'Entering menu zone yanks chip');
+
+// Leave zone: starts 120ms grace timer
+yankIndicator.onMenuZoneLeave();
+assert.strictEqual(yankIndicator.isYanked, true, 'Chip remains yanked immediately on leave due to grace delay');
+
+// Re-entry before grace expires cancels return
+yankIndicator.onMenuZoneEnter();
+assert.strictEqual(yankIndicator._leaveGraceTimerId, 0, 'Re-entry must cancel leave grace timer');
+assert.strictEqual(yankIndicator.isYanked, true, 'Chip still yanked after re-entry');
+
+// Leave again and let grace expire (120ms)
+yankIndicator.onMenuZoneLeave();
+assert(yankIndicator._leaveGraceTimerId !== 0, 'Leave grace timer running');
+const yankGraceLoop = new GLib.MainLoop(null, false);
+GLib.timeout_add(GLib.PRIORITY_DEFAULT, 130, () => {
+    yankGraceLoop.quit();
+    return GLib.SOURCE_REMOVE;
+});
+yankGraceLoop.run();
+assert.strictEqual(yankIndicator.isYanked, false, 'Chip restored after 120ms leave grace');
+assert.strictEqual(yankIndicator._chipActor.opacity, 255, 'Opacity restored to 255');
+
+// G. Return trigger: 'click'
+yankSettings.set_string('yank-indicator-return', 'click');
+yankIndicator.onMenuZoneEnter();
+assert.strictEqual(yankIndicator.isYanked, true, 'Zone enter yanks chip');
+
+yankIndicator.onMenuZoneLeave();
+const yankClickLoop = new GLib.MainLoop(null, false);
+GLib.timeout_add(GLib.PRIORITY_DEFAULT, 130, () => {
+    yankClickLoop.quit();
+    return GLib.SOURCE_REMOVE;
+});
+yankClickLoop.run();
+assert.strictEqual(yankIndicator.isYanked, true, 'Chip MUST NOT restore on zone leave when return mode is click');
+
+// Click restores chip
+yankIndicator.handleYankReturnClick();
+assert.strictEqual(yankIndicator.isYanked, false, 'Click restores yanked chip in click mode');
+assert.strictEqual(yankIndicator._chipActor.opacity, 255, 'Opacity restored to 255');
+
+// H. Return trigger: 'never' (restores on next playback change)
+yankSettings.set_string('yank-indicator-return', 'never');
+yankIndicator.onMenuZoneEnter();
+assert.strictEqual(yankIndicator.isYanked, true, 'Zone enter yanks chip');
+
+// Zone leave does not restore
+yankIndicator.onMenuZoneLeave();
+const yankNeverLoop = new GLib.MainLoop(null, false);
+GLib.timeout_add(GLib.PRIORITY_DEFAULT, 130, () => {
+    yankNeverLoop.quit();
+    return GLib.SOURCE_REMOVE;
+});
+yankNeverLoop.run();
+assert.strictEqual(yankIndicator.isYanked, true, 'Chip MUST NOT restore on zone leave when return mode is never');
+
+// Click does not restore
+yankIndicator.handleYankReturnClick();
+assert.strictEqual(yankIndicator.isYanked, true, 'Click MUST NOT restore yanked chip when return mode is never');
+
+// Next playback change restores chip
+yankMedia.publishTrack({
+    player: 'org.mpris.MediaPlayer2.spotify',
+    title: 'Spoonman',
+    artist: 'Soundgarden',
+});
+assert.strictEqual(yankIndicator.isYanked, false, 'Playback change restores yanked chip in never mode');
+assert.strictEqual(yankIndicator._chipActor.opacity, 255, 'Opacity restored to 255');
+
+// I. Fallback when yank-indicator is false: chip compresses without yanking
+yankSettings.set_boolean('yank-indicator', false);
+yankIndicator.onMenuZoneEnter();
+assert.strictEqual(yankIndicator.isYanked, false, 'With yank-indicator false, chip does not yank');
+assert.strictEqual(yankIndicator.isCompressed, true, 'With yank-indicator false, chip enters compressed state');
+yankIndicator.onMenuZoneLeave();
+assert.strictEqual(yankIndicator.isCompressed, false, 'Leaving menu zone exits compressed state');
+
+// J. Deferred polish from Task 3: closeDropdown clears stagger timers
+const indPolish = new TaskIndicatorButton(yankSettings, null);
+indPolish._staggerMenuItems([{ opacity: 0 }, { opacity: 0 }, { opacity: 0 }], 24);
+assert.strictEqual(indPolish._staggerTimerIds.length, 2, 'Stagger timers scheduled');
+indPolish.closeDropdown();
+assert.strictEqual(indPolish._staggerTimerIds.length, 0, 'closeDropdown must clear stagger timers');
+indPolish.destroy();
+
+yankIndicator.destroy();
+console.log('-> Yank indicator motion & contention arbitration PASSED.');
+
+
 
