@@ -200,20 +200,20 @@
       <summary>Show transfer details in indicator</summary>
       <description>Whether to show bytes and transfer speed telemetry in expanded chip.</description>
     </key>
-    <key name="yank-indicator" type="b">
+    <key name="indicator-hide-on-hover" type="b">
       <default>false</default>
-      <summary>Enable yank indicator motion</summary>
-      <description>Yank the media chip out of the slot when the menu pointer zone is entered.</description>
+      <summary>Hide the live indicator when the menu zone is entered</summary>
+      <description>Slide the live indicator (media playback, file transfer, running terminal) out of its slot while the app menu is open. Only what is on screen moves; nothing is interrupted.</description>
     </key>
-    <key name="yank-indicator-return" type="s">
+    <key name="indicator-hide-return" type="s">
       <choices>
         <choice value="zone-leave"/>
         <choice value="click"/>
         <choice value="never"/>
       </choices>
       <default>'zone-leave'</default>
-      <summary>Yank indicator return trigger</summary>
-      <description>Trigger condition to return yanked chip: zone-leave, click, or never.</description>
+      <summary>Condition that brings the live indicator back</summary>
+      <description>What brings the indicator back into its slot: zone-leave, click, or never.</description>
     </key>
   </schema>
 </schemalist>

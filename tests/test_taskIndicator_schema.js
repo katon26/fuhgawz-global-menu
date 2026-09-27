@@ -33,8 +33,8 @@ const requiredKeys = {
     'task-indicator-reveal-ms': { type: 'i', defaultVal: 180 },
     'task-indicator-reduced-motion': { type: 'b', defaultVal: true },
     'task-indicator-details': { type: 'b', defaultVal: true },
-    'yank-indicator': { type: 'b', defaultVal: false },
-    'yank-indicator-return': { type: 's', defaultVal: 'zone-leave', choices: ['zone-leave', 'click', 'never'] },
+    'indicator-hide-on-hover': { type: 'b', defaultVal: false },
+    'indicator-hide-return': { type: 's', defaultVal: 'zone-leave', choices: ['zone-leave', 'click', 'never'] },
 };
 
 // 1. Validate schema keys, types, defaults, and choices
@@ -193,17 +193,17 @@ const expectedPrefsTokens = [
     'task-indicator-reveal-ms',
     'task-indicator-reduced-motion',
     'task-indicator-details',
-    'yank-indicator',
-    'yank-indicator-return',
+    'indicator-hide-on-hover',
+    'indicator-hide-return',
     'Reveal Animation',
     'Reveal Duration (ms)',
     'Follow Reduced Motion',
     'Show Transfer Details',
-    'Yank Indicator',
-    'Yank Return Trigger',
+    'Hide the Indicator for the Menu',
+    'Show the Indicator Again',
     'Slide & Fade',
     'Fade Only',
-    'Pointer Leaves Zone',
+    'When the Pointer Leaves the Zone',
     'On Click',
 ];
 

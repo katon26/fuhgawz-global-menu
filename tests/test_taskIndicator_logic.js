@@ -34,8 +34,8 @@ class MockSettings extends GObject.Object {
             ['task-indicator-reveal-ms', 180],
             ['task-indicator-reduced-motion', true],
             ['task-indicator-details', true],
-            ['yank-indicator', false],
-            ['yank-indicator-return', 'zone-leave'],
+            ['indicator-hide-on-hover', false],
+            ['indicator-hide-return', 'zone-leave'],
         ]);
     }
 
@@ -1394,8 +1394,8 @@ const newKeys = [
     { key: 'task-indicator-reveal-ms', default: 180 },
     { key: 'task-indicator-reduced-motion', default: true },
     { key: 'task-indicator-details', default: true },
-    { key: 'yank-indicator', default: false },
-    { key: 'yank-indicator-return', default: 'zone-leave' },
+    { key: 'indicator-hide-on-hover', default: false },
+    { key: 'indicator-hide-return', default: 'zone-leave' },
 ];
 for (const item of newKeys) {
     assert(indicator._settings.get_value(item.key) !== null, `Missing GSettings key ${item.key}`);
@@ -1545,65 +1545,65 @@ testSettings.set_boolean('task-indicator-details', true);
 assert.strictEqual(testDetailsRow.active, true, 'Setting details to true must sync to switch');
 testSettings.disconnect(detailsSigId);
 
-// 5. yank-indicator SwitchRow logic
-const testYankRow = new MockPrefRowClass({
-    active: testSettings.get_boolean('yank-indicator'),
+// 5. indicator-hide-on-hover SwitchRow logic
+const testHideRow = new MockPrefRowClass({
+    active: testSettings.get_boolean('indicator-hide-on-hover'),
 });
-testYankRow.connect('notify::active', (widget) => {
-    if (testSettings.get_boolean('yank-indicator') !== widget.active) {
-        testSettings.set_boolean('yank-indicator', widget.active);
+testHideRow.connect('notify::active', (widget) => {
+    if (testSettings.get_boolean('indicator-hide-on-hover') !== widget.active) {
+        testSettings.set_boolean('indicator-hide-on-hover', widget.active);
     }
 });
-const yankSigId = testSettings.connect('changed::yank-indicator', () => {
-    const active = testSettings.get_boolean('yank-indicator');
-    if (testYankRow.active !== active) {
-        testYankRow.active = active;
+const hideSigId = testSettings.connect('changed::indicator-hide-on-hover', () => {
+    const active = testSettings.get_boolean('indicator-hide-on-hover');
+    if (testHideRow.active !== active) {
+        testHideRow.active = active;
     }
 });
 
-testYankRow.active = true;
-assert.strictEqual(testSettings.get_boolean('yank-indicator'), true, 'Toggling yank switch to true must update setting');
-testSettings.set_boolean('yank-indicator', false);
-assert.strictEqual(testYankRow.active, false, 'Setting yank to false must sync to switch');
-testSettings.disconnect(yankSigId);
+testHideRow.active = true;
+assert.strictEqual(testSettings.get_boolean('indicator-hide-on-hover'), true, 'Toggling hide switch to true must update setting');
+testSettings.set_boolean('indicator-hide-on-hover', false);
+assert.strictEqual(testHideRow.active, false, 'Setting hide to false must sync to switch');
+testSettings.disconnect(hideSigId);
 
-// 6. yank-indicator-return ComboRow logic
-const yankReturnStyles = ['zone-leave', 'click', 'never'];
-const testYankReturnRow = new MockPrefRowClass({
-    selected: Math.max(0, yankReturnStyles.indexOf(testSettings.get_string('yank-indicator-return'))),
+// 6. indicator-hide-return ComboRow logic
+const hideReturnStyles = ['zone-leave', 'click', 'never'];
+const testHideReturnRow = new MockPrefRowClass({
+    selected: Math.max(0, hideReturnStyles.indexOf(testSettings.get_string('indicator-hide-return'))),
 });
-testYankReturnRow.connect('notify::selected', (widget) => {
-    if (widget.selected < 0 || widget.selected >= yankReturnStyles.length) return;
-    const style = yankReturnStyles[widget.selected];
-    if (testSettings.get_string('yank-indicator-return') !== style) {
-        testSettings.set_string('yank-indicator-return', style);
+testHideReturnRow.connect('notify::selected', (widget) => {
+    if (widget.selected < 0 || widget.selected >= hideReturnStyles.length) return;
+    const style = hideReturnStyles[widget.selected];
+    if (testSettings.get_string('indicator-hide-return') !== style) {
+        testSettings.set_string('indicator-hide-return', style);
     }
 });
-const yankReturnSigId = testSettings.connect('changed::yank-indicator-return', () => {
-    const style = testSettings.get_string('yank-indicator-return');
-    const idx = yankReturnStyles.indexOf(style);
-    if (idx !== -1 && testYankReturnRow.selected !== idx) {
-        testYankReturnRow.selected = idx;
+const hideReturnSigId = testSettings.connect('changed::indicator-hide-return', () => {
+    const style = testSettings.get_string('indicator-hide-return');
+    const idx = hideReturnStyles.indexOf(style);
+    if (idx !== -1 && testHideReturnRow.selected !== idx) {
+        testHideReturnRow.selected = idx;
     }
 });
 
 // UI -> Settings
-testYankReturnRow.selected = 1;
-assert.strictEqual(testSettings.get_string('yank-indicator-return'), 'click', 'Selecting index 1 must set yank-indicator-return to click');
-testYankReturnRow.selected = 2;
-assert.strictEqual(testSettings.get_string('yank-indicator-return'), 'never', 'Selecting index 2 must set yank-indicator-return to never');
+testHideReturnRow.selected = 1;
+assert.strictEqual(testSettings.get_string('indicator-hide-return'), 'click', 'Selecting index 1 must set indicator-hide-return to click');
+testHideReturnRow.selected = 2;
+assert.strictEqual(testSettings.get_string('indicator-hide-return'), 'never', 'Selecting index 2 must set indicator-hide-return to never');
 
 // Settings -> UI
-testSettings.set_string('yank-indicator-return', 'zone-leave');
-assert.strictEqual(testYankReturnRow.selected, 0, 'Setting yank-indicator-return to zone-leave must update row selected to 0');
-testSettings.disconnect(yankReturnSigId);
+testSettings.set_string('indicator-hide-return', 'zone-leave');
+assert.strictEqual(testHideReturnRow.selected, 0, 'Setting indicator-hide-return to zone-leave must update row selected to 0');
+testSettings.disconnect(hideReturnSigId);
 
-// 7. yankReturnRow sensitivity binding to yank-indicator
-const testSensBindId = testSettings.bind('yank-indicator', testYankReturnRow, 'sensitive', Gio.SettingsBindFlags.DEFAULT);
-testSettings.set_boolean('yank-indicator', false);
-assert.strictEqual(testYankReturnRow.sensitive, false, 'yankReturnRow must become insensitive when yank-indicator is false');
-testSettings.set_boolean('yank-indicator', true);
-assert.strictEqual(testYankReturnRow.sensitive, true, 'yankReturnRow must become sensitive when yank-indicator is true');
+// 7. hideReturnRow sensitivity binding to indicator-hide-on-hover
+const testSensBindId = testSettings.bind('indicator-hide-on-hover', testHideReturnRow, 'sensitive', Gio.SettingsBindFlags.DEFAULT);
+testSettings.set_boolean('indicator-hide-on-hover', false);
+assert.strictEqual(testHideReturnRow.sensitive, false, 'hideReturnRow must become insensitive when indicator-hide-on-hover is false');
+testSettings.set_boolean('indicator-hide-on-hover', true);
+assert.strictEqual(testHideReturnRow.sensitive, true, 'hideReturnRow must become sensitive when indicator-hide-on-hover is true');
 testSettings.disconnect(testSensBindId);
 
 console.log('-> Preferences UI settings bidirectional bindings PASSED.');
@@ -1826,27 +1826,27 @@ mockIface.set_boolean('enable-animations', true);
 console.log('-> Reveal timing spec, dwell delay, leave grace & reduced motion PASSED.');
 
 // ---------------------------------------------------------------------
-// 16. Verifying Yank Indicator Motion & Contention Arbitration
+// 16. Verifying Hide Indicator Motion & Contention Arbitration
 // ---------------------------------------------------------------------
-console.log('16. Verifying yank indicator motion & contention arbitration...');
+console.log('16. Verifying hide indicator motion & contention arbitration...');
 
-const yankSettings = new MockSettingsClass();
-yankSettings._values.set('enable-media-indicator', true);
-yankSettings._values.set('media-persistent-idle', true);
-yankSettings._values.set('media-hover-popover', false);
-yankSettings._values.set('yank-indicator', true);
-yankSettings._values.set('yank-indicator-return', 'zone-leave');
-yankSettings._values.set('task-indicator-reduced-motion', true);
+const hideSettings = new MockSettingsClass();
+hideSettings._values.set('enable-media-indicator', true);
+hideSettings._values.set('media-persistent-idle', true);
+hideSettings._values.set('media-hover-popover', false);
+hideSettings._values.set('indicator-hide-on-hover', true);
+hideSettings._values.set('indicator-hide-return', 'zone-leave');
+hideSettings._values.set('task-indicator-reduced-motion', true);
 
-const yankIface = new MockInterfaceSettingsClass(true);
-const yankMedia = new MockMediaManagerClass();
-const yankTasks = new MockTaskManagerForMediaClass();
-const yankCard = new MockMediaCard();
+const hideIface = new MockInterfaceSettingsClass(true);
+const hideMedia = new MockMediaManagerClass();
+const hideTasks = new MockTaskManagerForMediaClass();
+const hideCard = new MockMediaCard();
 
-const yankIndicator = new TaskIndicatorButton(yankSettings, yankTasks, {
-    mediaManager: yankMedia,
-    mediaCard: yankCard,
-    interfaceSettings: yankIface,
+const hiddenIndicator = new TaskIndicatorButton(hideSettings, hideTasks, {
+    mediaManager: hideMedia,
+    mediaCard: hideCard,
+    interfaceSettings: hideIface,
     leaveGraceMs: 120,
 });
 
@@ -1857,176 +1857,176 @@ const sampleTrack = {
     artist: 'Soundgarden',
 };
 
-// A. Verification that yank is disabled by default unless preference enabled
-yankSettings.set_boolean('yank-indicator', false);
-yankMedia.publishTrack(sampleTrack);
-yankMedia.publishStatus('Playing');
-assert.strictEqual(yankIndicator.visible, true, 'Indicator should be visible for active media');
-assert.strictEqual(yankIndicator.isYanked, false, 'isYanked must initially be false');
-yankIndicator.yankChipOut();
-assert.strictEqual(yankIndicator.isYanked, false, 'yankChipOut must NOT yank when yank-indicator is false');
+// A. Verification that hide is disabled by default unless preference enabled
+hideSettings.set_boolean('indicator-hide-on-hover', false);
+hideMedia.publishTrack(sampleTrack);
+hideMedia.publishStatus('Playing');
+assert.strictEqual(hiddenIndicator.visible, true, 'Indicator should be visible for active media');
+assert.strictEqual(hiddenIndicator.isHidden, false, 'isHidden must initially be false');
+hiddenIndicator.hideChipOut();
+assert.strictEqual(hiddenIndicator.isHidden, false, 'hideChipOut must NOT hide when indicator-hide-on-hover is false');
 
-// B. Enable yank-indicator and verify motion (160ms ease-out-cubic)
-yankSettings.set_boolean('yank-indicator', true);
-assert.strictEqual(yankIndicator._yankEnabled, true, 'yankEnabled must be true when setting enabled');
+// B. Enable indicator-hide-on-hover and verify motion (160ms ease-out-cubic)
+hideSettings.set_boolean('indicator-hide-on-hover', true);
+assert.strictEqual(hiddenIndicator._hideEnabled, true, 'hideEnabled must be true when setting enabled');
 
-yankIndicator.yankChipOut();
-assert.strictEqual(yankIndicator.isYanked, true, 'isYanked must be true after yankChipOut');
-assert.strictEqual(yankIndicator._chipActor.opacity, 0, 'Yanked chip opacity must be 0');
-assert.strictEqual(yankIndicator._chipActor.width, 0, 'Yanked chip width must be 0');
-assert(yankIndicator._chipActor._easeParams !== null, 'yankChipOut must call ease on chip actor');
-assert.strictEqual(yankIndicator._chipActor._easeParams.duration, 160, 'Yank out duration must be 160ms');
-assert.strictEqual(yankIndicator._chipActor._easeParams.width, 0, 'Yank out target width must be 0');
-assert.strictEqual(yankIndicator._chipActor._easeParams.opacity, 0, 'Yank out target opacity must be 0');
+hiddenIndicator.hideChipOut();
+assert.strictEqual(hiddenIndicator.isHidden, true, 'isHidden must be true after hideChipOut');
+assert.strictEqual(hiddenIndicator._chipActor.opacity, 0, 'Hideed chip opacity must be 0');
+assert.strictEqual(hiddenIndicator._chipActor.width, 0, 'Hideed chip width must be 0');
+assert(hiddenIndicator._chipActor._easeParams !== null, 'hideChipOut must call ease on chip actor');
+assert.strictEqual(hiddenIndicator._chipActor._easeParams.duration, 160, 'Hide out duration must be 160ms');
+assert.strictEqual(hiddenIndicator._chipActor._easeParams.width, 0, 'Hide out target width must be 0');
+assert.strictEqual(hiddenIndicator._chipActor._easeParams.opacity, 0, 'Hide out target opacity must be 0');
 
 // C. Verify restore motion (200ms ease-in-cubic)
-yankIndicator.yankChipIn();
-assert.strictEqual(yankIndicator.isYanked, false, 'isYanked must be false after yankChipIn');
-assert.strictEqual(yankIndicator._chipActor.opacity, 255, 'Restored chip opacity must be 255');
-assert(yankIndicator._chipActor._easeParams.width > 0, 'Restored chip target width must be natural width > 0');
-assert.strictEqual(yankIndicator._chipActor.width, -1, 'Chip width should be reset to -1 upon completion to allow dynamic layout');
-assert.strictEqual(yankIndicator._chipActor._easeParams.duration, 200, 'Yank in duration must be 200ms');
-assert.strictEqual(yankIndicator._chipActor._easeParams.opacity, 255, 'Yank in target opacity must be 255');
+hiddenIndicator.hideChipIn();
+assert.strictEqual(hiddenIndicator.isHidden, false, 'isHidden must be false after hideChipIn');
+assert.strictEqual(hiddenIndicator._chipActor.opacity, 255, 'Restored chip opacity must be 255');
+assert(hiddenIndicator._chipActor._easeParams.width > 0, 'Restored chip target width must be natural width > 0');
+assert.strictEqual(hiddenIndicator._chipActor.width, -1, 'Chip width should be reset to -1 upon completion to allow dynamic layout');
+assert.strictEqual(hiddenIndicator._chipActor._easeParams.duration, 200, 'Hide in duration must be 200ms');
+assert.strictEqual(hiddenIndicator._chipActor._easeParams.opacity, 255, 'Hide in target opacity must be 255');
 
-// D. Contention Guard 1: Active file task prevents yank
-yankTasks.add({ id: 'dl-yank-1', title: 'File.iso', progress: 0.2 });
-yankIndicator.updateTask(yankTasks.getActiveTask('dl-yank-1'));
-assert.strictEqual(yankIndicator._hasActiveTask(), true, '_hasActiveTask must be true when file task active');
-yankIndicator.yankChipOut();
-assert.strictEqual(yankIndicator.isYanked, false, 'yankChipOut MUST NOT yank when file task owns slot');
-yankTasks.remove('dl-yank-1');
-yankIndicator._activeTask = null;
-yankIndicator._syncIndicatorDisplay();
+// D. Contention Guard 1: Active file task prevents hide
+hideTasks.add({ id: 'dl-hide-1', title: 'File.iso', progress: 0.2 });
+hiddenIndicator.updateTask(hideTasks.getActiveTask('dl-hide-1'));
+assert.strictEqual(hiddenIndicator._hasActiveTask(), true, '_hasActiveTask must be true when file task active');
+hiddenIndicator.hideChipOut();
+assert.strictEqual(hiddenIndicator.isHidden, false, 'hideChipOut MUST NOT hide when file task owns slot');
+hideTasks.remove('dl-hide-1');
+hiddenIndicator._activeTask = null;
+hiddenIndicator._syncIndicatorDisplay();
 
-// Contention Guard 2: Open card prevents yank
-yankCard.isOpen = () => true;
-assert.strictEqual(yankIndicator.isCardOpen(), true, 'isCardOpen must be true when card isOpen is true');
-yankIndicator.yankChipOut();
-assert.strictEqual(yankIndicator.isYanked, false, 'yankChipOut MUST NOT yank when card is open');
-yankCard.isOpen = () => false;
+// Contention Guard 2: Open card prevents hide
+hideCard.isOpen = () => true;
+assert.strictEqual(hiddenIndicator.isCardOpen(), true, 'isCardOpen must be true when card isOpen is true');
+hiddenIndicator.hideChipOut();
+assert.strictEqual(hiddenIndicator.isHidden, false, 'hideChipOut MUST NOT hide when card is open');
+hideCard.isOpen = () => false;
 
-// Contention Guard 3: MPRIS seek in progress prevents yank
-yankMedia.isSeeking = () => true;
-yankIndicator.yankChipOut();
-assert.strictEqual(yankIndicator.isYanked, false, 'yankChipOut MUST NOT yank during MPRIS seek');
-yankMedia.isSeeking = () => false;
+// Contention Guard 3: MPRIS seek in progress prevents hide
+hideMedia.isSeeking = () => true;
+hiddenIndicator.hideChipOut();
+assert.strictEqual(hiddenIndicator.isHidden, false, 'hideChipOut MUST NOT hide during MPRIS seek');
+hideMedia.isSeeking = () => false;
 
-// Contention Guard 4: Non-media display does not yank
-yankIndicator._isMediaDisplay = false;
-yankIndicator.yankChipOut();
-assert.strictEqual(yankIndicator.isYanked, false, 'yankChipOut MUST NOT yank when media is not displayed');
-yankIndicator._isMediaDisplay = true;
+// Contention Guard 4: Non-media display does not hide
+hiddenIndicator._isMediaDisplay = false;
+hiddenIndicator.hideChipOut();
+assert.strictEqual(hiddenIndicator.isHidden, false, 'hideChipOut MUST NOT hide when media is not displayed');
+hiddenIndicator._isMediaDisplay = true;
 
-// E. Reduced motion fallback for yank
-yankIface.set_boolean('enable-animations', false);
-yankIndicator._chipActor._easeParams = null;
-yankIndicator.yankChipOut();
-assert.strictEqual(yankIndicator.isYanked, true, 'Yank out works under reduced motion');
-assert.strictEqual(yankIndicator._chipActor._easeParams, null, 'No ease call under reduced motion for yankChipOut');
-assert.strictEqual(yankIndicator._chipActor.width, 0, 'Width immediately 0 under reduced motion');
-assert.strictEqual(yankIndicator._chipActor.opacity, 0, 'Opacity immediately 0 under reduced motion');
+// E. Reduced motion fallback for hide
+hideIface.set_boolean('enable-animations', false);
+hiddenIndicator._chipActor._easeParams = null;
+hiddenIndicator.hideChipOut();
+assert.strictEqual(hiddenIndicator.isHidden, true, 'Hide out works under reduced motion');
+assert.strictEqual(hiddenIndicator._chipActor._easeParams, null, 'No ease call under reduced motion for hideChipOut');
+assert.strictEqual(hiddenIndicator._chipActor.width, 0, 'Width immediately 0 under reduced motion');
+assert.strictEqual(hiddenIndicator._chipActor.opacity, 0, 'Opacity immediately 0 under reduced motion');
 
-yankIndicator.yankChipIn();
-assert.strictEqual(yankIndicator.isYanked, false, 'Yank in works under reduced motion');
-assert.strictEqual(yankIndicator._chipActor._easeParams, null, 'No ease call under reduced motion for yankChipIn');
-assert.strictEqual(yankIndicator._chipActor.opacity, 255, 'Opacity immediately 255 under reduced motion');
-yankIface.set_boolean('enable-animations', true);
+hiddenIndicator.hideChipIn();
+assert.strictEqual(hiddenIndicator.isHidden, false, 'Hide in works under reduced motion');
+assert.strictEqual(hiddenIndicator._chipActor._easeParams, null, 'No ease call under reduced motion for hideChipIn');
+assert.strictEqual(hiddenIndicator._chipActor.opacity, 255, 'Opacity immediately 255 under reduced motion');
+hideIface.set_boolean('enable-animations', true);
 
 // F. Return trigger: 'zone-leave' with 120ms leave grace
 const hostMenu = new MockActor();
 hostMenu._box = new MockActor();
-yankIndicator.bindToAppMenu(hostMenu);
+hiddenIndicator.bindToAppMenu(hostMenu);
 
-yankSettings.set_string('yank-indicator-return', 'zone-leave');
-yankIndicator.onMenuZoneEnter();
-assert.strictEqual(yankIndicator.isYanked, true, 'Entering menu zone yanks chip');
+hideSettings.set_string('indicator-hide-return', 'zone-leave');
+hiddenIndicator.onMenuZoneEnter();
+assert.strictEqual(hiddenIndicator.isHidden, true, 'Entering menu zone hides chip');
 
 // Leave zone: starts 120ms grace timer
-yankIndicator.onMenuZoneLeave();
-assert.strictEqual(yankIndicator.isYanked, true, 'Chip remains yanked immediately on leave due to grace delay');
+hiddenIndicator.onMenuZoneLeave();
+assert.strictEqual(hiddenIndicator.isHidden, true, 'Chip remains hidden immediately on leave due to grace delay');
 
 // Re-entry before grace expires cancels return
-yankIndicator.onMenuZoneEnter();
-assert.strictEqual(yankIndicator._leaveGraceTimerId, 0, 'Re-entry must cancel leave grace timer');
-assert.strictEqual(yankIndicator.isYanked, true, 'Chip still yanked after re-entry');
+hiddenIndicator.onMenuZoneEnter();
+assert.strictEqual(hiddenIndicator._leaveGraceTimerId, 0, 'Re-entry must cancel leave grace timer');
+assert.strictEqual(hiddenIndicator.isHidden, true, 'Chip still hidden after re-entry');
 
 // Leave again and let grace expire (120ms)
-yankIndicator.onMenuZoneLeave();
-assert(yankIndicator._leaveGraceTimerId !== 0, 'Leave grace timer running');
-const yankGraceLoop = new GLib.MainLoop(null, false);
+hiddenIndicator.onMenuZoneLeave();
+assert(hiddenIndicator._leaveGraceTimerId !== 0, 'Leave grace timer running');
+const hideGraceLoop = new GLib.MainLoop(null, false);
 GLib.timeout_add(GLib.PRIORITY_DEFAULT, 130, () => {
-    yankGraceLoop.quit();
+    hideGraceLoop.quit();
     return GLib.SOURCE_REMOVE;
 });
-yankGraceLoop.run();
-assert.strictEqual(yankIndicator.isYanked, false, 'Chip restored after 120ms leave grace');
-assert.strictEqual(yankIndicator._chipActor.opacity, 255, 'Opacity restored to 255');
+hideGraceLoop.run();
+assert.strictEqual(hiddenIndicator.isHidden, false, 'Chip restored after 120ms leave grace');
+assert.strictEqual(hiddenIndicator._chipActor.opacity, 255, 'Opacity restored to 255');
 
 // G. Return trigger: 'click'
-yankSettings.set_string('yank-indicator-return', 'click');
-yankIndicator.onMenuZoneEnter();
-assert.strictEqual(yankIndicator.isYanked, true, 'Zone enter yanks chip');
+hideSettings.set_string('indicator-hide-return', 'click');
+hiddenIndicator.onMenuZoneEnter();
+assert.strictEqual(hiddenIndicator.isHidden, true, 'Zone enter hides chip');
 
-yankIndicator.onMenuZoneLeave();
-const yankClickLoop = new GLib.MainLoop(null, false);
+hiddenIndicator.onMenuZoneLeave();
+const hideClickLoop = new GLib.MainLoop(null, false);
 GLib.timeout_add(GLib.PRIORITY_DEFAULT, 130, () => {
-    yankClickLoop.quit();
+    hideClickLoop.quit();
     return GLib.SOURCE_REMOVE;
 });
-yankClickLoop.run();
-assert.strictEqual(yankIndicator.isYanked, true, 'Chip MUST NOT restore on zone leave when return mode is click');
+hideClickLoop.run();
+assert.strictEqual(hiddenIndicator.isHidden, true, 'Chip MUST NOT restore on zone leave when return mode is click');
 
 // Click restores chip
-yankIndicator.handleYankReturnClick();
-assert.strictEqual(yankIndicator.isYanked, false, 'Click restores yanked chip in click mode');
-assert.strictEqual(yankIndicator._chipActor.opacity, 255, 'Opacity restored to 255');
+hiddenIndicator.handleHideReturnClick();
+assert.strictEqual(hiddenIndicator.isHidden, false, 'Click restores hidden chip in click mode');
+assert.strictEqual(hiddenIndicator._chipActor.opacity, 255, 'Opacity restored to 255');
 
 // H. Return trigger: 'never' (restores on next playback change)
-yankSettings.set_string('yank-indicator-return', 'never');
-yankIndicator.onMenuZoneEnter();
-assert.strictEqual(yankIndicator.isYanked, true, 'Zone enter yanks chip');
+hideSettings.set_string('indicator-hide-return', 'never');
+hiddenIndicator.onMenuZoneEnter();
+assert.strictEqual(hiddenIndicator.isHidden, true, 'Zone enter hides chip');
 
 // Zone leave does not restore
-yankIndicator.onMenuZoneLeave();
-const yankNeverLoop = new GLib.MainLoop(null, false);
+hiddenIndicator.onMenuZoneLeave();
+const hideNeverLoop = new GLib.MainLoop(null, false);
 GLib.timeout_add(GLib.PRIORITY_DEFAULT, 130, () => {
-    yankNeverLoop.quit();
+    hideNeverLoop.quit();
     return GLib.SOURCE_REMOVE;
 });
-yankNeverLoop.run();
-assert.strictEqual(yankIndicator.isYanked, true, 'Chip MUST NOT restore on zone leave when return mode is never');
+hideNeverLoop.run();
+assert.strictEqual(hiddenIndicator.isHidden, true, 'Chip MUST NOT restore on zone leave when return mode is never');
 
 // Click does not restore
-yankIndicator.handleYankReturnClick();
-assert.strictEqual(yankIndicator.isYanked, true, 'Click MUST NOT restore yanked chip when return mode is never');
+hiddenIndicator.handleHideReturnClick();
+assert.strictEqual(hiddenIndicator.isHidden, true, 'Click MUST NOT restore hidden chip when return mode is never');
 
 // Next playback change restores chip
-yankMedia.publishTrack({
+hideMedia.publishTrack({
     player: 'org.mpris.MediaPlayer2.spotify',
     title: 'Spoonman',
     artist: 'Soundgarden',
 });
-assert.strictEqual(yankIndicator.isYanked, false, 'Playback change restores yanked chip in never mode');
-assert.strictEqual(yankIndicator._chipActor.opacity, 255, 'Opacity restored to 255');
+assert.strictEqual(hiddenIndicator.isHidden, false, 'Playback change restores hidden chip in never mode');
+assert.strictEqual(hiddenIndicator._chipActor.opacity, 255, 'Opacity restored to 255');
 
-// I. Fallback when yank-indicator is false: chip compresses without yanking
-yankSettings.set_boolean('yank-indicator', false);
-yankIndicator.onMenuZoneEnter();
-assert.strictEqual(yankIndicator.isYanked, false, 'With yank-indicator false, chip does not yank');
-assert.strictEqual(yankIndicator.isCompressed, true, 'With yank-indicator false, chip enters compressed state');
-yankIndicator.onMenuZoneLeave();
-assert.strictEqual(yankIndicator.isCompressed, false, 'Leaving menu zone exits compressed state');
+// I. Fallback when indicator-hide-on-hover is false: chip compresses without hiding
+hideSettings.set_boolean('indicator-hide-on-hover', false);
+hiddenIndicator.onMenuZoneEnter();
+assert.strictEqual(hiddenIndicator.isHidden, false, 'With indicator-hide-on-hover false, chip does not hide');
+assert.strictEqual(hiddenIndicator.isCompressed, true, 'With indicator-hide-on-hover false, chip enters compressed state');
+hiddenIndicator.onMenuZoneLeave();
+assert.strictEqual(hiddenIndicator.isCompressed, false, 'Leaving menu zone exits compressed state');
 
 // J. Deferred polish from Task 3: closeDropdown clears stagger timers
-const indPolish = new TaskIndicatorButton(yankSettings, null);
+const indPolish = new TaskIndicatorButton(hideSettings, null);
 indPolish._staggerMenuItems([{ opacity: 0 }, { opacity: 0 }, { opacity: 0 }], 24);
 assert.strictEqual(indPolish._staggerTimerIds.length, 2, 'Stagger timers scheduled');
 indPolish.closeDropdown();
 assert.strictEqual(indPolish._staggerTimerIds.length, 0, 'closeDropdown must clear stagger timers');
 indPolish.destroy();
 
-yankIndicator.destroy();
-console.log('-> Yank indicator motion & contention arbitration PASSED.');
+hiddenIndicator.destroy();
+console.log('-> Hide indicator motion & contention arbitration PASSED.');
 
 // ---------------------------------------------------------------------
 // 17. Keyboard Pinning (F10 / Alt+F / Esc) & Pinning State Machine
@@ -2036,8 +2036,8 @@ console.log('17. Verifying Keyboard Pinning (F10 / Alt+F / Esc), leave grace sup
 const pinSettings = new MockSettingsClass();
 pinSettings._values.set('enable-task-indicator', true);
 pinSettings._values.set('task-indicator-mode', 'compact');
-pinSettings._values.set('yank-indicator', true);
-pinSettings._values.set('yank-indicator-return', 'zone-leave');
+pinSettings._values.set('indicator-hide-on-hover', true);
+pinSettings._values.set('indicator-hide-return', 'zone-leave');
 
 const pinTasks = new MockTaskManagerForMediaClass();
 pinTasks.add({ id: 'task-pin-1', title: 'Archive.zip', progress: 0.5 });
@@ -2163,21 +2163,21 @@ assert.strictEqual(pinIndicator.isPinned, false, 'Escape unpins media card');
 assert.strictEqual(pinCard.isOpen(), false, 'Escape closes media card');
 
 // H. Task 4 quality fixes:
-// 1. yankChipOut idempotency
-pinIndicator._isYanked = false;
-pinIndicator.yankChipOut();
-assert.strictEqual(pinIndicator.isYanked, true, 'Chip yanked');
-const yankedNaturalWidth = pinIndicator._yankNaturalWidth;
-assert(yankedNaturalWidth > 0, '_yankNaturalWidth should be cached before ease');
+// 1. hideChipOut idempotency
+pinIndicator._isHidden = false;
+pinIndicator.hideChipOut();
+assert.strictEqual(pinIndicator.isHidden, true, 'Chip hidden');
+const hiddenNaturalWidth = pinIndicator._hideNaturalWidth;
+assert(hiddenNaturalWidth > 0, '_hideNaturalWidth should be cached before ease');
 
-// Call yankChipOut again while already yanked (idempotency check)
-pinIndicator.yankChipOut();
-assert.strictEqual(pinIndicator.isYanked, true, 'Second yankChipOut must be idempotent');
-assert.strictEqual(pinIndicator._yankNaturalWidth, yankedNaturalWidth, 'Cached natural width preserved');
+// Call hideChipOut again while already hidden (idempotency check)
+pinIndicator.hideChipOut();
+assert.strictEqual(pinIndicator.isHidden, true, 'Second hideChipOut must be idempotent');
+assert.strictEqual(pinIndicator._hideNaturalWidth, hiddenNaturalWidth, 'Cached natural width preserved');
 
-// 2. Turning off yank-indicator setting while yanked immediately calls yankChipIn
-pinSettings.set_boolean('yank-indicator', false);
-assert.strictEqual(pinIndicator.isYanked, false, 'Setting yank-indicator to false while yanked must restore chip');
+// 2. Turning off indicator-hide-on-hover setting while hidden immediately calls hideChipIn
+pinSettings.set_boolean('indicator-hide-on-hover', false);
+assert.strictEqual(pinIndicator.isHidden, false, 'Setting indicator-hide-on-hover to false while hidden must restore chip');
 
 // 3. Pure modifier filtering checks on F10 and Alt+F
 const ctrlF10Event = new MockKeyInputEvent(KEY_F10_CODE, 4); // Ctrl+F10
@@ -2205,6 +2205,61 @@ assert.strictEqual(pinIndicator._menuKeyId, 0, 'open-state-changed false must di
 
 pinIndicator.destroy();
 console.log('-> Keyboard Pinning & Quality Fixes PASSED.');
+
+// ---------------------------------------------------------------------
+// 18. Click Pinning, Pin Release On Dismissal & Compressed Chip State
+// ---------------------------------------------------------------------
+console.log('18. Verifying click pins the media card, pins release on dismissal, and the compressed chip is a real state...');
+
+const handSettings = new MockSettingsClass();
+handSettings._values.set('enable-media-indicator', true);
+handSettings._values.set('media-persistent-idle', true);
+handSettings._values.set('media-hover-popover', false);
+handSettings._values.set('indicator-hide-on-hover', false);
+
+const handMedia = new MockMediaManagerClass();
+const handTasks = new MockTaskManagerForMediaClass();
+const handCard = new MockMediaCard();
+const handIndicator = new TaskIndicatorButton(handSettings, handTasks, {
+    mediaManager: handMedia,
+    mediaCard: handCard,
+    leaveGraceMs: 10,
+});
+
+handMedia.publishTrack(sampleTrack);
+handMedia.publishStatus('Playing');
+
+// 1. Click pins: a click-opened card is not hover-owned, so leaving must not close it.
+handIndicator.toggleMediaCard();
+assert.strictEqual(handCard.isOpen(), true, 'clicking the media chip must open the card');
+assert.strictEqual(handIndicator.isPinned, true, 'a click-opened media card must be pinned');
+handIndicator.onPointerLeave({ immediate: true });
+assert.strictEqual(handCard.isOpen(), true, 'pointer leave must not close a click-pinned card');
+
+// 2. Clicking again releases.
+handIndicator.toggleMediaCard();
+assert.strictEqual(handCard.isOpen(), false, 'a second click must close the media card');
+assert.strictEqual(handIndicator.isPinned, false, 'closing the card by click must release the pin');
+
+// 3. A file task taking the slot dismisses the card and must not strand the pin.
+handIndicator.toggleMediaCard();
+assert.strictEqual(handIndicator.isPinned, true, 'card re-pinned for the handover check');
+handTasks.add({ id: 'dl-pin-1', title: 'File.iso', progress: 0.5 });
+assert.strictEqual(handCard.isOpen(), false, 'a file task taking the slot must dismiss the media card');
+assert.strictEqual(handIndicator.isPinned, false, 'dismissing the card must release the pin, not strand it');
+handTasks.remove('dl-pin-1');
+
+// 4. The compressed chip is a real visual state, not a dead flag.
+handIndicator.onMenuZoneEnter();
+assert.strictEqual(handIndicator.isCompressed, true, 'zone enter must compress the chip when hide is disabled');
+assert.strictEqual(handIndicator.has_style_class_name('fuhgawz-chip-compressed'), true,
+    'the compressed chip must carry a style class so it visibly compresses');
+handIndicator.onMenuZoneLeave({ immediate: true });
+assert.strictEqual(handIndicator.has_style_class_name('fuhgawz-chip-compressed'), false,
+    'leaving the zone must clear the compressed chip class');
+
+handIndicator.destroy();
+console.log('-> Click Pinning, Pin Release & Compressed Chip PASSED.');
 
 
 
