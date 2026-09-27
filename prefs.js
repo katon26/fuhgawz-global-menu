@@ -685,61 +685,61 @@ function createGlobalMenuPage(settings, gettextFunc) {
     settings.bind('media-hover-popover', hoverPopoverRow, 'active', Gio.SettingsBindFlags.DEFAULT);
     mediaGroup.add(hoverPopoverRow);
 
-    // Switch row for yank-indicator
-    const yankRow = new Adw.SwitchRow({
-        title: gettextFunc('Yank Indicator'),
-        subtitle: gettextFunc('Collapse chip when pointer enters menu trigger zone.'),
+    // Switch row for indicator-hide-on-hover
+    const hideRow = new Adw.SwitchRow({
+        title: gettextFunc('Hide the Indicator for the Menu'),
+        subtitle: gettextFunc('Slide the indicator out of its slot while the app menu is open.'),
     });
     settings.bind(
-        'yank-indicator',
-        yankRow,
+        'indicator-hide-on-hover',
+        hideRow,
         'active',
         Gio.SettingsBindFlags.DEFAULT
     );
-    mediaGroup.add(yankRow);
+    mediaGroup.add(hideRow);
 
-    // Combo row for yank-indicator-return
-    const yankReturnList = new Gtk.StringList();
-    yankReturnList.append(gettextFunc('Pointer Leaves Zone'));
-    yankReturnList.append(gettextFunc('On Click'));
-    yankReturnList.append(gettextFunc('Never'));
+    // Combo row for indicator-hide-return
+    const hideReturnList = new Gtk.StringList();
+    hideReturnList.append(gettextFunc('When the Pointer Leaves the Zone'));
+    hideReturnList.append(gettextFunc('On Click'));
+    hideReturnList.append(gettextFunc('Never'));
 
-    const yankReturnStyles = ['zone-leave', 'click', 'never'];
-    const currentYankReturn = settings.get_string('yank-indicator-return');
-    const initialYankReturnIndex = Math.max(0, yankReturnStyles.indexOf(currentYankReturn));
+    const hideReturnStyles = ['zone-leave', 'click', 'never'];
+    const currentHideReturn = settings.get_string('indicator-hide-return');
+    const initialHideReturnIndex = Math.max(0, hideReturnStyles.indexOf(currentHideReturn));
 
-    const yankReturnRow = new Adw.ComboRow({
-        title: gettextFunc('Yank Return Trigger'),
-        subtitle: gettextFunc('Condition to return the indicator after being yanked.'),
-        model: yankReturnList,
-        selected: initialYankReturnIndex,
+    const hideReturnRow = new Adw.ComboRow({
+        title: gettextFunc('Show the Indicator Again'),
+        subtitle: gettextFunc('What brings the indicator back into its slot.'),
+        model: hideReturnList,
+        selected: initialHideReturnIndex,
     });
-    yankReturnRow.connect('notify::selected', (widget) => {
-        if (widget.selected < 0 || widget.selected >= yankReturnStyles.length) {
+    hideReturnRow.connect('notify::selected', (widget) => {
+        if (widget.selected < 0 || widget.selected >= hideReturnStyles.length) {
             return;
         }
-        const style = yankReturnStyles[widget.selected];
-        if (settings.get_string('yank-indicator-return') !== style) {
-            settings.set_string('yank-indicator-return', style);
+        const style = hideReturnStyles[widget.selected];
+        if (settings.get_string('indicator-hide-return') !== style) {
+            settings.set_string('indicator-hide-return', style);
         }
     });
-    const yankReturnSignalId = settings.connect('changed::yank-indicator-return', () => {
-        const style = settings.get_string('yank-indicator-return');
-        const idx = yankReturnStyles.indexOf(style);
-        if (idx !== -1 && yankReturnRow.selected !== idx) {
-            yankReturnRow.selected = idx;
+    const hideReturnSignalId = settings.connect('changed::indicator-hide-return', () => {
+        const style = settings.get_string('indicator-hide-return');
+        const idx = hideReturnStyles.indexOf(style);
+        if (idx !== -1 && hideReturnRow.selected !== idx) {
+            hideReturnRow.selected = idx;
         }
     });
-    yankReturnRow.connect('unrealize', () => {
-        try { settings.disconnect(yankReturnSignalId); } catch (error) {}
+    hideReturnRow.connect('unrealize', () => {
+        try { settings.disconnect(hideReturnSignalId); } catch (error) {}
     });
     settings.bind(
-        'yank-indicator',
-        yankReturnRow,
+        'indicator-hide-on-hover',
+        hideReturnRow,
         'sensitive',
         Gio.SettingsBindFlags.DEFAULT
     );
-    mediaGroup.add(yankReturnRow);
+    mediaGroup.add(hideReturnRow);
 
     return page;
 }
