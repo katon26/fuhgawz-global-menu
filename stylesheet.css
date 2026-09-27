@@ -238,6 +238,15 @@
   max-width: 300px;
 }
 
+/* Hide-on-hover disabled: entering the reserved zone compresses the chip to its glyph and
+   a short label rather than the full media line. ponytail: the compact chip has
+   no dedicated elapsed-time label, so the time only survives inside the
+   truncated text; add one if the design needs the time guaranteed visible. */
+.fuhgawz-chip-compressed .fuhgawz-task-indicator-label {
+  max-width: 9em;
+  transition-duration: 160ms;
+}
+
 .fuhgawz-media-indicator-label.media-paused,
 .fuhgawz-media-active.media-paused .fuhgawz-media-indicator-label {
   opacity: 0.72;

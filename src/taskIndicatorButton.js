@@ -215,7 +215,7 @@ class BaseIndicatorLogic {
         this._leaveGraceTimerId = 0;
         this._staggerTimerIds = [];
         this._isPinned = false;
-        this._yankNaturalWidth = 0;
+        this._hideNaturalWidth = 0;
         this._menuKeyId = 0;
         this._interfaceSettings = options.interfaceSettings ?? null;
         this._cardDwellMs = options.cardDwellMs ?? CARD_DWELL_MS;
@@ -233,12 +233,13 @@ class BaseIndicatorLogic {
         this._marqueeFullText = '';
         this._marqueeActiveText = null;
         this._marqueeMaxChars = options.marqueeMaxChars ?? MARQUEE_MAX_CHARS;
-        this._isYanked = false;
+        this._isHidden = false;
         this._isCompressed = false;
         this._floatingCardActor = options.floatingCardActor ?? null;
         this._customChipActor = null;
-        this._customYankEnabled = undefined;
-        this._customYankReturn = undefined;
+        this._customHideEnabled = undefined;
+        this._customHideReturn = undefined;
+        this._menuActionInProgress = false;
         this.clip_to_allocation = true;
         if (this._box) this._box.clip_to_allocation = true;
 
@@ -337,7 +338,7 @@ class BaseIndicatorLogic {
                         if (this._destroyed)
                             return;
                         if (key === 'media-hover-popover' && !this._readMediaSetting(key, true))
-                            this._mediaCard?.hideCard?.();
+                            this._hideMediaCard();
                         else
                             this._refreshMediaIndicator();
                     });
@@ -345,13 +346,13 @@ class BaseIndicatorLogic {
                 } catch (e) {}
             }
 
-            for (const key of ['task-indicator-reveal', 'task-indicator-reveal-ms', 'task-indicator-reduced-motion', 'yank-indicator', 'yank-indicator-return']) {
+            for (const key of ['task-indicator-reveal', 'task-indicator-reveal-ms', 'task-indicator-reduced-motion', 'indicator-hide-on-hover', 'indicator-hide-return']) {
                 try {
                     const id = this._settings.connect(`changed::${key}`, () => {
                         if (this._destroyed)
                             return;
-                        if (key === 'yank-indicator' && !this._yankEnabled && this._isYanked) {
-                            this.yankChipIn();
+                        if (key === 'indicator-hide-on-hover' && !this._hideEnabled && this._isHidden) {
+                            this.hideChipIn();
                         }
                         this._updateUiComponents();
                     });
@@ -419,8 +420,8 @@ class BaseIndicatorLogic {
                 this._mediaTrack = track ?? manager.getActiveTrack?.() ?? null;
                 this._mediaPlaybackStatus = manager.getPlaybackStatus?.() ?? this._mediaPlaybackStatus;
                 this._mediaCard?.updateState?.(this._mediaTrack, this._mediaPlaybackStatus);
-                if (this._isYanked) {
-                    this.yankChipIn();
+                if (this._isHidden) {
+                    this.hideChipIn();
                 }
                 this._refreshMediaIndicator();
             }));
@@ -429,8 +430,8 @@ class BaseIndicatorLogic {
                 this._mediaPlaybackStatus = status || manager.getPlaybackStatus?.() || 'Stopped';
                 this._mediaTrack = manager.getActiveTrack?.() ?? this._mediaTrack;
                 this._mediaCard?.updateState?.(this._mediaTrack, this._mediaPlaybackStatus);
-                if (this._isYanked) {
-                    this.yankChipIn();
+                if (this._isHidden) {
+                    this.hideChipIn();
                 }
                 this._refreshMediaIndicator();
             }));
@@ -466,7 +467,7 @@ class BaseIndicatorLogic {
             this._isMediaDisplay = false;
             this._labelText = this.formatCompactLabel(this._activeTask, this.getAppLabel());
             this._expandedText = this.formatExpandedTelemetry(this._activeTask, this.getAppLabel());
-            this._mediaCard?.hideCard?.();
+            this._hideMediaCard();
             return;
         }
 
@@ -477,7 +478,7 @@ class BaseIndicatorLogic {
                 this._expandedText = '';
             }
             this._isMediaDisplay = false;
-            this._mediaCard?.hideCard?.();
+            this._hideMediaCard();
             return;
         }
 
@@ -516,7 +517,7 @@ class BaseIndicatorLogic {
     }
 
     _handleIndicatorButtonPress(event) {
-        this.handleYankReturnClick();
+        this.handleHideReturnClick();
         const source = event?.get_source ? event.get_source() : (event?.target || null);
         if (this.isDescendantOf(source, this._sliderToggleWidget) || this.isDescendantOf(source, this._actionButton))
             return Clutter ? Clutter.EVENT_STOP : true;
@@ -548,6 +549,9 @@ class BaseIndicatorLogic {
 
     _onTaskAdded(task) {
         if (this._destroyed || !task) return;
+        if (this._isHidden) {
+            this.hideChipIn();
+        }
         this.updateTask(task);
     }
 
@@ -1377,8 +1381,8 @@ class BaseIndicatorLogic {
         }
         if (this._isMediaDisplay) {
             this._mediaCard?.hideCard?.();
-            if (this._isYanked && this.getYankReturnTrigger() === 'zone-leave') {
-                this.yankChipIn();
+            if (this._isHidden && this.getHideReturnTrigger() === 'zone-leave') {
+                this.hideChipIn();
             }
         } else if (this.isDropdownOpen()) {
             this.closeDropdown();
@@ -1566,10 +1570,31 @@ class BaseIndicatorLogic {
         if (this._destroyed || !this._isMediaDisplay)
             return;
         if (this._mediaCard?.isOpen?.()) {
-            this._mediaCard.hideCard?.();
+            this._hideMediaCard();
         } else {
+            // Click pins: a card the pointer opened is a preview and dies with
+            // the pointer, a card the user clicked stays until they dismiss it.
+            this._isPinned = true;
             this._mediaCard?.showForActor?.(this, this._mediaTrack, this._mediaPlaybackStatus);
         }
+    }
+
+    /**
+     * Dismisses the media card and releases the pin that kept it alive.
+     *
+     * Every path that closes the card goes through here, otherwise a pin taken
+     * by a click outlives the card it pinned and the indicator can never be
+     * pinned or unpinned by F10 again.
+     *
+     * @returns {void}
+     */
+    _hideMediaCard() {
+        // Only an actually open card owns the pin. A display refresh that finds
+        // no media must not clear a pin held by the dropdown or the task card.
+        const cardWasOpen = Boolean(this._mediaCard?.isOpen?.());
+        this._mediaCard?.hideCard?.();
+        if (cardWasOpen)
+            this._isPinned = false;
     }
 
     /**
@@ -1794,15 +1819,52 @@ class BaseIndicatorLogic {
     }
 
     // ---------------------------------------------------------------------
-    // Yank Indicator Motion & Contention Arbitration
+    // Hide Indicator Motion & Contention Arbitration
     // ---------------------------------------------------------------------
 
-    get isYanked() {
-        return Boolean(this._isYanked);
+    get isHidden() {
+        return Boolean(this._isHidden);
     }
 
     get isCompressed() {
         return Boolean(this._isCompressed);
+    }
+
+    get isMenuActionInProgress() {
+        return Boolean(this._menuActionInProgress);
+    }
+
+    set isMenuActionInProgress(val) {
+        this._menuActionInProgress = Boolean(val);
+    }
+
+    // Backward compatibility aliases for yank
+    get isYanked() {
+        return this.isHidden;
+    }
+
+    set isYanked(val) {
+        this._isHidden = Boolean(val);
+    }
+
+    yankChipOut() {
+        return this.hideChipOut();
+    }
+
+    yankChipIn() {
+        return this.hideChipIn();
+    }
+
+    handleYankReturnClick() {
+        return this.handleHideReturnClick();
+    }
+
+    isYankEnabled() {
+        return this.isHideEnabled();
+    }
+
+    getYankReturnTrigger() {
+        return this.getHideReturnTrigger();
     }
 
     get _chipActor() {
@@ -1813,45 +1875,45 @@ class BaseIndicatorLogic {
         this._customChipActor = actor;
     }
 
-    get _yankEnabled() {
-        if (this._customYankEnabled !== undefined)
-            return this._customYankEnabled;
+    get _hideEnabled() {
+        if (this._customHideEnabled !== undefined)
+            return this._customHideEnabled;
         if (this._settings) {
             try {
-                return this._settings.get_boolean('yank-indicator');
+                return this._settings.get_boolean('indicator-hide-on-hover');
             } catch (e) {}
         }
         return false;
     }
 
-    set _yankEnabled(val) {
-        this._customYankEnabled = Boolean(val);
-        if (!this._customYankEnabled && this._isYanked) {
-            this.yankChipIn();
+    set _hideEnabled(val) {
+        this._customHideEnabled = Boolean(val);
+        if (!this._customHideEnabled && this._isHidden) {
+            this.hideChipIn();
         }
     }
 
-    isYankEnabled() {
-        return this._yankEnabled;
+    isHideEnabled() {
+        return this._hideEnabled;
     }
 
-    getYankReturnTrigger() {
-        if (this._customYankReturn !== undefined)
-            return this._customYankReturn;
+    getHideReturnTrigger() {
+        if (this._customHideReturn !== undefined)
+            return this._customHideReturn;
         if (this._settings) {
             try {
-                return this._settings.get_string('yank-indicator-return') || 'zone-leave';
+                return this._settings.get_string('indicator-hide-return') || 'zone-leave';
             } catch (e) {}
         }
         return 'zone-leave';
     }
 
-    get _yankReturnTrigger() {
-        return this.getYankReturnTrigger();
+    get _hideReturnTrigger() {
+        return this.getHideReturnTrigger();
     }
 
-    set _yankReturnTrigger(val) {
-        this._customYankReturn = val;
+    set _hideReturnTrigger(val) {
+        this._customHideReturn = val;
     }
 
     _hasActiveTask() {
@@ -1885,12 +1947,12 @@ class BaseIndicatorLogic {
         return false;
     }
 
-    yankChipOut() {
-        if (this._isYanked)
+    hideChipOut() {
+        if (this._isHidden)
             return;
-        if (!this._yankEnabled || this._hasActiveTask() || this.isCardOpen())
+        if (!this._hideEnabled || this.isCardOpen())
             return;
-        if (!this._isMediaDisplay)
+        if (this._menuActionInProgress)
             return;
         if (this._mediaManager) {
             try {
@@ -1898,11 +1960,14 @@ class BaseIndicatorLogic {
                     return;
             } catch (e) {}
         }
-        this._yankNaturalWidth = typeof this._chipActor.get_preferred_width === 'function'
+        // Clear any compressed state first: the natural width below must be the
+        // uncompressed width, or the chip restores narrower than it started.
+        this._setChipCompressed(false);
+        this._hideNaturalWidth = typeof this._chipActor.get_preferred_width === 'function'
             ? this._chipActor.get_preferred_width(-1)[1]
             : (this._chipActor._naturalWidth ?? this._chipActor.width ?? 120);
 
-        this._isYanked = true;
+        this._isHidden = true;
         if (this._shouldReduceMotion()) {
             this._chipActor.opacity = 0;
             this._chipActor.width = 0;
@@ -1916,11 +1981,11 @@ class BaseIndicatorLogic {
         });
     }
 
-    yankChipIn() {
-        if (!this._isYanked)
+    hideChipIn() {
+        if (!this._isHidden)
             return;
-        this._isYanked = false;
-        const naturalWidth = this._yankNaturalWidth || (typeof this._chipActor.get_preferred_width === 'function'
+        this._isHidden = false;
+        const naturalWidth = this._hideNaturalWidth || (typeof this._chipActor.get_preferred_width === 'function'
             ? this._chipActor.get_preferred_width(-1)[1]
             : (this._chipActor._naturalWidth ?? this._chipActor.width ?? 120));
         if (this._shouldReduceMotion()) {
@@ -1943,11 +2008,11 @@ class BaseIndicatorLogic {
     onMenuZoneEnter() {
         if (this._destroyed) return;
         this._cancelLeaveGraceTimer();
-        if (this._isMediaDisplay) {
-            if (this._yankEnabled) {
-                this.yankChipOut();
-            } else {
-                this._isCompressed = true;
+        if (this._hideEnabled) {
+            this.hideChipOut();
+        } else {
+            this._setChipCompressed(true);
+            if (this._isMediaDisplay) {
                 this.onPointerEnter();
             }
         }
@@ -1955,35 +2020,51 @@ class BaseIndicatorLogic {
 
     onMenuZoneLeave(options = {}) {
         if (this._destroyed || this._isPinned) return;
-        if (this._isYanked) {
-            if (this.getYankReturnTrigger() === 'zone-leave') {
+        if (this._isHidden) {
+            if (this.getHideReturnTrigger() === 'zone-leave') {
                 const graceMs = options.graceMs ?? this._leaveGraceMs;
                 if (options.immediate || graceMs <= 0) {
                     this._cancelLeaveGraceTimer();
-                    this.yankChipIn();
+                    this.hideChipIn();
                 } else {
                     this._cancelLeaveGraceTimer();
                     this._leaveGraceTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, graceMs, () => {
                         this._leaveGraceTimerId = 0;
                         if (this._destroyed) return GLib.SOURCE_REMOVE;
-                        if (this._isYanked && this.getYankReturnTrigger() === 'zone-leave' && !this._isPinned) {
-                            this.yankChipIn();
+                        if (this._isHidden && this.getHideReturnTrigger() === 'zone-leave' && !this._isPinned) {
+                            this.hideChipIn();
                         }
                         return GLib.SOURCE_REMOVE;
                     });
                 }
             }
         } else {
-            this._isCompressed = false;
+            this._setChipCompressed(false);
             if (this._isMediaDisplay) {
                 this.onPointerLeave(options);
             }
         }
     }
 
-    handleYankReturnClick() {
-        if (this._isYanked && this.getYankReturnTrigger() === 'click') {
-            this.yankChipIn();
+    /**
+     * Compresses the chip to glyph and elapsed time while the reserved menu zone
+     * is entered and hide is off. The class is the whole point of the flag:
+     * without it the state is invisible and the chip never compresses.
+     *
+     * @param {boolean} compressed - whether the chip is in the compressed state
+     * @returns {void}
+     */
+    _setChipCompressed(compressed) {
+        this._isCompressed = Boolean(compressed);
+        if (this._isCompressed)
+            this.add_style_class_name?.('fuhgawz-chip-compressed');
+        else
+            this.remove_style_class_name?.('fuhgawz-chip-compressed');
+    }
+
+    handleHideReturnClick() {
+        if (this._isHidden && this.getHideReturnTrigger() === 'click') {
+            this.hideChipIn();
         }
     }
 
@@ -2030,7 +2111,7 @@ class BaseIndicatorLogic {
 
     closeCard(options = {}) {
         if (this._isMediaDisplay) {
-            this._mediaCard?.hideCard?.();
+            this._hideMediaCard();
         }
         if (this._floatingCardActor) {
             if (typeof this._floatingCardActor.hideCard === 'function')
@@ -2595,7 +2676,7 @@ class BaseIndicatorLogic {
                 return Clutter ? Clutter.EVENT_PROPAGATE : false;
             });
             const rId = appMenuButton.connect('button-release-event', (actor, event) => {
-                this.handleYankReturnClick();
+                this.handleHideReturnClick();
                 const source = event?.get_source ? event.get_source() : (event?.target || null);
                 if (this._isChildButton(source)) {
                     return Clutter ? Clutter.EVENT_STOP : true;
@@ -2992,11 +3073,12 @@ class BaseIndicatorLogic {
         this._mediaManager = null;
         this._mediaTrack = null;
         this._isMediaDisplay = false;
-        this._isYanked = false;
+        this._isHidden = false;
         this._isCompressed = false;
         this._customChipActor = null;
         this._floatingCardActor = null;
         this._isPinned = false;
+        this._menuActionInProgress = false;
         if (this._menuKeyId && this.menu?.actor && typeof this.menu.actor.disconnect === 'function') {
             try { this.menu.actor.disconnect(this._menuKeyId); } catch (e) {}
             this._menuKeyId = 0;

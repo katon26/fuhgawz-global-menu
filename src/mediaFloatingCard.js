@@ -1013,6 +1013,9 @@ class MediaFloatingCardLogic {
             this._focusExitTimerId = 0;
             if (this._destroyed || !this._isOpen)
                 return GLib.SOURCE_REMOVE;
+            // A pinned card outlives focus, same as it outlives the pointer.
+            if (this._anchorActor?.isPinned)
+                return GLib.SOURCE_REMOVE;
             const stage = typeof global !== 'undefined' ? global.stage : null;
             const focusedActor = stage?.get_key_focus?.() ?? null;
             const pointerIsInside = this._isPointerOver(this) || this._isPointerOver(this._anchorActor);
@@ -1046,6 +1049,10 @@ class MediaFloatingCardLogic {
         const focusedActor = stage?.get_key_focus?.() ?? null;
         const restoreFocus = this._isActorInsideCard(focusedActor);
         const anchor = this._anchorActor;
+        // The card owns the focus here, so the indicator never sees this Escape.
+        // Release its pin too, otherwise the dismissed card leaves it stuck.
+        if (typeof anchor?.unpin === 'function')
+            anchor.unpin();
         this.hideCard();
         if (restoreFocus && anchor && stage?.set_key_focus) {
             anchor.suppressNextKeyboardCardOpen?.();

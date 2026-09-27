@@ -1872,8 +1872,8 @@ assert.strictEqual(hiddenIndicator._hideEnabled, true, 'hideEnabled must be true
 
 hiddenIndicator.hideChipOut();
 assert.strictEqual(hiddenIndicator.isHidden, true, 'isHidden must be true after hideChipOut');
-assert.strictEqual(hiddenIndicator._chipActor.opacity, 0, 'Hideed chip opacity must be 0');
-assert.strictEqual(hiddenIndicator._chipActor.width, 0, 'Hideed chip width must be 0');
+assert.strictEqual(hiddenIndicator._chipActor.opacity, 0, 'Hidden chip opacity must be 0');
+assert.strictEqual(hiddenIndicator._chipActor.width, 0, 'Hidden chip width must be 0');
 assert(hiddenIndicator._chipActor._easeParams !== null, 'hideChipOut must call ease on chip actor');
 assert.strictEqual(hiddenIndicator._chipActor._easeParams.duration, 160, 'Hide out duration must be 160ms');
 assert.strictEqual(hiddenIndicator._chipActor._easeParams.width, 0, 'Hide out target width must be 0');
@@ -1888,34 +1888,43 @@ assert.strictEqual(hiddenIndicator._chipActor.width, -1, 'Chip width should be r
 assert.strictEqual(hiddenIndicator._chipActor._easeParams.duration, 200, 'Hide in duration must be 200ms');
 assert.strictEqual(hiddenIndicator._chipActor._easeParams.opacity, 255, 'Hide in target opacity must be 255');
 
-// D. Contention Guard 1: Active file task prevents hide
+// D. Active file task or terminal running also hides when indicator-hide-on-hover is true
 hideTasks.add({ id: 'dl-hide-1', title: 'File.iso', progress: 0.2 });
 hiddenIndicator.updateTask(hideTasks.getActiveTask('dl-hide-1'));
 assert.strictEqual(hiddenIndicator._hasActiveTask(), true, '_hasActiveTask must be true when file task active');
 hiddenIndicator.hideChipOut();
-assert.strictEqual(hiddenIndicator.isHidden, false, 'hideChipOut MUST NOT hide when file task owns slot');
+assert.strictEqual(hiddenIndicator.isHidden, true, 'hideChipOut hides the indicator for active file tasks');
+hiddenIndicator.hideChipIn();
+assert.strictEqual(hiddenIndicator.isHidden, false, 'hideChipIn restores indicator for active file tasks');
 hideTasks.remove('dl-hide-1');
 hiddenIndicator._activeTask = null;
 hiddenIndicator._syncIndicatorDisplay();
 
-// Contention Guard 2: Open card prevents hide
+// Non-media display (e.g. running command) also hides
+hiddenIndicator._isMediaDisplay = false;
+hiddenIndicator.hideChipOut();
+assert.strictEqual(hiddenIndicator.isHidden, true, 'hideChipOut hides non-media live indicator (e.g. terminal/task)');
+hiddenIndicator.hideChipIn();
+hiddenIndicator._isMediaDisplay = true;
+
+// Contention Guard 1: Open card prevents hide
 hideCard.isOpen = () => true;
 assert.strictEqual(hiddenIndicator.isCardOpen(), true, 'isCardOpen must be true when card isOpen is true');
 hiddenIndicator.hideChipOut();
 assert.strictEqual(hiddenIndicator.isHidden, false, 'hideChipOut MUST NOT hide when card is open');
 hideCard.isOpen = () => false;
 
+// Contention Guard 2: Menu action in progress prevents hide
+hiddenIndicator.isMenuActionInProgress = true;
+hiddenIndicator.hideChipOut();
+assert.strictEqual(hiddenIndicator.isHidden, false, 'hideChipOut MUST NOT hide when menu action is in progress');
+hiddenIndicator.isMenuActionInProgress = false;
+
 // Contention Guard 3: MPRIS seek in progress prevents hide
 hideMedia.isSeeking = () => true;
 hiddenIndicator.hideChipOut();
 assert.strictEqual(hiddenIndicator.isHidden, false, 'hideChipOut MUST NOT hide during MPRIS seek');
 hideMedia.isSeeking = () => false;
-
-// Contention Guard 4: Non-media display does not hide
-hiddenIndicator._isMediaDisplay = false;
-hiddenIndicator.hideChipOut();
-assert.strictEqual(hiddenIndicator.isHidden, false, 'hideChipOut MUST NOT hide when media is not displayed');
-hiddenIndicator._isMediaDisplay = true;
 
 // E. Reduced motion fallback for hide
 hideIface.set_boolean('enable-animations', false);
@@ -2024,6 +2033,17 @@ assert.strictEqual(indPolish._staggerTimerIds.length, 2, 'Stagger timers schedul
 indPolish.closeDropdown();
 assert.strictEqual(indPolish._staggerTimerIds.length, 0, 'closeDropdown must clear stagger timers');
 indPolish.destroy();
+
+// K. Backward compatibility aliases for yank
+assert.strictEqual(hiddenIndicator.isYanked, hiddenIndicator.isHidden, 'isYanked alias matches isHidden');
+assert.strictEqual(hiddenIndicator.isYankEnabled(), hiddenIndicator.isHideEnabled(), 'isYankEnabled matches isHideEnabled');
+assert.strictEqual(hiddenIndicator.getYankReturnTrigger(), hiddenIndicator.getHideReturnTrigger(), 'getYankReturnTrigger matches getHideReturnTrigger');
+hideSettings.set_boolean('indicator-hide-on-hover', true);
+assert.strictEqual(hiddenIndicator.isYankEnabled(), true, 'isYankEnabled is true when setting enabled');
+hiddenIndicator.yankChipOut();
+assert.strictEqual(hiddenIndicator.isYanked, true, 'yankChipOut alias hides chip');
+hiddenIndicator.yankChipIn();
+assert.strictEqual(hiddenIndicator.isYanked, false, 'yankChipIn alias restores chip');
 
 hiddenIndicator.destroy();
 console.log('-> Hide indicator motion & contention arbitration PASSED.');
