@@ -400,19 +400,7 @@ class AppMenuButton extends PanelMenu.Button {
             }
         }
 
-        let appLabel = _('Desktop');
-        const wmClass = metaWindow && metaWindow.get_wm_class ? (metaWindow.get_wm_class() || '') : '';
-        const wmInstance = metaWindow && metaWindow.get_wm_class_instance ? (metaWindow.get_wm_class_instance() || '') : '';
-        if (wmClass.toLowerCase().includes('antigravity') || wmInstance.toLowerCase().includes('antigravity')) {
-            appLabel = 'Antigravity';
-        } else if (profile && profile.app_menu && profile.app_menu.label) {
-            appLabel = profile.app_menu.label;
-        } else if (app) {
-            appLabel = app.get_name() || _('Application');
-        } else if (metaWindow) {
-            appLabel = metaWindow.get_title() || _('Window');
-        }
-
+        let appLabel = this._resolveAppLabel(metaWindow, profile, app);
         this.accessible_name = appLabel || _('Application Menu');
 
         this._label = new St.Label({
@@ -646,6 +634,31 @@ class AppMenuButton extends PanelMenu.Button {
         }
     }
 
+    _resolveAppLabel(metaWindow, profile = null, app = null) {
+        const isInstancePattern = (str) => !str || /^instance[\d\-_()]*$/i.test(String(str).trim());
+        const wmClass = metaWindow && metaWindow.get_wm_class ? (metaWindow.get_wm_class() || '') : '';
+        const wmInstance = metaWindow && metaWindow.get_wm_class_instance ? (metaWindow.get_wm_class_instance() || '') : '';
+        if (wmClass.toLowerCase().includes('antigravity') || wmInstance.toLowerCase().includes('antigravity')) {
+            return 'Antigravity';
+        }
+        if (profile && profile.app_menu && profile.app_menu.label && !isInstancePattern(profile.app_menu.label)) {
+            return profile.app_menu.label;
+        }
+        if (app && app.get_name && !isInstancePattern(app.get_name())) {
+            return app.get_name();
+        }
+        if (metaWindow && metaWindow.get_title && !isInstancePattern(metaWindow.get_title())) {
+            return metaWindow.get_title();
+        }
+        if (wmClass && !isInstancePattern(wmClass)) {
+            return wmClass.charAt(0).toUpperCase() + wmClass.slice(1);
+        }
+        if (wmInstance && !isInstancePattern(wmInstance)) {
+            return wmInstance.charAt(0).toUpperCase() + wmInstance.slice(1);
+        }
+        return metaWindow ? _('Application') : _('Desktop');
+    }
+
     updateForWindow(metaWindow, profile = null, dispatcher = null) {
         this._window = metaWindow;
         this._profile = profile;
@@ -671,18 +684,7 @@ class AppMenuButton extends PanelMenu.Button {
             }
         }
 
-        let appLabel = _('Desktop');
-        const wmClass = metaWindow && metaWindow.get_wm_class ? (metaWindow.get_wm_class() || '') : '';
-        const wmInstance = metaWindow && metaWindow.get_wm_class_instance ? (metaWindow.get_wm_class_instance() || '') : '';
-        if (wmClass.toLowerCase().includes('antigravity') || wmInstance.toLowerCase().includes('antigravity')) {
-            appLabel = 'Antigravity';
-        } else if (profile && profile.app_menu && profile.app_menu.label) {
-            appLabel = profile.app_menu.label;
-        } else if (app) {
-            appLabel = app.get_name() || _('Application');
-        } else if (metaWindow) {
-            appLabel = metaWindow.get_title() || _('Window');
-        }
+        let appLabel = this._resolveAppLabel(metaWindow, profile, app);
 
         this.accessible_name = appLabel || _('Application Menu');
         if (this._label) {
@@ -700,31 +702,32 @@ class AppMenuButton extends PanelMenu.Button {
             this.hide();
         }
         this._ensureIndicatorAtEnd();
+
+        if (this._taskIndicator?.hasLiveIndicator?.()) {
+            this._idleRevealed = false;
+        }
+        if (!this._idleRevealed) {
+            if (this._label) this._label.opacity = 0;
+            if (this._icon) this._icon.opacity = 0;
+        }
     }
 
     updateTitle(metaWindow) {
         if (!metaWindow || metaWindow !== this._window) return;
-        let appLabel = _('Desktop');
-        const wmClass = metaWindow.get_wm_class ? (metaWindow.get_wm_class() || '') : '';
-        const wmInstance = metaWindow.get_wm_class_instance ? (metaWindow.get_wm_class_instance() || '') : '';
-        if (wmClass.toLowerCase().includes('antigravity') || wmInstance.toLowerCase().includes('antigravity')) {
-            appLabel = 'Antigravity';
-        } else if (this._profile && this._profile.app_menu && this._profile.app_menu.label) {
-            appLabel = this._profile.app_menu.label;
-        } else {
-            const tracker = Shell.WindowTracker.get_default();
-            const app = tracker ? tracker.focus_app : null;
-            if (app) {
-                appLabel = app.get_name() || _('Application');
-            } else {
-                appLabel = metaWindow.get_title() || _('Window');
-            }
-        }
+        const tracker = Shell.WindowTracker.get_default();
+        const app = tracker ? tracker.focus_app : null;
+        let appLabel = this._resolveAppLabel(metaWindow, this._profile, app);
+
         if (this._label && this._label.get_text() !== appLabel) {
             this._label.set_text(appLabel);
             this.accessible_name = appLabel;
         }
         this._ensureIndicatorAtEnd();
+
+        if (!this._idleRevealed) {
+            if (this._label) this._label.opacity = 0;
+            if (this._icon) this._icon.opacity = 0;
+        }
     }
 
     _triggerAboutAction(appLabel) {

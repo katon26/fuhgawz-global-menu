@@ -652,17 +652,29 @@ export class ProfileManager {
                     }
                 } catch (e) {}
             }
+            const isInstance = str => /^instance[\d\-_()]*$/i.test(String(str ?? '').trim());
             if (!appName && typeof metaWindow.get_wm_class === 'function') {
-                appName = metaWindow.get_wm_class() || '';
+                const cls = metaWindow.get_wm_class() || '';
+                if (cls && !isInstance(cls))
+                    appName = cls;
             }
             if (!appName && typeof metaWindow.get_wm_class_instance === 'function') {
-                appName = metaWindow.get_wm_class_instance() || '';
+                const inst = metaWindow.get_wm_class_instance() || '';
+                if (inst && !isInstance(inst))
+                    appName = inst;
             }
             if (!appName && typeof metaWindow.get_title === 'function') {
-                appName = metaWindow.get_title() || '';
+                const title = metaWindow.get_title() || '';
+                if (title && !isInstance(title))
+                    appName = title;
             }
             if (!appName && matched.app_menu?.label && matched.app_menu.label !== '{{appName}}') {
-                appName = matched.app_menu.label;
+                const label = matched.app_menu.label;
+                if (label && !isInstance(label))
+                    appName = label;
+            }
+            if (appName && isInstance(appName)) {
+                appName = '';
             }
         }
 

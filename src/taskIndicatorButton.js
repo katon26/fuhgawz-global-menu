@@ -7,6 +7,7 @@ import GObject from 'gi://GObject';
 import Pango from 'gi://Pango';
 import { TaskProgressBar } from './taskProgressBar.js';
 import { MediaFloatingCard } from './mediaFloatingCard.js';
+import { playerTitle } from './mediaManager.js';
 
 export const MARQUEE_MAX_CHARS = 28;
 export const MARQUEE_STEP_MS = 250;
@@ -495,14 +496,9 @@ class BaseIndicatorLogic {
             return;
         }
 
-        let player = track.playerTitle || track.playerName || track.player || 'Media Player';
-        if (typeof player === 'string') {
-            if (player.toLowerCase().includes('spotify')) {
-                player = 'Music';
-            } else if (player.includes('.')) {
-                const lastPart = player.split('.').at(-1);
-                player = lastPart ? (lastPart[0].toUpperCase() + lastPart.slice(1)) : player;
-            }
+        let player = track.playerTitle;
+        if (!player || /^instance[\d\-_()]*$/i.test(player)) {
+            player = playerTitle(track.playerName || track.player || '', track.identity, track.desktopEntry);
         }
         const state = this._mediaPlaybackStatus === 'Playing' ? '▶' : '⏸';
         const title = String(track.title || 'Unknown track');
@@ -1342,6 +1338,9 @@ class BaseIndicatorLogic {
     onPointerEnter() {
         if (this._destroyed) return;
         this._cancelLeaveGraceTimer();
+        if (this._isHidden) {
+            this.hideChipIn();
+        }
         this._syncIndicatorDisplay();
 
         if (this._isMediaDisplay && this._readMediaSetting('media-hover-popover', true)) {
@@ -1400,6 +1399,25 @@ class BaseIndicatorLogic {
             return this._mediaCard.isPointerOver();
         if (typeof this._mediaCard._isPointerOver === 'function')
             return this._mediaCard._isPointerOver(this._mediaCard);
+        return false;
+    }
+
+    _isPointerOverIndicator() {
+        if (this.hover || this._box?.hover || this._compactLabelWidget?.hover || this._statusIconWidget?.hover) return true;
+        if (this._isPointerOverCard()) return true;
+        if (typeof global !== 'undefined' && global.get_pointer) {
+            try {
+                const [x, y] = global.get_pointer();
+                if (x >= 0 && y >= 0) {
+                    const target = this._customChipActor || this._box || this;
+                    if (typeof target.get_transformed_position === 'function' && typeof target.get_transformed_size === 'function') {
+                        const [ax, ay] = target.get_transformed_position();
+                        const [aw, ah] = target.get_transformed_size();
+                        if (x >= ax - 4 && x <= ax + aw + 4 && y >= ay && y <= ay + ah) return true;
+                    }
+                }
+            } catch (e) {}
+        }
         return false;
     }
 
@@ -1477,6 +1495,14 @@ class BaseIndicatorLogic {
             }
         }
         return false;
+    }
+
+    _isChildButton(actor) {
+        if (!actor) return false;
+        return actor === this ||
+               actor === this._box ||
+               this.isDescendantOf(actor, this._box) ||
+               this.isDescendantOf(actor, this);
     }
 
     _handleSliderToggleClicked() {
@@ -2003,6 +2029,9 @@ class BaseIndicatorLogic {
         if (this._shouldReduceMotion()) {
             this._chipActor.opacity = 0;
             this._chipActor.width = 0;
+            if (this !== this._chipActor) {
+                this.visible = false;
+            }
             return;
         }
         this._chipActor.ease({
@@ -2010,6 +2039,11 @@ class BaseIndicatorLogic {
             opacity: 0,
             duration: 160,
             mode: Clutter?.AnimationMode?.EASE_OUT_CUBIC ?? 32,
+            onComplete: () => {
+                if (this._isHidden && this !== this._chipActor) {
+                    this.visible = false;
+                }
+            },
         });
     }
 
@@ -2017,6 +2051,10 @@ class BaseIndicatorLogic {
         if (!this._isHidden)
             return;
         this._isHidden = false;
+        if (this !== this._chipActor) {
+            this.visible = true;
+            this.show?.();
+        }
         const naturalWidth = this._hideNaturalWidth || (typeof this._chipActor.get_preferred_width === 'function'
             ? this._chipActor.get_preferred_width(-1)[1]
             : (this._chipActor._naturalWidth ?? this._chipActor.width ?? 120));
@@ -2063,7 +2101,7 @@ class BaseIndicatorLogic {
         this._isPointerInZone = true;
         this._cancelLeaveGraceTimer();
         this._revealMenuZone();
-        if (this._hideEnabled) {
+        if (this._hideEnabled && !this._isPointerOverIndicator()) {
             this.hideChipOut();
         } else {
             this._setChipCompressed(true);
@@ -2140,9 +2178,7 @@ class BaseIndicatorLogic {
             }
         } else {
             this._setChipCompressed(false);
-            if (this._isMediaDisplay) {
-                this.onPointerLeave(options);
-            }
+            this.onPointerLeave(options);
         }
     }
 
@@ -2937,19 +2973,26 @@ class BaseIndicatorLogic {
         }
 
         if (this._actionButton) {
-            if (this._isDropdownOpen) {
-                if (typeof this._actionButton.add_style_pseudo_class === 'function') {
-                    this._actionButton.add_style_pseudo_class('active');
-                }
-                if (typeof this._actionButton.add_style_class_name === 'function') {
-                    this._actionButton.add_style_class_name('active');
-                }
+            if (this._isMediaDisplay) {
+                if (typeof this._actionButton.hide === 'function') this._actionButton.hide();
+                this._actionButton.visible = false;
             } else {
-                if (typeof this._actionButton.remove_style_pseudo_class === 'function') {
-                    this._actionButton.remove_style_pseudo_class('active');
-                }
-                if (typeof this._actionButton.remove_style_class_name === 'function') {
-                    this._actionButton.remove_style_class_name('active');
+                if (typeof this._actionButton.show === 'function') this._actionButton.show();
+                this._actionButton.visible = true;
+                if (this._isDropdownOpen) {
+                    if (typeof this._actionButton.add_style_pseudo_class === 'function') {
+                        this._actionButton.add_style_pseudo_class('active');
+                    }
+                    if (typeof this._actionButton.add_style_class_name === 'function') {
+                        this._actionButton.add_style_class_name('active');
+                    }
+                } else {
+                    if (typeof this._actionButton.remove_style_pseudo_class === 'function') {
+                        this._actionButton.remove_style_pseudo_class('active');
+                    }
+                    if (typeof this._actionButton.remove_style_class_name === 'function') {
+                        this._actionButton.remove_style_class_name('active');
+                    }
                 }
             }
         }
@@ -3076,11 +3119,19 @@ class BaseIndicatorLogic {
                 return;
             this._marqueeWidthPinned = true;
             label.set_width(MEDIA_LABEL_MAX_WIDTH);
+            if (label.clutter_text && typeof label.clutter_text.set_width === 'function') {
+                label.clutter_text.set_width(MEDIA_LABEL_MAX_WIDTH);
+            }
+            label.clip_to_allocation = true;
         } else {
             if (!this._marqueeWidthPinned)
                 return;
             this._marqueeWidthPinned = false;
             label.set_width(-1);
+            if (label.clutter_text && typeof label.clutter_text.set_width === 'function') {
+                label.clutter_text.set_width(-1);
+            }
+            label.clip_to_allocation = false;
         }
     }
 
@@ -3349,6 +3400,20 @@ if (hasStWidget) {
                     style_class: 'fuhgawz-task-icon',
                     icon_name: 'content-loading-symbolic',
                     y_align: Clutter.ActorAlign.CENTER,
+                    reactive: true,
+                    track_hover: true,
+                });
+                this._statusIconWidget.connect('button-release-event', (_actor, event) => {
+                    if (this._isMediaDisplay) {
+                        let button = 0;
+                        try { button = event?.get_button?.() ?? 0; } catch (e) {}
+                        if (button === 3)
+                            return Clutter.EVENT_PROPAGATE;
+                        this.toggleMediaCard();
+                        return Clutter.EVENT_STOP;
+                    }
+                    this.toggleDropdown();
+                    return Clutter ? Clutter.EVENT_STOP : true;
                 });
                 this._box.add_child(this._statusIconWidget);
 
@@ -3672,7 +3737,11 @@ if (hasStWidget) {
                 this._statusIconWidget = {
                     icon_name: 'content-loading-symbolic',
                     style_class: 'fuhgawz-task-icon',
-                    set_icon_name(name) { this.icon_name = name; }
+                    set_icon_name(name) { this.icon_name = name; },
+                    reactive: true,
+                    track_hover: true,
+                    connect: () => 1,
+                    disconnect: () => {},
                 };
                 
                 this._sliderToggleIcon = {

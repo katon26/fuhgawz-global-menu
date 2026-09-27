@@ -1120,13 +1120,35 @@ class MediaFloatingCardLogic {
     }
 
     isPointerOver() {
-        return this._isPointerOver(this) || this._isPointerOver(this._anchorActor);
+        if (this._isPointerOver(this) || this._isPointerOver(this._anchorActor))
+            return true;
+        if (typeof global !== 'undefined' && global.get_pointer && this._isOpen && this._anchorActor) {
+            try {
+                const [x, y] = global.get_pointer();
+                if (x >= 0 && y >= 0) {
+                    const target = this._anchorActor._box || this._anchorActor;
+                    if (typeof target.get_transformed_position === 'function' && typeof this.get_transformed_position === 'function') {
+                        const [ax, ay] = target.get_transformed_position();
+                        const [aw, ah] = target.get_transformed_size();
+                        const [cx, cy] = this.get_transformed_position();
+                        const [cw, ch] = this.get_transformed_size();
+                        const minX = Math.min(ax, cx) - 24;
+                        const maxX = Math.max(ax + aw, cx + cw) + 24;
+                        const minY = Math.min(ay, cy);
+                        const maxY = Math.max(ay + ah, cy + ch);
+                        if (x >= minX && x <= maxX && y >= minY && y <= maxY)
+                            return true;
+                    }
+                }
+            } catch (e) {}
+        }
+        return false;
     }
 
     _onHoverChanged() {
         if (this._destroyed)
             return;
-        if (this._waveArea?._dragging || this._isPointerOver(this._anchorActor) || this._isPointerOver(this) || this._hasKeyboardFocus()) {
+        if (this._waveArea?._dragging || this.isPointerOver() || this._hasKeyboardFocus()) {
             this._cancelGraceTimer();
             this._cancelKeyboardFocusClose();
             return;
@@ -1146,7 +1168,7 @@ class MediaFloatingCardLogic {
             this._graceTimerId = 0;
             if (this._anchorActor?.isPinned || this._waveArea?._dragging)
                 return GLib.SOURCE_REMOVE;
-            if (!this._isPointerOver(this._anchorActor) && !this._isPointerOver(this) && !this._hasKeyboardFocus())
+            if (!this.isPointerOver() && !this._hasKeyboardFocus())
                 this.hideCard();
             return GLib.SOURCE_REMOVE;
         });

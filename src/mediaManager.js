@@ -75,25 +75,29 @@ function titleize(value) {
  * @returns {string}
  */
 export function playerTitle(name, identity, desktopEntry) {
+    const isInstance = str => /^instance[\d\-_()]*$/i.test(String(str ?? '').trim());
     const cleanIdentity = String(identity ?? '').trim();
-    if (cleanIdentity && !/^instance\d*$/i.test(cleanIdentity))
+    if (cleanIdentity && !isInstance(cleanIdentity))
         return cleanIdentity;
     const cleanDesktop = String(desktopEntry ?? '').trim();
-    if (cleanDesktop && !/^instance\d*$/i.test(cleanDesktop))
+    if (cleanDesktop && !isInstance(cleanDesktop))
         return titleize(cleanDesktop) || 'Media Player';
     if (isSpotify(name))
         return 'Music';
+    const DBUS_PREFIXES = new Set(['org', 'com', 'net', 'io', 'de', 'fr', 'uk', 'app', 'mediaplayer2', 'mpris']);
     const segments = String(name ?? '').split('.').filter(Boolean);
     const tail = segments.at(-1) ?? String(name ?? '');
-    if (/^instance\d*$/i.test(tail)) {
-        const candidate = segments.length >= 2 ? segments.at(-2) : '';
-        if (candidate && !/^instance\d*$/i.test(candidate) && candidate.toLowerCase() !== 'mediaplayer2' && candidate.toLowerCase() !== 'mpris')
-            return titleize(candidate) || 'Media Player';
+    if (isInstance(tail)) {
+        for (let i = segments.length - 2; i >= 0; i--) {
+            const candidate = segments[i];
+            if (candidate && !isInstance(candidate) && !DBUS_PREFIXES.has(candidate.toLowerCase()))
+                return titleize(candidate) || 'Media Player';
+        }
         return 'Media Player';
     }
     if (tail.toLowerCase() === 'spotify')
         return 'Music';
-    if (tail.toLowerCase() === 'mediaplayer2' || tail.toLowerCase() === 'mpris')
+    if (DBUS_PREFIXES.has(tail.toLowerCase()))
         return 'Media Player';
     return titleize(tail) || 'Media Player';
 }
@@ -640,9 +644,14 @@ export const MediaManager = GObject.registerClass(
                 return Promise.reject(new Error('No active track to seek'));
             }
             const targetUs = Math.max(0, Math.round((Number(positionMs) || 0) * 1000));
-            if (track.trackId && track.trackId !== NO_TRACK_ID) {
+            if (track.trackId && track.trackId !== NO_TRACK_ID && typeof track.trackId === 'string' && track.trackId.startsWith('/')) {
                 return this._call(player.owner, MPRIS_OBJECT_PATH, MPRIS_PLAYER_INTERFACE, 'SetPosition',
                     new GLib.Variant('(ox)', [track.trackId, targetUs]))
+                    .catch(() => {
+                        const offset = targetUs - track.positionUs;
+                        return this._call(player.owner, MPRIS_OBJECT_PATH, MPRIS_PLAYER_INTERFACE, 'Seek',
+                            new GLib.Variant('(x)', [offset]));
+                    })
                     .then(r => { finish(); return r; }, err => { finish(); throw err; });
             }
             const offset = targetUs - track.positionUs;
