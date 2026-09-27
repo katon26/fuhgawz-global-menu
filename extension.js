@@ -477,9 +477,104 @@ class AppMenuButton extends PanelMenu.Button {
             };
         }
 
+        this._idleRevealed = true;
+        this._idleInitialised = false;
+        this._idleRevealMs = 180;
+
         if (!metaWindow) {
             this.hide();
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Idle hide / reveal (driven by TaskIndicatorButton)
+    //
+    // The panel slot keeps its width and stays reactive at zero opacity, so the
+    // pointer can still enter it: the menu is *reserved*, not removed, and
+    // nothing in the bar shifts when it comes back.
+    // ---------------------------------------------------------------------
+
+    setIdleRevealed(revealed, { animate = true } = {}) {
+        if (this._destroyed)
+            return;
+        const next = Boolean(revealed);
+        if (this._idleRevealed === next && this._idleInitialised)
+            return;
+        this._idleRevealed = next;
+        this._idleInitialised = true;
+
+        const duration = next ? this._idleRevealMs : Math.round(this._idleRevealMs * 0.6);
+
+        // 1. AppMenuButton label & icon fade (app title/icon collapses while indicator remains visible)
+        const targets = [];
+        if (this._label) targets.push(this._label);
+        if (this._icon) targets.push(this._icon);
+
+        for (const target of targets) {
+            target.remove_all_transitions?.();
+            if (!animate) {
+                target.opacity = next ? 255 : 0;
+            } else {
+                if (next) target.visible = true;
+                target.ease({
+                    opacity: next ? 255 : 0,
+                    duration,
+                    mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
+                    onComplete: () => {
+                        if (!next && this._idleRevealed === false)
+                            target.opacity = 0;
+                    },
+                });
+            }
+        }
+
+        // 2. Global Menu Button Pool (PooledMenuButtons File, Edit, View, etc.)
+        const pool = this._globalMenu?._buttonPool || [];
+        const overflow = this._globalMenu?._overflowButtons || [];
+        for (const slot of [...pool, ...overflow]) {
+            if (!slot) continue;
+            slot.remove_all_transitions?.();
+            if (!animate) {
+                slot.opacity = next ? 255 : 0;
+            } else {
+                if (next) slot.visible = true;
+                slot.ease({
+                    opacity: next ? 255 : 0,
+                    duration,
+                    mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
+                    onComplete: () => {
+                        if (!next && this._idleRevealed === false)
+                            slot.opacity = 0;
+                    },
+                });
+            }
+        }
+
+        // 3. Fallback compatibility for test mocks where only _box exists
+        if (!this._label && !this._globalMenu && this._box) {
+            this._box.remove_all_transitions?.();
+            this._box.opacity = next ? 255 : 0;
+        }
+    }
+
+    isAnyMenuOpen() {
+        if (this.menu && this.menu.isOpen) return true;
+        if (this._globalMenu) {
+            const pool = this._globalMenu._buttonPool || [];
+            const overflow = this._globalMenu._overflowButtons || [];
+            for (const btn of [...pool, ...overflow]) {
+                if (btn?.menu?.isOpen) return true;
+            }
+        }
+        return false;
+    }
+
+    isIdleRevealed() {
+        return this._idleRevealed;
+    }
+
+    setIdleRevealDuration(ms) {
+        this._idleRevealMs = Math.max(0, Number(ms) || 0);
     }
 
     _isIndicatorActor(source) {
@@ -1920,6 +2015,13 @@ class PooledMenuButton extends PanelMenu.Button {
             });
         }
 
+        this.connect('enter-event', () => {
+            this._globalMenu?._taskIndicator?.onMenuZoneEnter?.();
+        });
+        this.connect('leave-event', () => {
+            this._globalMenu?._taskIndicator?.onMenuZoneLeave?.();
+        });
+
         this.hide();
     }
 
@@ -2177,6 +2279,7 @@ class FUHGlobeGlobalMenu {
     _initButtonPool() {
         // AppMenuButton allocated permanently at position 1 (after Activities at 0)
         this._appMenuButton = new AppMenuButton(null, null, this._virtualKeyboard);
+        this._appMenuButton._globalMenu = this;
         try {
             Main.panel.addToStatusArea('fuhgawz-app-menu', this._appMenuButton, 1, 'left');
         } catch (e) {
@@ -2188,6 +2291,7 @@ class FUHGlobeGlobalMenu {
         this._POOL_SIZE = 10;
         for (let i = 0; i < this._POOL_SIZE; i++) {
             const slot = new PooledMenuButton(i);
+            slot._globalMenu = this;
             this._buttonPool.push(slot);
             try {
                 Main.panel.addToStatusArea(`fuhgawz-menu-slot-${i}`, slot, 2 + i, 'left');
@@ -2213,19 +2317,26 @@ class FUHGlobeGlobalMenu {
     }
 
     _acquireSlot() {
+        let slot;
         if (this._activeSlotIndex < this._buttonPool.length) {
-            return this._buttonPool[this._activeSlotIndex++];
+            slot = this._buttonPool[this._activeSlotIndex++];
+        } else {
+            const overflowSlot = new PooledMenuButton(this._activeSlotIndex);
+            overflowSlot._globalMenu = this;
+            const pos = 2 + this._activeSlotIndex;
+            this._activeSlotIndex++;
+            this._overflowButtons.push(overflowSlot);
+            try {
+                Main.panel.addToStatusArea(`fuhgawz-menu-overflow-${this._nextId++}`, overflowSlot, pos, 'left');
+            } catch (e) {
+                console.error(`FUHGlobe: Failed to add overflow slot: ${e}`);
+            }
+            slot = overflowSlot;
         }
-        const overflowSlot = new PooledMenuButton(this._activeSlotIndex);
-        const pos = 2 + this._activeSlotIndex;
-        this._activeSlotIndex++;
-        this._overflowButtons.push(overflowSlot);
-        try {
-            Main.panel.addToStatusArea(`fuhgawz-menu-overflow-${this._nextId++}`, overflowSlot, pos, 'left');
-        } catch (e) {
-            console.error(`FUHGlobe: Failed to add overflow slot: ${e}`);
+        if (this._appMenuButton && typeof this._appMenuButton.isIdleRevealed === 'function') {
+            slot.opacity = this._appMenuButton.isIdleRevealed() ? 255 : 0;
         }
-        return overflowSlot;
+        return slot;
     }
 
     _finalizeSlots() {

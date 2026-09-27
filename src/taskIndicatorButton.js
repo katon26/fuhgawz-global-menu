@@ -12,6 +12,8 @@ export const MARQUEE_MAX_CHARS = 28;
 export const MARQUEE_STEP_MS = 250;
 export const MARQUEE_PAUSE_MS = 2000;
 export const MARQUEE_DELIMITER = '   •   ';
+/** CSS max-width of the media label (stylesheet.css: .fuhgawz-media-indicator-label). */
+const MEDIA_LABEL_MAX_WIDTH = 300;
 
 export const CARD_DWELL_MS = 350;
 export const LEAVE_GRACE_MS = 120;
@@ -233,6 +235,9 @@ class BaseIndicatorLogic {
         this._marqueeFullText = '';
         this._marqueeActiveText = null;
         this._marqueeMaxChars = options.marqueeMaxChars ?? MARQUEE_MAX_CHARS;
+        this._marqueeWidthPinned = false;
+        this._customMenuIdleHide = undefined;
+        this._isPointerInZone = false;
         this._isHidden = false;
         this._isCompressed = false;
         this._floatingCardActor = options.floatingCardActor ?? null;
@@ -346,13 +351,21 @@ class BaseIndicatorLogic {
                 } catch (e) {}
             }
 
-            for (const key of ['task-indicator-reveal', 'task-indicator-reveal-ms', 'task-indicator-reduced-motion', 'indicator-hide-on-hover', 'indicator-hide-return']) {
+            for (const key of ['task-indicator-reveal', 'task-indicator-reveal-ms', 'task-indicator-reduced-motion', 'menu-hide-when-idle', 'indicator-hide-on-hover', 'indicator-hide-return']) {
                 try {
                     const id = this._settings.connect(`changed::${key}`, () => {
                         if (this._destroyed)
                             return;
                         if (key === 'indicator-hide-on-hover' && !this._hideEnabled && this._isHidden) {
                             this.hideChipIn();
+                        }
+                        if (key === 'menu-hide-when-idle') {
+                            // Turning idle hide off must show the menu now, not on
+                            // the next hover: the user asked to see it.
+                            if (this._menuIdleHideEnabled && this.hasLiveIndicator())
+                                this._collapseMenuZone();
+                            else
+                                this._revealMenuZone();
                         }
                         this._updateUiComponents();
                     });
@@ -652,6 +665,13 @@ class BaseIndicatorLogic {
                     this._appMenuButton.hide();
                 }
             }
+        }
+
+        const hasLive = this.hasLiveIndicator();
+        if (!hasLive) {
+            this._revealMenuZone();
+        } else if (!this._isPointerInZone && !this._isPinned && !this.isCardOpen()) {
+            this._collapseMenuZone();
         }
     }
 
@@ -1374,8 +1394,20 @@ class BaseIndicatorLogic {
         });
     }
 
+    _isPointerOverCard() {
+        if (!this._mediaCard) return false;
+        if (typeof this._mediaCard.isPointerOver === 'function')
+            return this._mediaCard.isPointerOver();
+        if (typeof this._mediaCard._isPointerOver === 'function')
+            return this._mediaCard._isPointerOver(this._mediaCard);
+        return false;
+    }
+
     _handleLeaveGraceTrigger() {
         if (this._destroyed || this._isPinned) return;
+        if (this._isPointerOverCard() || (this._mediaCard?._waveArea?._dragging)) return;
+        if (this._appMenuButton && typeof this._appMenuButton.isAnyMenuOpen === 'function' && this._appMenuButton.isAnyMenuOpen()) return;
+        this._collapseMenuZone();
         if (this._mode === 'hover') {
             this.setExpanded(false);
         }
@@ -2005,9 +2037,32 @@ class BaseIndicatorLogic {
         });
     }
 
+    /**
+     * Whether a live indicator (active file task or displayable media) is currently running.
+     *
+     * @returns {boolean}
+     */
+    hasLiveIndicator() {
+        if (this._destroyed) return false;
+        const hasTask = Boolean((this._enabled && this._hasActiveTask()) || (this._enabled && this._isCompleted));
+        const hasMedia = this._hasDisplayableMedia();
+        return hasTask || hasMedia;
+    }
+
+    /**
+     * The pointer entered the app menu zone.
+     *
+     * The live indicator stays on screen: the menu is the thing that gets out of
+     * the way, never the indicator. The chip only compresses so the menu has
+     * room, and the media card opens as before.
+     *
+     * @returns {void}
+     */
     onMenuZoneEnter() {
         if (this._destroyed) return;
+        this._isPointerInZone = true;
         this._cancelLeaveGraceTimer();
+        this._revealMenuZone();
         if (this._hideEnabled) {
             this.hideChipOut();
         } else {
@@ -2018,21 +2073,66 @@ class BaseIndicatorLogic {
         }
     }
 
+    /**
+     * Brings the global menu back into the panel slot.
+     *
+     * While the pointer is away the menu is collapsed, not removed: the slot
+     * keeps its width, so the live indicator next to it never moves.
+     *
+     * @returns {void}
+     */
+    _revealMenuZone() {
+        const button = this._appMenuButton;
+        if (!button || typeof button.setIdleRevealed !== 'function')
+            return;
+        button.setIdleRevealed(true);
+    }
+
+    _collapseMenuZone() {
+        if (!this.hasLiveIndicator())
+            return;
+        const button = this._appMenuButton;
+        if (!button || typeof button.setIdleRevealed !== 'function')
+            return;
+        if (this._menuIdleHideEnabled)
+            button.setIdleRevealed(false);
+    }
+
+    get _menuIdleHideEnabled() {
+        if (this._customMenuIdleHide !== undefined)
+            return Boolean(this._customMenuIdleHide);
+        if (this._destroyed)
+            return false;
+        if (!this._settings)
+            return false;
+        return Boolean(this._settings.get_boolean('menu-hide-when-idle'));
+    }
+
+    setMenuIdleHidden(hidden = true) {
+        if (this._destroyed)
+            return;
+        const button = this._appMenuButton;
+        if (button && typeof button.setIdleRevealDuration === 'function')
+            button.setIdleRevealDuration(this.getRevealDurationMs());
+        this._collapseMenuZone();
+    }
+
     onMenuZoneLeave(options = {}) {
         if (this._destroyed || this._isPinned) return;
+        this._isPointerInZone = false;
         if (this._isHidden) {
             if (this.getHideReturnTrigger() === 'zone-leave') {
                 const graceMs = options.graceMs ?? this._leaveGraceMs;
                 if (options.immediate || graceMs <= 0) {
                     this._cancelLeaveGraceTimer();
-                    this.hideChipIn();
+                    this._handleLeaveGraceTrigger();
                 } else {
                     this._cancelLeaveGraceTimer();
                     this._leaveGraceTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, graceMs, () => {
                         this._leaveGraceTimerId = 0;
                         if (this._destroyed) return GLib.SOURCE_REMOVE;
                         if (this._isHidden && this.getHideReturnTrigger() === 'zone-leave' && !this._isPinned) {
-                            this.hideChipIn();
+                            this._handleLeaveGraceTrigger();
                         }
                         return GLib.SOURCE_REMOVE;
                     });
@@ -2666,6 +2766,13 @@ class BaseIndicatorLogic {
         // Apply placement (unified attaches into appMenuButton._box, standalone registers in statusArea)
         this._applyPlacement();
 
+        // If a live indicator is running, collapse the global menu zone; otherwise keep it revealed.
+        if (this.hasLiveIndicator()) {
+            this._collapseMenuZone();
+        } else {
+            this._revealMenuZone();
+        }
+
         // Event delegation: Prevent child button clicks inside _box from triggering AppMenuButton popup
         if (this._appMenuSignalIds.length === 0 && typeof appMenuButton.connect === 'function') {
             const pId = appMenuButton.connect('button-press-event', (actor, event) => {
@@ -2945,10 +3052,43 @@ class BaseIndicatorLogic {
     // Running Text Marquee for Long Media Title/Artist
     // ---------------------------------------------------------------------
 
+    /**
+     * Freezes the media label's width while the marquee is running.
+     *
+     * Every step set a different string on a proportional font, so the label
+     * re-measured, the indicator re-allocated and the whole top bar wobbled
+     * four times a second. Pinning the width to the label's own max-width makes
+     * the text scroll inside a box that never moves.
+     *
+     * ponytail: pinned to the CSS max-width rather than to the measured widest
+     * step; measuring all steps costs a layout per character. Swap in a
+     * one-time measurement if the design ever needs a narrower pin.
+     *
+     * @param {boolean} pinned
+     * @returns {void}
+     */
+    _pinMarqueeLabelWidth(pinned) {
+        const label = this._compactLabelWidget;
+        if (!label || typeof label.set_width !== 'function')
+            return;
+        if (pinned) {
+            if (this._marqueeWidthPinned)
+                return;
+            this._marqueeWidthPinned = true;
+            label.set_width(MEDIA_LABEL_MAX_WIDTH);
+        } else {
+            if (!this._marqueeWidthPinned)
+                return;
+            this._marqueeWidthPinned = false;
+            label.set_width(-1);
+        }
+    }
+
     _startMediaMarquee(fullText) {
         if (this._destroyed) return;
         if (this._marqueeFullText !== fullText) {
             this._stopMediaMarquee();
+            this._pinMarqueeLabelWidth(true);
             this._marqueeFullText = fullText;
             this._marqueeIndex = 0;
             const fullChars = Array.from(fullText);
@@ -3004,6 +3144,7 @@ class BaseIndicatorLogic {
             GLib.source_remove(this._marqueeTimerId);
             this._marqueeTimerId = 0;
         }
+        this._pinMarqueeLabelWidth(false);
         this._marqueeIndex = 0;
         this._marqueeActiveText = null;
         this._marqueeFullText = '';
@@ -3524,6 +3665,8 @@ if (hasStWidget) {
                     has_style_class_name(name) {
                         return (this.style_class || '').split(/\s+/).includes(name);
                     },
+                    set_width(w) { this._explicitWidth = w; this.width = w > 0 ? w : this.width; },
+                    get_width() { return this._explicitWidth; },
                 };
                 
                 this._statusIconWidget = {

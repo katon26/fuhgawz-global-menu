@@ -91,6 +91,9 @@ function progressAfterKeyboardSeek(keyName, current, lengthMs) {
     }
 }
 
+/** Throttle for scrub seeks while dragging: 120ms between MPRIS round trips. */
+const SCRUB_THROTTLE_US = 120 * 1000;
+
 function seekToProgress(owner, progress, track) {
     const result = owner._mediaManager?.seek?.(Math.round(progress * track.lengthMs));
     result?.catch?.(() => {});
@@ -214,7 +217,12 @@ class MockLabel extends MockActor {
         super(params);
         this.clutter_text = { ellipsize: null };
         this.tooltip_text = params.tooltip_text ?? '';
+        this._explicitWidth = -1;
     }
+
+    set_width(value) { this._explicitWidth = value; this.width = value > 0 ? value : this.width; }
+
+    get_width() { return this._explicitWidth; }
 }
 
 class MockWaveArea extends MockActor {
@@ -314,6 +322,7 @@ if (hasStDrawingArea) {
                 this._phase = 0;
                 this._visualizerStyle = 'wave';
                 this._dragging = false;
+                this._lastScrubUs = 0;
                 this._accessibleValue = null;
                 this._accessibleSignalIds = [];
                 this._lastAccessiblePercent = null;
@@ -323,17 +332,26 @@ if (hasStDrawingArea) {
                 this._pressSignalId = this.connect('button-press-event', (_area, event) => {
                     if (event.get_button() !== 1)
                         return Clutter.EVENT_PROPAGATE;
+                    if (!(Number(this._owner?._currentTrack?.()?.lengthMs) > 0))
+                        return Clutter.EVENT_PROPAGATE;
                     this._dragging = true;
-                    this._seekFromEvent(event);
+                    // Seek once on press, then only repaint while dragging: firing a
+                    // seek per motion event made the wave chase the pointer and every
+                    // second event landed on a stale position.
+                    this._scrubCommit(event, { force: true });
                     return Clutter.EVENT_STOP;
                 });
                 this._motionSignalId = this.connect('motion-event', (_area, event) => {
-                    if (this._dragging)
-                        this._seekFromEvent(event);
-                    return this._dragging ? Clutter.EVENT_STOP : Clutter.EVENT_PROPAGATE;
+                    if (this._dragging) {
+                        this._scrubCommit(event, { force: false });
+                        return Clutter.EVENT_STOP;
+                    }
+                    return Clutter.EVENT_PROPAGATE;
                 });
                 this._releaseSignalId = this.connect('button-release-event', (_area, event) => {
                     if (event.get_button() === 1) {
+                        if (this._dragging)
+                            this._scrubCommit(event, { force: true });
                         this._dragging = false;
                         return Clutter.EVENT_STOP;
                     }
@@ -448,17 +466,49 @@ if (hasStDrawingArea) {
                 try { this._accessibleValue.emit('value-changed', value, null); } catch (error) {}
             }
 
-            _seekFromEvent(event) {
+            /**
+             * Width of the wave in stage pixels, or 0 while the area has no
+             * allocation yet. Returning 0 used to be treated as "seek to the
+             * beginning", which is why the first click of a session jumped back
+             * to 0:00 instead of to the clicked offset.
+             *
+             * @returns {number}
+             */
+            _waveWidth() {
+                const [surfaceW] = this.get_surface_size();
+                if (surfaceW > 0)
+                    return surfaceW;
+                const alloc = this.get_allocation?.();
+                return Math.max(0, Number(alloc?.width) || 0);
+            }
+
+            _scrubFraction(event) {
+                const width = this._waveWidth();
+                if (width <= 0)
+                    return null;
                 const [stageX] = event.get_coords();
                 const [actorX] = this.get_transformed_position();
-                const width = this.get_surface_size()[0];
-                const fraction = width > 0 ? clamp((stageX - actorX) / width, 0, 1) : 0;
+                return clamp((stageX - actorX) / width, 0, 1);
+            }
+
+            _scrubCommit(event, { force = false } = {}) {
+                const fraction = this._scrubFraction(event);
+                if (fraction === null)
+                    return;
+                const now = GLib.get_monotonic_time();
+                if (!force && this._lastScrubUs && now - this._lastScrubUs < SCRUB_THROTTLE_US)
+                    return;
+                this._lastScrubUs = force ? now : this._lastScrubUs;
                 const track = this._owner._currentTrack();
                 if (track?.lengthMs > 0)
                     this._owner._mediaManager?.seek(Math.round(fraction * track.lengthMs))?.catch?.(() => {});
                 this._progress = fraction;
                 this._emitAccessibleValueChanged(true);
                 this.queue_repaint();
+            }
+
+            _seekFromEvent(event) {
+                this._scrubCommit(event, { force: true });
             }
 
             _paint() {
@@ -1069,10 +1119,14 @@ class MediaFloatingCardLogic {
         this._anchorHoverSignalId = actor.connect('notify::hover', () => this._onHoverChanged());
     }
 
+    isPointerOver() {
+        return this._isPointerOver(this) || this._isPointerOver(this._anchorActor);
+    }
+
     _onHoverChanged() {
         if (this._destroyed)
             return;
-        if (this._isPointerOver(this._anchorActor) || this._isPointerOver(this) || this._hasKeyboardFocus()) {
+        if (this._waveArea?._dragging || this._isPointerOver(this._anchorActor) || this._isPointerOver(this) || this._hasKeyboardFocus()) {
             this._cancelGraceTimer();
             this._cancelKeyboardFocusClose();
             return;
@@ -1086,11 +1140,11 @@ class MediaFloatingCardLogic {
     }
 
     _startGraceTimer() {
-        if (this._graceTimerId || this._destroyed || this._anchorActor?.isPinned)
+        if (this._graceTimerId || this._destroyed || this._anchorActor?.isPinned || this._waveArea?._dragging)
             return;
         this._graceTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, this._gracePeriodMs, () => {
             this._graceTimerId = 0;
-            if (this._anchorActor?.isPinned)
+            if (this._anchorActor?.isPinned || this._waveArea?._dragging)
                 return GLib.SOURCE_REMOVE;
             if (!this._isPointerOver(this._anchorActor) && !this._isPointerOver(this) && !this._hasKeyboardFocus())
                 this.hideCard();

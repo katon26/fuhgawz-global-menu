@@ -685,10 +685,23 @@ function createGlobalMenuPage(settings, gettextFunc) {
     settings.bind('media-hover-popover', hoverPopoverRow, 'active', Gio.SettingsBindFlags.DEFAULT);
     mediaGroup.add(hoverPopoverRow);
 
+    // Switch row for menu-hide-when-idle
+    const menuIdleRow = new Adw.SwitchRow({
+        title: gettextFunc('Hide the Global Menu When Idle'),
+        subtitle: gettextFunc('The menu only appears while the pointer is over its slot; a running live indicator takes the space instead.'),
+    });
+    settings.bind(
+        'menu-hide-when-idle',
+        menuIdleRow,
+        'active',
+        Gio.SettingsBindFlags.DEFAULT
+    );
+    mediaGroup.add(menuIdleRow);
+
     // Switch row for indicator-hide-on-hover
     const hideRow = new Adw.SwitchRow({
-        title: gettextFunc('Hide the Indicator for the Menu'),
-        subtitle: gettextFunc('Slide the indicator out of its slot while the app menu is open.'),
+        title: gettextFunc('Hide the Indicator When the Menu Appears'),
+        subtitle: gettextFunc('Off keeps the live indicator on screen next to the menu; on lets the menu take the slot.'),
     });
     settings.bind(
         'indicator-hide-on-hover',

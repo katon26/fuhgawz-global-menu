@@ -200,6 +200,11 @@
       <summary>Show transfer details in indicator</summary>
       <description>Whether to show bytes and transfer speed telemetry in expanded chip.</description>
     </key>
+    <key name="menu-hide-when-idle" type="b">
+      <default>true</default>
+      <summary>Hide the global menu while the pointer is away</summary>
+      <description>Collapse the app menu in the panel slot and let the live indicator take the space; the pointer brings the menu back. The slot keeps its width, so nothing shifts.</description>
+    </key>
     <key name="indicator-hide-on-hover" type="b">
       <default>false</default>
       <summary>Hide the live indicator when the menu zone is entered</summary>

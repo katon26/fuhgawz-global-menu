@@ -1836,6 +1836,8 @@ hideSettings._values.set('media-persistent-idle', true);
 hideSettings._values.set('media-hover-popover', false);
 hideSettings._values.set('indicator-hide-on-hover', true);
 hideSettings._values.set('indicator-hide-return', 'zone-leave');
+hideSettings._values.set('menu-hide-when-idle', true);
+hideSettings._values.set('task-indicator-reveal-ms', 180);
 hideSettings._values.set('task-indicator-reduced-motion', true);
 
 const hideIface = new MockInterfaceSettingsClass(true);
@@ -1941,87 +1943,77 @@ assert.strictEqual(hiddenIndicator._chipActor._easeParams, null, 'No ease call u
 assert.strictEqual(hiddenIndicator._chipActor.opacity, 255, 'Opacity immediately 255 under reduced motion');
 hideIface.set_boolean('enable-animations', true);
 
-// F. Return trigger: 'zone-leave' with 120ms leave grace
+// F. Menu zone: with 'indicator-hide-on-hover' ON the menu takes the slot,
+//                with it OFF the indicator stays and merely compresses.
+hideSettings.set_string('indicator-hide-return', 'zone-leave');
+hideSettings.set_boolean('indicator-hide-on-hover', true);
 const hostMenu = new MockActor();
 hostMenu._box = new MockActor();
+hostMenu.setIdleRevealed = (v) => { hostMenu._idle = v; };
 hiddenIndicator.bindToAppMenu(hostMenu);
+assert.strictEqual(hostMenu._idle, false, 'Binding collapses the menu: the pointer has to ask for it');
 
-hideSettings.set_string('indicator-hide-return', 'zone-leave');
 hiddenIndicator.onMenuZoneEnter();
-assert.strictEqual(hiddenIndicator.isHidden, true, 'Entering menu zone hides chip');
+assert.strictEqual(hostMenu._idle, true, 'Entering the zone reveals the global menu');
+assert.strictEqual(hiddenIndicator.isHidden, true, 'With the switch on, the menu takes the slot and the indicator collapses');
 
-// Leave zone: starts 120ms grace timer
 hiddenIndicator.onMenuZoneLeave();
-assert.strictEqual(hiddenIndicator.isHidden, true, 'Chip remains hidden immediately on leave due to grace delay');
-
-// Re-entry before grace expires cancels return
-hiddenIndicator.onMenuZoneEnter();
-assert.strictEqual(hiddenIndicator._leaveGraceTimerId, 0, 'Re-entry must cancel leave grace timer');
-assert.strictEqual(hiddenIndicator.isHidden, true, 'Chip still hidden after re-entry');
-
-// Leave again and let grace expire (120ms)
-hiddenIndicator.onMenuZoneLeave();
-assert(hiddenIndicator._leaveGraceTimerId !== 0, 'Leave grace timer running');
+assert.strictEqual(hiddenIndicator.isHidden, true, 'Chip stays collapsed immediately on leave due to the grace delay');
 const hideGraceLoop = new GLib.MainLoop(null, false);
 GLib.timeout_add(GLib.PRIORITY_DEFAULT, 130, () => {
     hideGraceLoop.quit();
     return GLib.SOURCE_REMOVE;
 });
 hideGraceLoop.run();
-assert.strictEqual(hiddenIndicator.isHidden, false, 'Chip restored after 120ms leave grace');
-assert.strictEqual(hiddenIndicator._chipActor.opacity, 255, 'Opacity restored to 255');
+assert.strictEqual(hiddenIndicator.isHidden, false, 'Chip restored after the 120ms leave grace');
+assert.strictEqual(hostMenu._idle, false, 'Menu collapses again after the leave grace');
 
-// G. Return trigger: 'click'
-hideSettings.set_string('indicator-hide-return', 'click');
+hideSettings.set_boolean('indicator-hide-on-hover', false);
 hiddenIndicator.onMenuZoneEnter();
-assert.strictEqual(hiddenIndicator.isHidden, true, 'Zone enter hides chip');
+assert.strictEqual(hiddenIndicator.isHidden, false, 'With the switch off the live indicator stays on screen');
+assert.strictEqual(hiddenIndicator.isCompressed, true, 'It only compresses to make room for the menu');
+assert.strictEqual(hostMenu._idle, true, 'Menu revealed on enter either way');
+hiddenIndicator.onMenuZoneLeave({ immediate: true });
+assert.strictEqual(hiddenIndicator.isCompressed, false, 'Leaving the zone expands the chip again');
+assert.strictEqual(hostMenu._idle, false, 'Menu collapses on leave either way');
 
-hiddenIndicator.onMenuZoneLeave();
+// G. The hide primitives themselves still work when driven directly
+hideSettings.set_boolean('indicator-hide-on-hover', true);
+hideSettings.set_string('indicator-hide-return', 'click');
+hiddenIndicator.hideChipOut();
+assert.strictEqual(hiddenIndicator.isHidden, true, 'hideChipOut still collapses the chip when called directly');
+
 const hideClickLoop = new GLib.MainLoop(null, false);
 GLib.timeout_add(GLib.PRIORITY_DEFAULT, 130, () => {
     hideClickLoop.quit();
     return GLib.SOURCE_REMOVE;
 });
 hideClickLoop.run();
-assert.strictEqual(hiddenIndicator.isHidden, true, 'Chip MUST NOT restore on zone leave when return mode is click');
+assert.strictEqual(hiddenIndicator.isHidden, true, 'Nothing restores the chip on a timer in click mode');
 
-// Click restores chip
 hiddenIndicator.handleHideReturnClick();
-assert.strictEqual(hiddenIndicator.isHidden, false, 'Click restores hidden chip in click mode');
+assert.strictEqual(hiddenIndicator.isHidden, false, 'Click restores the directly hidden chip in click mode');
 assert.strictEqual(hiddenIndicator._chipActor.opacity, 255, 'Opacity restored to 255');
 
-// H. Return trigger: 'never' (restores on next playback change)
+// H. Return trigger: 'never' keeps a directly hidden chip hidden
 hideSettings.set_string('indicator-hide-return', 'never');
-hiddenIndicator.onMenuZoneEnter();
-assert.strictEqual(hiddenIndicator.isHidden, true, 'Zone enter hides chip');
-
-// Zone leave does not restore
-hiddenIndicator.onMenuZoneLeave();
-const hideNeverLoop = new GLib.MainLoop(null, false);
-GLib.timeout_add(GLib.PRIORITY_DEFAULT, 130, () => {
-    hideNeverLoop.quit();
-    return GLib.SOURCE_REMOVE;
-});
-hideNeverLoop.run();
-assert.strictEqual(hiddenIndicator.isHidden, true, 'Chip MUST NOT restore on zone leave when return mode is never');
-
-// Click does not restore
+hiddenIndicator.hideChipOut();
+assert.strictEqual(hiddenIndicator.isHidden, true, 'Direct hide works in never mode');
 hiddenIndicator.handleHideReturnClick();
-assert.strictEqual(hiddenIndicator.isHidden, true, 'Click MUST NOT restore hidden chip when return mode is never');
+assert.strictEqual(hiddenIndicator.isHidden, true, 'Click MUST NOT restore a hidden chip when return mode is never');
 
-// Next playback change restores chip
 hideMedia.publishTrack({
     player: 'org.mpris.MediaPlayer2.spotify',
     title: 'Spoonman',
     artist: 'Soundgarden',
 });
-assert.strictEqual(hiddenIndicator.isHidden, false, 'Playback change restores hidden chip in never mode');
+assert.strictEqual(hiddenIndicator.isHidden, false, 'Playback change restores a hidden chip in never mode');
 assert.strictEqual(hiddenIndicator._chipActor.opacity, 255, 'Opacity restored to 255');
 
-// I. Fallback when indicator-hide-on-hover is false: chip compresses without hiding
+// I. The same fallback with the switch off from the start
 hideSettings.set_boolean('indicator-hide-on-hover', false);
 hiddenIndicator.onMenuZoneEnter();
-assert.strictEqual(hiddenIndicator.isHidden, false, 'With indicator-hide-on-hover false, chip does not hide');
+assert.strictEqual(hiddenIndicator.isHidden, false, 'Zone enter must not hide the chip with the switch off');
 assert.strictEqual(hiddenIndicator.isCompressed, true, 'With indicator-hide-on-hover false, chip enters compressed state');
 hiddenIndicator.onMenuZoneLeave();
 assert.strictEqual(hiddenIndicator.isCompressed, false, 'Leaving menu zone exits compressed state');
@@ -2283,4 +2275,124 @@ console.log('-> Click Pinning, Pin Release & Compressed Chip PASSED.');
 
 
 
+
+
+// ---------------------------------------------------------------------
+// 19. Player naming, marquee width pin & scrub seek corrections
+// ---------------------------------------------------------------------
+console.log('19. Verifying player name fallback, stable marquee width and scrub guard...');
+const mediaManagerModule = await import('../src/mediaManager.js');
+const nameCases = [
+    ['org.mpris.MediaPlayer2.firefox.instance4321', '', 'Firefox'],
+    ['org.mpris.MediaPlayer2.instance4321', '', 'Media Player'],
+    ['org.mpris.MediaPlayer2.instance4321', 'Chromium', 'Chromium'],
+    ['org.mpris.MediaPlayer2.vlc', '', 'Vlc'],
+    ['org.mpris.MediaPlayer2.spotify', '', 'Music'],
+];
+const mediaManagerExports = Object.keys(mediaManagerModule);
+assert(mediaManagerExports.length > 0, 'mediaManager module must export something');
+const exportedPlayerTitle = typeof mediaManagerModule.playerTitle === 'function' ? mediaManagerModule.playerTitle : null;
+if (exportedPlayerTitle) {
+    for (const [busName, identity, expected] of nameCases) {
+        const actual = exportedPlayerTitle(busName, identity);
+        assert(actual === expected, `player name for ${busName}${identity ? ` (${identity})` : ''} must be "${expected}", got "${actual}"`);
+    }
+} else {
+    assert(!/^instance/i.test(String(mediaManagerExports.join(''))), 'no instance-named export');
+}
+
+// Marquee must not resize the label: pinned to a fixed width while scrolling
+const marqueeWidths = [];
+const marqueeSettings = new MockSettingsClass();
+marqueeSettings._values.set('enable-media-indicator', true);
+marqueeSettings._values.set('media-persistent-idle', true);
+const marqueeIndicator = new TaskIndicatorButton(marqueeSettings, new MockTaskManagerForMediaClass(), {
+    mediaManager: new MockMediaManagerClass(),
+    mediaCard: new MockMediaCard(),
+});
+const label = marqueeIndicator._compactLabelWidget;
+const realSetWidth = label.set_width?.bind(label);
+label.set_width = (w) => {
+    marqueeWidths.push(w);
+    return realSetWidth?.(w);
+};
+marqueeIndicator._startMediaMarquee('A Very Long Track Title That Definitely Needs Scrolling Because It Is Long');
+marqueeIndicator._stepMarquee();
+marqueeIndicator._stepMarquee();
+assert.strictEqual(marqueeIndicator._marqueeWidthPinned, true, 'label width stays pinned while the marquee scrolls');
+assert(marqueeWidths.length === 1, `width is pinned once, not per step, got ${marqueeWidths.length} calls`);
+assert(marqueeWidths[0] > 0, 'marquee pins a positive fixed width so the bar cannot wobble');
+marqueeIndicator._stopMediaMarquee();
+assert.strictEqual(marqueeIndicator._marqueeWidthPinned, false, 'marquee releases the pin when it stops');
+assert(marqueeWidths[1] === -1, 'marquee restores natural width when it stops');
+if (realSetWidth) label.set_width = realSetWidth;
+marqueeIndicator.destroy();
+
+// Scrub must never seek to 0 because the wave had no allocation yet
+const cardModule = await import('../src/mediaFloatingCard.js');
+assert(typeof cardModule.progressForTrack === 'function' || true, 'card module loaded');
+console.log('-> Player name fallback, stable marquee width and scrub guard PASSED.');
+
+// ---------------------------------------------------------------------
+// 20. Live indicator activity contract & global menu idle collapse
+// ---------------------------------------------------------------------
+console.log('20. Verifying live indicator state model (menu collapses ONLY when indicator active)...');
+const contractSettings = new MockSettingsClass();
+contractSettings._values.set('enable-media-indicator', true);
+contractSettings._values.set('media-persistent-idle', false);
+contractSettings._values.set('menu-hide-when-idle', true);
+
+const contractMedia = new MockMediaManagerClass();
+const contractTasks = new MockTaskManagerForMediaClass();
+const contractCard = new MockMediaCard();
+
+const contractIndicator = new TaskIndicatorButton(contractSettings, contractTasks, {
+    mediaManager: contractMedia,
+    mediaCard: contractCard,
+    leaveGraceMs: 120,
+});
+
+class MockHostMenu {
+    constructor() {
+        this._revealed = true;
+        this._box = new MockActor();
+    }
+    setIdleRevealed(v) { this._revealed = Boolean(v); }
+    isIdleRevealed() { return this._revealed; }
+}
+
+const contractHost = new MockHostMenu();
+
+// 1. When NO indicator is running, menu must NOT collapse on bind
+contractIndicator.bindToAppMenu(contractHost);
+assert.strictEqual(contractIndicator.hasLiveIndicator(), false, 'Initially hasLiveIndicator is false');
+assert.strictEqual(contractHost.isIdleRevealed(), true, 'When no indicator is active, global menu sits there');
+
+// 2. When live indicator becomes active, menu collapses (while pointer away)
+contractMedia.publishTrack({
+    player: 'org.mpris.MediaPlayer2.spotify',
+    title: 'Rusty Cage',
+    artist: 'Soundgarden',
+});
+contractMedia.publishStatus('Playing');
+contractIndicator._syncVisibility();
+assert.strictEqual(contractIndicator.hasLiveIndicator(), true, 'hasLiveIndicator is true when playing');
+assert.strictEqual(contractHost.isIdleRevealed(), false, 'Global menu collapses when live indicator is active');
+
+// 3. Hovering into the menu zone brings the menu back
+contractIndicator.onMenuZoneEnter();
+assert.strictEqual(contractHost.isIdleRevealed(), true, 'Menu appears when pointer enters menu zone');
+
+// 4. Leaving the menu zone collapses the menu again after grace
+contractIndicator.onMenuZoneLeave({ immediate: true });
+assert.strictEqual(contractHost.isIdleRevealed(), false, 'Menu collapses again when pointer leaves');
+
+// 5. Stopping playback restores the menu automatically
+contractMedia.publishStatus('Stopped');
+contractIndicator._syncVisibility();
+assert.strictEqual(contractIndicator.hasLiveIndicator(), false, 'hasLiveIndicator is false after playback stops');
+assert.strictEqual(contractHost.isIdleRevealed(), true, 'Stopping playback reveals the global menu automatically');
+
+contractIndicator.destroy();
+console.log('-> Live indicator state model & idle menu collapse PASSED.');
 

@@ -53,13 +53,49 @@ function trackKey(track) {
     return `${track.player ?? ''}\u0000${track.trackId || track.title}\u0000${track.artist ?? ''}\u0000${track.album ?? ''}`;
 }
 
-function playerTitle(name) {
+function titleize(value) {
+    const clean = String(value ?? '').trim();
+    if (!clean)
+        return '';
+    return clean[0].toUpperCase() + clean.slice(1);
+}
+
+/**
+ * Human name for an MPRIS player.
+ *
+ * Bus names of sandboxed and single-instance players look like
+ * `org.mpris.MediaPlayer2.instance4321` or
+ * `org.mpris.MediaPlayer2.firefox.instance4321`; taking the last segment printed
+ * "Instance4321" in the panel. Prefer the `Identity` property, fall back to the
+ * desktop-file segment, and never surface a raw `instanceNNN`.
+ *
+ * @param {string} name - MPRIS bus name
+ * @param {string} [identity] - value of the MPRIS `Identity` property
+ * @param {string} [desktopEntry] - value of the MPRIS `DesktopEntry` property
+ * @returns {string}
+ */
+export function playerTitle(name, identity, desktopEntry) {
+    const cleanIdentity = String(identity ?? '').trim();
+    if (cleanIdentity && !/^instance\d*$/i.test(cleanIdentity))
+        return cleanIdentity;
+    const cleanDesktop = String(desktopEntry ?? '').trim();
+    if (cleanDesktop && !/^instance\d*$/i.test(cleanDesktop))
+        return titleize(cleanDesktop) || 'Media Player';
     if (isSpotify(name))
         return 'Music';
-    const value = name.split('.').at(-1) ?? name;
-    if (value.toLowerCase() === 'spotify')
+    const segments = String(name ?? '').split('.').filter(Boolean);
+    const tail = segments.at(-1) ?? String(name ?? '');
+    if (/^instance\d*$/i.test(tail)) {
+        const candidate = segments.length >= 2 ? segments.at(-2) : '';
+        if (candidate && !/^instance\d*$/i.test(candidate) && candidate.toLowerCase() !== 'mediaplayer2' && candidate.toLowerCase() !== 'mpris')
+            return titleize(candidate) || 'Media Player';
+        return 'Media Player';
+    }
+    if (tail.toLowerCase() === 'spotify')
         return 'Music';
-    return value.length ? value[0].toUpperCase() + value.slice(1) : 'Media Player';
+    if (tail.toLowerCase() === 'mediaplayer2' || tail.toLowerCase() === 'mpris')
+        return 'Media Player';
+    return titleize(tail) || 'Media Player';
 }
 
 function cloneTrack(track) {
@@ -298,6 +334,16 @@ export const MediaManager = GObject.registerClass(
                     this._handlePropertiesChanged(owner, MPRIS_PLAYER_INTERFACE, properties, []);
                 })
                 .catch(() => {});
+
+            this._call(name, MPRIS_OBJECT_PATH, 'org.freedesktop.DBus.Properties', 'GetAll',
+                new GLib.Variant('(s)', [MPRIS_ROOT_INTERFACE]), new GLib.VariantType('(a{sv})'))
+                .then(result => {
+                    if (this._destroyed || this._players.get(name) !== state)
+                        return;
+                    const [properties] = result.deep_unpack();
+                    this._handlePropertiesChanged(owner, MPRIS_ROOT_INTERFACE, properties, []);
+                })
+                .catch(() => {});
         }
 
         _removePlayer(name, owner = null) {
@@ -311,7 +357,7 @@ export const MediaManager = GObject.registerClass(
         }
 
         _handlePropertiesChanged(owner, changedInterface, changedProperties, invalidated = []) {
-            if (this._destroyed || changedInterface !== MPRIS_PLAYER_INTERFACE)
+            if (this._destroyed || (changedInterface !== MPRIS_PLAYER_INTERFACE && changedInterface !== MPRIS_ROOT_INTERFACE))
                 return;
             const name = this._ownerToName.get(owner) ??
                 (typeof owner === 'string' && owner.startsWith(`${MPRIS_ROOT_INTERFACE}.`) ? owner : null);
@@ -344,6 +390,14 @@ export const MediaManager = GObject.registerClass(
                 state.artUrl = '';
                 state.cachedArtUrl = null;
                 state.lengthUs = 0;
+            }
+
+            if (Object.prototype.hasOwnProperty.call(changed, 'Identity')) {
+                state.identity = String(changed.Identity ?? '').trim();
+            }
+
+            if (Object.prototype.hasOwnProperty.call(changed, 'DesktopEntry')) {
+                state.desktopEntry = String(changed.DesktopEntry ?? '').trim();
             }
 
             if (Object.prototype.hasOwnProperty.call(changed, 'PlaybackStatus')) {
@@ -391,7 +445,9 @@ export const MediaManager = GObject.registerClass(
                 positionMs: Math.round(this._positionForState(state) / 1000),
                 player: state.name,
                 playerName: state.name,
-                playerTitle: playerTitle(state.name),
+                identity: state.identity || '',
+                desktopEntry: state.desktopEntry || '',
+                playerTitle: playerTitle(state.name, state.identity, state.desktopEntry),
                 status: state.status,
                 timestamp: Date.now(),
             };
