@@ -652,7 +652,9 @@ export class ProfileManager {
                     }
                 } catch (e) {}
             }
-            const isInstance = str => /^instance[\d\-_()]*$/i.test(String(str ?? '').trim());
+            const isInstance = str => !str || /(^|\b|_|-|:)instance[\d\-_() ]*($|\b|_|-|:)/i.test(String(str ?? '').trim()) || /^instance[\d\-_()]*$/i.test(String(str ?? '').trim());
+            if (isInstance(appName))
+                appName = '';
             if (!appName && typeof metaWindow.get_wm_class === 'function') {
                 const cls = metaWindow.get_wm_class() || '';
                 if (cls && !isInstance(cls))
@@ -673,7 +675,7 @@ export class ProfileManager {
                 if (label && !isInstance(label))
                     appName = label;
             }
-            if (appName && isInstance(appName)) {
+            if (isInstance(appName)) {
                 appName = '';
             }
         }

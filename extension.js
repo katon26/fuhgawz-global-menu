@@ -482,11 +482,11 @@ class AppMenuButton extends PanelMenu.Button {
     // nothing in the bar shifts when it comes back.
     // ---------------------------------------------------------------------
 
-    setIdleRevealed(revealed, { animate = true } = {}) {
+    setIdleRevealed(revealed, { animate = true, force = false } = {}) {
         if (this._destroyed)
             return;
         const next = Boolean(revealed);
-        if (this._idleRevealed === next && this._idleInitialised)
+        if (!force && this._idleRevealed === next && this._idleInitialised)
             return;
         this._idleRevealed = next;
         this._idleInitialised = true;
@@ -502,15 +502,24 @@ class AppMenuButton extends PanelMenu.Button {
             target.remove_all_transitions?.();
             if (!animate) {
                 target.opacity = next ? 255 : 0;
+                target.visible = next;
+                if (!next) target.hide?.();
+                else target.show?.();
             } else {
-                if (next) target.visible = true;
+                if (next) {
+                    target.visible = true;
+                    target.show?.();
+                }
                 target.ease({
                     opacity: next ? 255 : 0,
                     duration,
                     mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
                     onComplete: () => {
-                        if (!next && this._idleRevealed === false)
+                        if (!next && this._idleRevealed === false) {
                             target.opacity = 0;
+                            target.visible = false;
+                            target.hide?.();
+                        }
                     },
                 });
             }
@@ -519,20 +528,64 @@ class AppMenuButton extends PanelMenu.Button {
         // 2. Global Menu Button Pool (PooledMenuButtons File, Edit, View, etc.)
         const pool = this._globalMenu?._buttonPool || [];
         const overflow = this._globalMenu?._overflowButtons || [];
-        for (const slot of [...pool, ...overflow]) {
+        const activeCount = this._globalMenu?._activeSlotIndex ?? pool.length;
+        for (let i = 0; i < pool.length; i++) {
+            const slot = pool[i];
             if (!slot) continue;
             slot.remove_all_transitions?.();
+            const isActive = i < activeCount && slot._mode !== null;
+            if (!isActive) {
+                slot.visible = false;
+                slot.hide?.();
+                continue;
+            }
             if (!animate) {
                 slot.opacity = next ? 255 : 0;
+                slot.visible = next;
+                if (!next) slot.hide?.();
+                else slot.show?.();
             } else {
-                if (next) slot.visible = true;
+                if (next) {
+                    slot.visible = true;
+                    slot.show?.();
+                }
                 slot.ease({
                     opacity: next ? 255 : 0,
                     duration,
                     mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
                     onComplete: () => {
-                        if (!next && this._idleRevealed === false)
+                        if (!next && this._idleRevealed === false) {
                             slot.opacity = 0;
+                            slot.visible = false;
+                            slot.hide?.();
+                        }
+                    },
+                });
+            }
+        }
+        for (const slot of overflow) {
+            if (!slot) continue;
+            slot.remove_all_transitions?.();
+            if (!animate) {
+                slot.opacity = next ? 255 : 0;
+                slot.visible = next;
+                if (!next) slot.hide?.();
+                else slot.show?.();
+            } else {
+                if (next) {
+                    slot.visible = true;
+                    slot.show?.();
+                }
+                slot.ease({
+                    opacity: next ? 255 : 0,
+                    duration,
+                    mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
+                    onComplete: () => {
+                        if (!next && this._idleRevealed === false) {
+                            slot.opacity = 0;
+                            slot.visible = false;
+                            slot.hide?.();
+                        }
                     },
                 });
             }
@@ -568,12 +621,15 @@ class AppMenuButton extends PanelMenu.Button {
     _isIndicatorActor(source) {
         if (!source || !this._taskIndicator) return false;
         const target = this._taskIndicator;
-        if (source === target || source === this._taskIndicator._box) return true;
+        if (source === target || source === this._taskIndicator._box || source === this._taskIndicator._mediaChip) return true;
         if (typeof target.contains === 'function') {
             try { if (target.contains(source)) return true; } catch (e) {}
         }
         if (this._taskIndicator._box && typeof this._taskIndicator._box.contains === 'function') {
             try { if (this._taskIndicator._box.contains(source)) return true; } catch (e) {}
+        }
+        if (this._taskIndicator._mediaChip && typeof this._taskIndicator._mediaChip.contains === 'function') {
+            try { if (this._taskIndicator._mediaChip.contains(source)) return true; } catch (e) {}
         }
         return false;
     }
@@ -635,7 +691,7 @@ class AppMenuButton extends PanelMenu.Button {
     }
 
     _resolveAppLabel(metaWindow, profile = null, app = null) {
-        const isInstancePattern = (str) => !str || /^instance[\d\-_()]*$/i.test(String(str).trim());
+        const isInstancePattern = (str) => !str || /(^|\b|_|-|:)instance[\d\-_() ]*($|\b|_|-|:)/i.test(String(str).trim()) || /^instance[\d\-_()]*$/i.test(String(str).trim());
         const wmClass = metaWindow && metaWindow.get_wm_class ? (metaWindow.get_wm_class() || '') : '';
         const wmInstance = metaWindow && metaWindow.get_wm_class_instance ? (metaWindow.get_wm_class_instance() || '') : '';
         if (wmClass.toLowerCase().includes('antigravity') || wmInstance.toLowerCase().includes('antigravity')) {
@@ -655,6 +711,13 @@ class AppMenuButton extends PanelMenu.Button {
         }
         if (wmInstance && !isInstancePattern(wmInstance)) {
             return wmInstance.charAt(0).toUpperCase() + wmInstance.slice(1);
+        }
+        if (app && typeof app.get_id === 'function') {
+            const appId = app.get_id().replace(/\.desktop$/i, '');
+            const lastPart = appId.split('.').pop();
+            if (lastPart && !isInstancePattern(lastPart)) {
+                return lastPart.charAt(0).toUpperCase() + lastPart.slice(1);
+            }
         }
         return metaWindow ? _('Application') : _('Desktop');
     }
@@ -703,12 +766,10 @@ class AppMenuButton extends PanelMenu.Button {
         }
         this._ensureIndicatorAtEnd();
 
-        if (this._taskIndicator?.hasLiveIndicator?.()) {
-            this._idleRevealed = false;
-        }
-        if (!this._idleRevealed) {
-            if (this._label) this._label.opacity = 0;
-            if (this._icon) this._icon.opacity = 0;
+        if (this._taskIndicator?.hasLiveIndicator?.() && !this._taskIndicator?._isPointerInZone) {
+            this.setIdleRevealed(false, { animate: false, force: true });
+        } else {
+            this.setIdleRevealed(true, { animate: false, force: true });
         }
     }
 
@@ -724,9 +785,21 @@ class AppMenuButton extends PanelMenu.Button {
         }
         this._ensureIndicatorAtEnd();
 
-        if (!this._idleRevealed) {
-            if (this._label) this._label.opacity = 0;
-            if (this._icon) this._icon.opacity = 0;
+        if (this._taskIndicator?.hasLiveIndicator?.() && !this._taskIndicator?._isPointerInZone) {
+            if (!this._idleRevealed) {
+                if (this._label) {
+                    this._label.opacity = 0;
+                    this._label.visible = false;
+                    this._label.hide?.();
+                }
+                if (this._icon) {
+                    this._icon.opacity = 0;
+                    this._icon.visible = false;
+                    this._icon.hide?.();
+                }
+            }
+        } else if (!this._idleRevealed) {
+            this.setIdleRevealed(true, { animate: false, force: true });
         }
     }
 
@@ -2036,6 +2109,23 @@ class PooledMenuButton extends PanelMenu.Button {
         return super.vfunc_event(event);
     }
 
+    _applyIdleVisibility() {
+        if (this._globalMenu?._appMenuButton && typeof this._globalMenu._appMenuButton.isIdleRevealed === 'function') {
+            const revealed = this._globalMenu._appMenuButton.isIdleRevealed();
+            this.opacity = revealed ? 255 : 0;
+            if (revealed) {
+                this.show();
+                this.visible = true;
+            } else {
+                this.hide();
+                this.visible = false;
+            }
+        } else {
+            this.show();
+            this.visible = true;
+        }
+    }
+
     setDeclarative(label, items, metaWindow, dispatcher, useHoverSubmenus = true, profile = null) {
         this._mode = 'declarative';
         this.accessible_name = label;
@@ -2050,7 +2140,7 @@ class PooledMenuButton extends PanelMenu.Button {
         if (this.menu) {
             this.menu.removeAll();
         }
-        this.show();
+        this._applyIdleVisibility();
     }
 
     setGtkMenu(label, menuModel, actionDispatcher, useHoverSubmenus = true) {
@@ -2064,7 +2154,7 @@ class PooledMenuButton extends PanelMenu.Button {
         if (this.menu) {
             this.menu.removeAll();
         }
-        this.show();
+        this._applyIdleVisibility();
     }
 
     setActionsMenu(label, actionItems, busName, appObjectPath, winObjectPath, metaWindow = null, dispatcher = null) {
@@ -2081,7 +2171,7 @@ class PooledMenuButton extends PanelMenu.Button {
         if (this.menu) {
             this.menu.removeAll();
         }
-        this.show();
+        this._applyIdleVisibility();
     }
 
     setDBusMenu(label, children, proxy, useHoverSubmenus = true) {
@@ -2095,7 +2185,7 @@ class PooledMenuButton extends PanelMenu.Button {
         if (this.menu) {
             this.menu.removeAll();
         }
-        this.show();
+        this._applyIdleVisibility();
     }
 
     reset() {
@@ -2337,7 +2427,11 @@ class FUHGlobeGlobalMenu {
             slot = overflowSlot;
         }
         if (this._appMenuButton && typeof this._appMenuButton.isIdleRevealed === 'function') {
-            slot.opacity = this._appMenuButton.isIdleRevealed() ? 255 : 0;
+            const revealed = this._appMenuButton.isIdleRevealed();
+            slot.opacity = revealed ? 255 : 0;
+            slot.visible = revealed;
+            if (!revealed) slot.hide?.();
+            else slot.show?.();
         }
         return slot;
     }

@@ -75,7 +75,7 @@ function titleize(value) {
  * @returns {string}
  */
 export function playerTitle(name, identity, desktopEntry) {
-    const isInstance = str => /^instance[\d\-_()]*$/i.test(String(str ?? '').trim());
+    const isInstance = str => !str || /(^|\b|_|-|:)instance[\d\-_() ]*($|\b|_|-|:)/i.test(String(str ?? '').trim()) || /^instance[\d\-_()]*$/i.test(String(str ?? '').trim());
     const cleanIdentity = String(identity ?? '').trim();
     if (cleanIdentity && !isInstance(cleanIdentity))
         return cleanIdentity;
@@ -634,6 +634,7 @@ export const MediaManager = GObject.registerClass(
             return this._invokeCurrent(MPRIS_PLAYER_INTERFACE, 'Next', new GLib.Variant('()', []));
         }
 
+
         seek(positionMs) {
             this._isSeeking = true;
             const finish = () => { this._isSeeking = false; };
@@ -644,6 +645,19 @@ export const MediaManager = GObject.registerClass(
                 return Promise.reject(new Error('No active track to seek'));
             }
             const targetUs = Math.max(0, Math.round((Number(positionMs) || 0) * 1000));
+            player.positionUs = targetUs;
+            player.positionTimestamp = GLib.get_monotonic_time();
+            this._refreshActivePlayer(true);
+
+            const onComplete = (r) => {
+                finish();
+                return r;
+            };
+            const onError = (err) => {
+                finish();
+                throw err;
+            };
+
             if (track.trackId && track.trackId !== NO_TRACK_ID && typeof track.trackId === 'string' && track.trackId.startsWith('/')) {
                 return this._call(player.owner, MPRIS_OBJECT_PATH, MPRIS_PLAYER_INTERFACE, 'SetPosition',
                     new GLib.Variant('(ox)', [track.trackId, targetUs]))
@@ -652,12 +666,12 @@ export const MediaManager = GObject.registerClass(
                         return this._call(player.owner, MPRIS_OBJECT_PATH, MPRIS_PLAYER_INTERFACE, 'Seek',
                             new GLib.Variant('(x)', [offset]));
                     })
-                    .then(r => { finish(); return r; }, err => { finish(); throw err; });
+                    .then(onComplete, onError);
             }
             const offset = targetUs - track.positionUs;
             return this._call(player.owner, MPRIS_OBJECT_PATH, MPRIS_PLAYER_INTERFACE, 'Seek',
                 new GLib.Variant('(x)', [offset]))
-                .then(r => { finish(); return r; }, err => { finish(); throw err; });
+                .then(onComplete, onError);
         }
 
         isSeeking() {

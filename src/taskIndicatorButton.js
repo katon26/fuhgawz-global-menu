@@ -62,6 +62,147 @@ try {
 const hasClutterContext = typeof global !== 'undefined' && Boolean(global.stage);
 const hasStWidget = Boolean(St?.Widget && hasClutterContext);
 
+let cairo = null;
+try {
+    const mod = await import('gi://cairo');
+    cairo = mod.default ?? mod;
+} catch (e) {
+    cairo = null;
+}
+
+export function formatTrackTime(ms) {
+    if (!ms || isNaN(ms) || ms < 0) return '0:00';
+    const totalSec = Math.floor(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+}
+
+function roundedPill(cr, x, y, width, height, radius) {
+    if (width <= 0 || height <= 0)
+        return;
+    const r = Math.min(radius, width / 2, height / 2);
+    cr.newSubPath();
+    cr.arc(x + width - r, y + r, r, -Math.PI / 2, 0);
+    cr.arc(x + width - r, y + height - r, r, 0, Math.PI / 2);
+    cr.arc(x + r, y + height - r, r, Math.PI / 2, Math.PI);
+    cr.arc(x + r, y + r, r, Math.PI, 3 * Math.PI / 2);
+    cr.closePath();
+}
+
+let MiniWaveWidget = null;
+if (St?.DrawingArea && hasClutterContext) {
+    MiniWaveWidget = GObject.registerClass(
+        class MiniWaveWidget extends St.DrawingArea {
+            _init() {
+                super._init({
+                    style_class: 'fuhgawz-media-wave',
+                    width: 46,
+                    height: 12,
+                    reactive: false,
+                });
+                this._phase = 0;
+                this._animTimerId = 0;
+                this._playing = false;
+                this.connect('repaint', () => this._paint());
+            }
+
+            setPlaying(playing) {
+                const next = Boolean(playing);
+                if (this._playing === next && (this._animTimerId || !next))
+                    return;
+                this._playing = next;
+                if (this._playing) {
+                    if (!this._animTimerId) {
+                        this._animTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 80, () => {
+                            if (!this._playing || !this.visible) {
+                                this._animTimerId = 0;
+                                return GLib.SOURCE_REMOVE;
+                            }
+                            this._phase += 0.15;
+                            this.queue_repaint();
+                            return GLib.SOURCE_CONTINUE;
+                        });
+                    }
+                } else {
+                    if (this._animTimerId) {
+                        GLib.source_remove(this._animTimerId);
+                        this._animTimerId = 0;
+                    }
+                    this.queue_repaint();
+                }
+            }
+
+            _paint() {
+                if (!cairo) return;
+                const cr = this.get_context();
+                try {
+                    const [w, h] = this.get_surface_size();
+                    if (w <= 0 || h <= 0) return;
+                    cr.save();
+                    cr.setOperator(cairo.Operator.CLEAR);
+                    cr.paint();
+                    cr.restore();
+
+                    const scale = Math.max(1, h / 12);
+                    const baseHeights = [12, 7, 10, 5, 9, 4].map(val => val * scale);
+                    const barWidth = 3 * scale;
+                    const gap = 3 * scale;
+                    const radius = 1.5 * scale;
+
+                    let r = 98 / 255, g = 160 / 255, b = 234 / 255;
+                    if (typeof this.get_theme_node === 'function') {
+                        try {
+                            const color = this.get_theme_node()?.get_foreground_color?.();
+                            if (color) {
+                                r = (color.red ?? 98) / 255;
+                                g = (color.green ?? 160) / 255;
+                                b = (color.blue ?? 234) / 255;
+                            }
+                        } catch (e) {}
+                    }
+                    cr.setSourceRGBA(r, g, b, 0.95);
+
+                    for (let i = 0; i < 6; i++) {
+                        const x = i * (barWidth + gap);
+                        let barH = baseHeights[i];
+                        if (this._playing) {
+                            const pulse = 0.65 + 0.35 * Math.sin(this._phase + i * 0.73);
+                            barH = Math.max(3 * scale, Math.min(12 * scale, barH * pulse));
+                        }
+                        const y = (h - barH) / 2;
+                        roundedPill(cr, x, y, barWidth, barH, radius);
+                        cr.fill();
+                    }
+                } finally {
+                    cr.$dispose();
+                }
+            }
+
+            destroy() {
+                if (this._animTimerId) {
+                    GLib.source_remove(this._animTimerId);
+                    this._animTimerId = 0;
+                }
+                super.destroy();
+            }
+        }
+    );
+} else {
+    MiniWaveWidget = class MiniWaveWidget {
+        constructor() {
+            this.width = 46;
+            this.height = 12;
+            this.visible = true;
+            this.playing = false;
+        }
+        show() { this.visible = true; }
+        hide() { this.visible = false; }
+        setPlaying(p) { this.playing = Boolean(p); }
+        destroy() {}
+    };
+}
+
 /**
  * Formats a timestamp into human-readable relative time (e.g. '2m ago').
  *
@@ -497,7 +638,7 @@ class BaseIndicatorLogic {
         }
 
         let player = track.playerTitle;
-        if (!player || /^instance[\d\-_()]*$/i.test(player)) {
+        if (!player || /(^|\b|_|-|:)instance[\d\-_() ]*($|\b|_|-|:)/i.test(player)) {
             player = playerTitle(track.playerName || track.player || '', track.identity, track.desktopEntry);
         }
         const state = this._mediaPlaybackStatus === 'Playing' ? '▶' : '⏸';
@@ -1403,17 +1544,22 @@ class BaseIndicatorLogic {
     }
 
     _isPointerOverIndicator() {
-        if (this.hover || this._box?.hover || this._compactLabelWidget?.hover || this._statusIconWidget?.hover) return true;
+        if (this.hover || this._box?.hover || this._compactLabelWidget?.hover || this._statusIconWidget?.hover || this._mediaChip?.hover) return true;
         if (this._isPointerOverCard()) return true;
         if (typeof global !== 'undefined' && global.get_pointer) {
             try {
                 const [x, y] = global.get_pointer();
                 if (x >= 0 && y >= 0) {
-                    const target = this._customChipActor || this._box || this;
-                    if (typeof target.get_transformed_position === 'function' && typeof target.get_transformed_size === 'function') {
+                    const target = (this._mediaChip && this._mediaChip.visible) ? this._mediaChip : (this._customChipActor || this._box || this);
+                    if (typeof target.get_transformed_position === 'function') {
                         const [ax, ay] = target.get_transformed_position();
-                        const [aw, ah] = target.get_transformed_size();
-                        if (x >= ax - 4 && x <= ax + aw + 4 && y >= ay && y <= ay + ah) return true;
+                        let aw = 0, ah = 0;
+                        if (typeof target.get_transformed_size === 'function') {
+                            try { [aw, ah] = target.get_transformed_size(); } catch (e) {}
+                        }
+                        if (aw <= 0) aw = target.get_width?.() ?? target.width ?? 0;
+                        if (ah <= 0) ah = target.get_height?.() ?? target.height ?? 0;
+                        if (x >= ax - 4 && x <= ax + aw + 4 && y >= ay - 2 && y <= ay + ah + 2) return true;
                     }
                 }
             } catch (e) {}
@@ -1423,8 +1569,9 @@ class BaseIndicatorLogic {
 
     _handleLeaveGraceTrigger() {
         if (this._destroyed || this._isPinned) return;
-        if (this._isPointerOverCard() || (this._mediaCard?._waveArea?._dragging)) return;
+        if (this._isPointerInZone || this._isPointerOverIndicator() || this._isPointerOverCard() || (this._mediaCard?._waveArea?._dragging)) return;
         if (this._appMenuButton && typeof this._appMenuButton.isAnyMenuOpen === 'function' && this._appMenuButton.isAnyMenuOpen()) return;
+        this._setChipCompressed(false);
         this._collapseMenuZone();
         if (this._mode === 'hover') {
             this.setExpanded(false);
@@ -1501,7 +1648,9 @@ class BaseIndicatorLogic {
         if (!actor) return false;
         return actor === this ||
                actor === this._box ||
+               actor === this._mediaChip ||
                this.isDescendantOf(actor, this._box) ||
+               this.isDescendantOf(actor, this._mediaChip) ||
                this.isDescendantOf(actor, this);
     }
 
@@ -1627,7 +1776,7 @@ class BaseIndicatorLogic {
     toggleMediaCard() {
         if (this._destroyed || !this._isMediaDisplay)
             return;
-        if (this._mediaCard?.isOpen?.()) {
+        if (this._mediaCard?.isOpen?.() && this._isPinned) {
             this._hideMediaCard();
         } else {
             // Click pins: a card the pointer opened is a preview and dies with
@@ -2191,11 +2340,15 @@ class BaseIndicatorLogic {
      * @returns {void}
      */
     _setChipCompressed(compressed) {
-        this._isCompressed = Boolean(compressed);
+        const next = Boolean(compressed);
+        if (this._isCompressed === next)
+            return;
+        this._isCompressed = next;
         if (this._isCompressed)
             this.add_style_class_name?.('fuhgawz-chip-compressed');
         else
             this.remove_style_class_name?.('fuhgawz-chip-compressed');
+        this._updateUiComponents();
     }
 
     handleHideReturnClick() {
@@ -2910,9 +3063,15 @@ class BaseIndicatorLogic {
                 } else {
                     this._stopMediaMarquee();
                 }
+                if (typeof this._compactLabelWidget.hide === 'function')
+                    this._compactLabelWidget.hide();
+                this._compactLabelWidget.visible = false;
             } else {
                 this._stopMediaMarquee();
                 this._compactLabelWidget.tooltip_text = '';
+                if (typeof this._compactLabelWidget.show === 'function')
+                    this._compactLabelWidget.show();
+                this._compactLabelWidget.visible = true;
             }
             this._compactLabelWidget.text = this._marqueeActiveText || this._labelText;
             if (this._isMediaDisplay) {
@@ -2933,6 +3092,90 @@ class BaseIndicatorLogic {
                 if (typeof this._compactLabelWidget.remove_style_class_name === 'function') {
                     this._compactLabelWidget.remove_style_class_name('completed');
                 }
+            }
+        }
+
+        if (this._mediaChip) {
+            if (this._isMediaDisplay) {
+                if (typeof this._mediaChip.show === 'function')
+                    this._mediaChip.show();
+                this._mediaChip.visible = true;
+
+                const track = this._mediaTrack;
+                const title = String(track?.title || 'Unknown track');
+                if (this._mediaTitleLabel) {
+                    this._mediaTitleLabel.text = title;
+                }
+
+                let player = track?.playerTitle;
+                if (!player || /(^|\b|_|-|:)instance[\d\-_() ]*($|\b|_|-|:)/i.test(player)) {
+                    player = playerTitle(track?.playerName || track?.player || '', track?.identity, track?.desktopEntry);
+                }
+                if (this._mediaAppLabel) {
+                    this._mediaAppLabel.text = player || 'Media Player';
+                }
+
+                let timeLeft = '0:00';
+                if (track) {
+                    const lengthMs = Number(track.lengthMs) || 0;
+                    const posMs = Number(track.positionMs) || 0;
+                    if (lengthMs > 0) {
+                        const remaining = Math.max(0, lengthMs - posMs);
+                        timeLeft = formatTrackTime(remaining);
+                    } else if (posMs > 0) {
+                        timeLeft = formatTrackTime(posMs);
+                    }
+                }
+                if (this._mediaTimeLabel) {
+                    this._mediaTimeLabel.text = timeLeft;
+                }
+
+                if (this._mediaWaveWidget) {
+                    this._mediaWaveWidget.setPlaying(this._mediaPlaybackStatus === 'Playing');
+                }
+
+                // Compression on hover when sharing slot (hiding title, app, divider; showing glyph, wave, time)
+                if (this._isCompressed) {
+                    this._mediaTitleLabel?.hide?.();
+                    if (this._mediaTitleLabel) this._mediaTitleLabel.visible = false;
+                    this._mediaAppLabel?.hide?.();
+                    if (this._mediaAppLabel) this._mediaAppLabel.visible = false;
+                    this._mediaDividerWidget?.hide?.();
+                    if (this._mediaDividerWidget) this._mediaDividerWidget.visible = false;
+
+                    this._mediaGlyph?.show?.();
+                    if (this._mediaGlyph) this._mediaGlyph.visible = true;
+                    this._mediaWaveWidget?.show?.();
+                    if (this._mediaWaveWidget) this._mediaWaveWidget.visible = true;
+                    this._mediaTimeLabel?.show?.();
+                    if (this._mediaTimeLabel) this._mediaTimeLabel.visible = true;
+                } else {
+                    this._mediaTitleLabel?.show?.();
+                    if (this._mediaTitleLabel) this._mediaTitleLabel.visible = true;
+                    this._mediaAppLabel?.show?.();
+                    if (this._mediaAppLabel) this._mediaAppLabel.visible = true;
+                    this._mediaDividerWidget?.show?.();
+                    if (this._mediaDividerWidget) this._mediaDividerWidget.visible = true;
+
+                    this._mediaGlyph?.show?.();
+                    if (this._mediaGlyph) this._mediaGlyph.visible = true;
+                    this._mediaWaveWidget?.show?.();
+                    if (this._mediaWaveWidget) this._mediaWaveWidget.visible = true;
+                    this._mediaTimeLabel?.show?.();
+                    if (this._mediaTimeLabel) this._mediaTimeLabel.visible = true;
+                }
+
+                if (this._mediaPlaybackStatus === 'Playing') {
+                    this._startMediaTimeTimer();
+                } else {
+                    this._stopMediaTimeTimer();
+                }
+            } else {
+                if (typeof this._mediaChip.hide === 'function')
+                    this._mediaChip.hide();
+                this._mediaChip.visible = false;
+                this._mediaWaveWidget?.setPlaying?.(false);
+                this._stopMediaTimeTimer();
             }
         }
 
@@ -3064,6 +3307,15 @@ class BaseIndicatorLogic {
                 this._statusIconWidget.set_icon_name(iconName);
             } else {
                 this._statusIconWidget.icon_name = iconName;
+            }
+            if (this._isMediaDisplay) {
+                if (typeof this._statusIconWidget.hide === 'function')
+                    this._statusIconWidget.hide();
+                this._statusIconWidget.visible = false;
+            } else {
+                if (typeof this._statusIconWidget.show === 'function')
+                    this._statusIconWidget.show();
+                this._statusIconWidget.visible = true;
             }
         }
 
@@ -3209,6 +3461,41 @@ class BaseIndicatorLogic {
         return Boolean(this._marqueeTimerId);
     }
 
+    _startMediaTimeTimer() {
+        if (this._mediaTimeTimerId || this._destroyed)
+            return;
+        this._mediaTimeTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1000, () => {
+            if (this._destroyed || !this._isMediaDisplay || this._mediaPlaybackStatus !== 'Playing') {
+                this._mediaTimeTimerId = 0;
+                return GLib.SOURCE_REMOVE;
+            }
+            if (this._mediaManager && typeof this._mediaManager.getActiveTrack === 'function') {
+                const tr = this._mediaManager.getActiveTrack();
+                if (tr) this._mediaTrack = tr;
+            }
+            if (this._mediaTrack && this._mediaTimeLabel) {
+                const lengthMs = Number(this._mediaTrack.lengthMs) || 0;
+                const posMs = Number(this._mediaTrack.positionMs) || 0;
+                let timeLeft = '0:00';
+                if (lengthMs > 0) {
+                    const remaining = Math.max(0, lengthMs - posMs);
+                    timeLeft = formatTrackTime(remaining);
+                } else if (posMs > 0) {
+                    timeLeft = formatTrackTime(posMs);
+                }
+                this._mediaTimeLabel.text = timeLeft;
+            }
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    _stopMediaTimeTimer() {
+        if (this._mediaTimeTimerId) {
+            GLib.source_remove(this._mediaTimeTimerId);
+            this._mediaTimeTimerId = 0;
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Clean Teardown
     // ---------------------------------------------------------------------
@@ -3216,10 +3503,18 @@ class BaseIndicatorLogic {
     _destroyIndicator() {
         if (this._destroyed) return;
         this._destroyed = true;
+        this._stopMediaTimeTimer();
         this._stopMediaMarquee();
         this._cancelCardDwellTimer();
         this._cancelLeaveGraceTimer();
         this._clearStaggerTimers();
+        if (this._mediaWaveWidget && typeof this._mediaWaveWidget.destroy === 'function') {
+            try { this._mediaWaveWidget.destroy(); } catch (e) {}
+        }
+        if (this._mediaChip && typeof this._mediaChip.destroy === 'function') {
+            try { this._mediaChip.destroy(); } catch (e) {}
+            this._mediaChip = null;
+        }
         this._interfaceSettings = null;
 
         this._activeTask = null;
@@ -3437,6 +3732,73 @@ if (hasStWidget) {
                     return Clutter ? Clutter.EVENT_STOP : true;
                 });
                 this._box.add_child(this._compactLabelWidget);
+
+                // Media Chip — Wave (pen design: mhytu)
+                this._mediaChip = new St.BoxLayout({
+                    style_class: 'fuhgawz-media-chip',
+                    reactive: true,
+                    track_hover: true,
+                    y_align: Clutter.ActorAlign.CENTER,
+                });
+                this._mediaChip.hide();
+                this._mediaChip.visible = false;
+
+                this._mediaGlyph = new St.BoxLayout({
+                    style_class: 'fuhgawz-media-glyph',
+                    y_align: Clutter.ActorAlign.CENTER,
+                    x_align: Clutter.ActorAlign.CENTER,
+                });
+                this._mediaGlyphIcon = new St.Icon({
+                    style_class: 'fuhgawz-media-glyph-icon',
+                    icon_name: 'audio-x-generic-symbolic',
+                    y_align: Clutter.ActorAlign.CENTER,
+                });
+                this._mediaGlyph.add_child(this._mediaGlyphIcon);
+                this._mediaChip.add_child(this._mediaGlyph);
+
+                this._mediaTitleLabel = new St.Label({
+                    style_class: 'fuhgawz-media-title',
+                    y_align: Clutter.ActorAlign.CENTER,
+                });
+                if (this._mediaTitleLabel.clutter_text)
+                    this._mediaTitleLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+                this._mediaChip.add_child(this._mediaTitleLabel);
+
+                this._mediaWaveWidget = new MiniWaveWidget();
+                this._mediaChip.add_child(this._mediaWaveWidget);
+
+                this._mediaAppLabel = new St.Label({
+                    style_class: 'fuhgawz-media-app',
+                    y_align: Clutter.ActorAlign.CENTER,
+                });
+                if (this._mediaAppLabel.clutter_text)
+                    this._mediaAppLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+                this._mediaChip.add_child(this._mediaAppLabel);
+
+                this._mediaDividerWidget = new St.Widget({
+                    style_class: 'fuhgawz-media-divider',
+                    y_align: Clutter.ActorAlign.CENTER,
+                });
+                this._mediaChip.add_child(this._mediaDividerWidget);
+
+                this._mediaTimeLabel = new St.Label({
+                    style_class: 'fuhgawz-media-time',
+                    y_align: Clutter.ActorAlign.CENTER,
+                });
+                this._mediaChip.add_child(this._mediaTimeLabel);
+
+                this._mediaChip.connect('button-release-event', (_actor, event) => {
+                    let button = 0;
+                    try { button = event?.get_button?.() ?? 0; } catch (e) {}
+                    if (button === 3)
+                        return Clutter.EVENT_PROPAGATE;
+                    this.toggleMediaCard();
+                    return Clutter.EVENT_STOP;
+                });
+                this._mediaChip.connect('enter-event', () => this.onPointerEnter());
+                this._mediaChip.connect('leave-event', () => this.onPointerLeave());
+
+                this._box.add_child(this._mediaChip);
 
                 this._telemetryLabelWidget = new St.Label({
                     style_class: 'fuhgawz-task-telemetry-label',
@@ -3742,6 +4104,21 @@ if (hasStWidget) {
                     track_hover: true,
                     connect: () => 1,
                     disconnect: () => {},
+                };
+
+                this._mediaGlyphIcon = { icon_name: 'audio-x-generic-symbolic' };
+                this._mediaGlyph = { visible: true, show() { this.visible = true; }, hide() { this.visible = false; } };
+                this._mediaTitleLabel = { text: '', visible: true, show() { this.visible = true; }, hide() { this.visible = false; } };
+                this._mediaWaveWidget = new MiniWaveWidget();
+                this._mediaAppLabel = { text: '', visible: true, show() { this.visible = true; }, hide() { this.visible = false; } };
+                this._mediaDividerWidget = { visible: true, show() { this.visible = true; }, hide() { this.visible = false; } };
+                this._mediaTimeLabel = { text: '', visible: true, show() { this.visible = true; }, hide() { this.visible = false; } };
+                this._mediaChip = {
+                    visible: false,
+                    show() { this.visible = true; },
+                    hide() { this.visible = false; },
+                    add_child() {},
+                    connect() { return 1; },
                 };
                 
                 this._sliderToggleIcon = {

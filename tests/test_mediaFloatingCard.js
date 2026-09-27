@@ -345,4 +345,40 @@ assert(manager.handlers.size === 0 && signalCount > 0, 'destroy must disconnect 
 assert(settings.handlers.size === 0, 'destroy must disconnect the visualizer settings signal');
 assert(!uiGroup.children.includes(card), 'destroy must unparent the card from the shared UI group');
 
+// Verify isPointerOver in vertical bridge between anchor and card
+const bridgeCard = new MediaFloatingCard(manager, { uiGroup, settings });
+const bridgeAnchor = new MockActor(100, 0, 200, 28);
+bridgeCard.showForActor(bridgeAnchor, { title: 'Bridge Test', lengthMs: 200_000, positionMs: 50_000 }, 'Playing');
+await wait(OPEN_DELAY_MS + 50);
+bridgeCard.set_position(40, 36);
+bridgeCard.width = 320;
+bridgeCard.height = 240;
+
+let pointerPos = [200, 32]; // Inside 8px gap between y=28 and y=36, x=200 is within [40, 360]
+const savedGlobal = globalThis.global;
+globalThis.global = { get_pointer: () => pointerPos, stage: { get_key_focus: () => null } };
+
+assert(bridgeCard.isPointerOver(), 'isPointerOver must return true when pointer is in vertical bridge between anchor and card');
+
+pointerPos = [500, 32]; // Outside horizontal span of anchor & card
+assert(!bridgeCard.isPointerOver(), 'isPointerOver must return false when pointer is outside horizontal bridge');
+
+// Verify scrubbing calculation and guard during drag
+bridgeCard._waveArea.width = 200;
+bridgeCard._waveArea.x = 60;
+assert(Math.abs(bridgeCard._waveArea._scrubFraction({ x: 160 }) - 0.5) < 0.01,
+    'scrubFraction must compute correct fraction based on wave position and width');
+assert(bridgeCard._waveArea._scrubFraction({ x: 60 }) === 0, 'scrubFraction at left edge must be 0');
+assert(bridgeCard._waveArea._scrubFraction({ x: 260 }) === 1, 'scrubFraction at right edge must be 1');
+
+// Dragging guard in update()
+bridgeCard._waveArea._dragging = true;
+bridgeCard._waveArea._progress = 0.75;
+bridgeCard._waveArea.update({ lengthMs: 200_000, positionMs: 10_000 }, 'Playing');
+assert(bridgeCard._waveArea._progress === 0.75, 'active drag must not be overwritten by incoming update()');
+bridgeCard._waveArea._dragging = false;
+
+bridgeCard.destroy();
+globalThis.global = savedGlobal;
+
 console.log('MediaFloatingCard test suite passed successfully!');

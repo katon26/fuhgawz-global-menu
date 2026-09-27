@@ -634,3 +634,62 @@
 .fuhgawz-media-recent-label {
   font-size: 0.85em;
 }
+
+/* ── Media Chip — Wave (pen design: mhytu) ─────────────────────────── */
+.fuhgawz-media-chip {
+  height: 24px;
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.08);
+  padding: 0 10px;
+  spacing: 8px;
+}
+
+.fuhgawz-media-chip:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.fuhgawz-media-glyph {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  background-color: st-mix(-st-accent-color, transparent, 20%);
+}
+
+.fuhgawz-media-glyph-icon {
+  icon-size: 10px;
+  color: -st-accent-color;
+}
+
+.fuhgawz-media-chip .fuhgawz-media-title,
+.fuhgawz-media-chip-title {
+  font-size: 0.9em;
+  font-weight: normal;
+  color: #f2f2f4;
+  max-width: 160px;
+}
+
+.fuhgawz-media-wave {
+  width: 46px;
+  height: 12px;
+  color: -st-accent-color;
+}
+
+.fuhgawz-media-app {
+  font-size: 0.8em;
+  font-weight: normal;
+  color: #9a9aa4;
+  max-width: 90px;
+}
+
+.fuhgawz-media-divider {
+  width: 1px;
+  height: 12px;
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.fuhgawz-media-time {
+  font-size: 0.8em;
+  font-family: monospace;
+  font-weight: normal;
+  color: #d3d4da;
+}

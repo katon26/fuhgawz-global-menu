@@ -232,6 +232,8 @@ class MockWaveArea extends MockActor {
         this._animTimerId = 0;
         this.repaintCount = 0;
         this.progress = 0;
+        this._progress = 0;
+        this._dragging = false;
         this.visualizerStyle = 'wave';
         this._phase = 0;
         this._destroyed = false;
@@ -241,10 +243,42 @@ class MockWaveArea extends MockActor {
         this.accessibleValue = 0;
     }
 
+    _waveWidth() {
+        if (typeof this.get_width === 'function') {
+            const w = this.get_width();
+            if (w > 0) return w;
+        }
+        return this.width > 0 ? this.width : 200;
+    }
+
+    _scrubFraction(event) {
+        const width = this._waveWidth();
+        if (width <= 0)
+            return null;
+        const [stageX, stageY] = typeof event?.get_coords === 'function'
+            ? event.get_coords()
+            : [event?.x ?? 0, event?.y ?? 0];
+        if (typeof this.transform_stage_point === 'function') {
+            try {
+                const [success, localX] = this.transform_stage_point(stageX, stageY);
+                if (success) {
+                    return clamp(localX / width, 0, 1);
+                }
+            } catch (e) {}
+        }
+        const [actorX] = typeof this.get_transformed_position === 'function'
+            ? this.get_transformed_position()
+            : [this.x ?? 0];
+        return clamp((stageX - actorX) / width, 0, 1);
+    }
+
     update(track, status, style) {
         if (this._destroyed)
             return;
+        if (this._dragging)
+            return;
         this.progress = progressForTrack(track);
+        this._progress = this.progress;
         this.accessibleValue = this.progress * 100;
         this.visualizerStyle = style;
         if (status === 'Playing' && this._owner.visible)
@@ -377,7 +411,10 @@ if (hasStDrawingArea) {
             update(track, status, style) {
                 if (this._destroyed)
                     return;
-                this._progress = progressForTrack(track);
+                const now = GLib.get_monotonic_time();
+                if (!this._dragging && (!this._seekPendingUntil || now >= this._seekPendingUntil)) {
+                    this._progress = progressForTrack(track);
+                }
                 this._emitAccessibleValueChanged();
                 this._visualizerStyle = style;
                 if (status === 'Playing' && this._owner.visible)
@@ -396,7 +433,10 @@ if (hasStDrawingArea) {
                         return GLib.SOURCE_REMOVE;
                     }
                     this._phase += 0.15;
-                    this._progress = progressForTrack(this._owner._currentTrack());
+                    const now = GLib.get_monotonic_time();
+                    if (!this._dragging && (!this._seekPendingUntil || now >= this._seekPendingUntil)) {
+                        this._progress = progressForTrack(this._owner._currentTrack());
+                    }
                     this._emitAccessibleValueChanged();
                     this.queue_repaint();
                     return GLib.SOURCE_CONTINUE;
@@ -415,6 +455,7 @@ if (hasStDrawingArea) {
                 const nextProgress = progressAfterKeyboardSeek(keyName, this._progress, Number(track?.lengthMs));
                 if (nextProgress === null)
                     return false;
+                this._seekPendingUntil = GLib.get_monotonic_time() + 600000;
                 this._progress = nextProgress;
                 this._emitAccessibleValueChanged(true);
                 seekToProgress(this._owner, nextProgress, track);
@@ -475,19 +516,47 @@ if (hasStDrawingArea) {
              * @returns {number}
              */
             _waveWidth() {
-                const [surfaceW] = this.get_surface_size();
-                if (surfaceW > 0)
-                    return surfaceW;
-                const alloc = this.get_allocation?.();
-                return Math.max(0, Number(alloc?.width) || 0);
+                if (typeof this.get_width === 'function') {
+                    const w = this.get_width();
+                    if (w > 0) return w;
+                }
+                if (this.width > 0)
+                    return this.width;
+                const alloc = typeof this.get_allocation === 'function' ? this.get_allocation() : null;
+                if (alloc) {
+                    const aw = typeof alloc.get_width === 'function' ? alloc.get_width() : alloc.width;
+                    if (aw > 0) return aw;
+                }
+                if (typeof this.get_transformed_size === 'function') {
+                    try {
+                        const [tw] = this.get_transformed_size();
+                        if (tw > 0) return tw;
+                    } catch (e) {}
+                }
+                const [surfaceW] = typeof this.get_surface_size === 'function' ? this.get_surface_size() : [0];
+                if (surfaceW > 0) {
+                    const scale = (typeof this.get_resource_scale === 'function' ? this.get_resource_scale() : 1) || 1;
+                    return surfaceW / scale;
+                }
+                return 0;
             }
 
             _scrubFraction(event) {
                 const width = this._waveWidth();
                 if (width <= 0)
                     return null;
-                const [stageX] = event.get_coords();
-                const [actorX] = this.get_transformed_position();
+                const [stageX, stageY] = typeof event.get_coords === 'function' ? event.get_coords() : [event.x ?? 0, event.y ?? 0];
+                if (typeof this.transform_stage_point === 'function') {
+                    try {
+                        const [success, localX] = this.transform_stage_point(stageX, stageY);
+                        if (success) {
+                            return clamp(localX / width, 0, 1);
+                        }
+                    } catch (e) {}
+                }
+                const [actorX] = typeof this.get_transformed_position === 'function'
+                    ? this.get_transformed_position()
+                    : [this.x ?? 0];
                 return clamp((stageX - actorX) / width, 0, 1);
             }
 
@@ -499,6 +568,7 @@ if (hasStDrawingArea) {
                 if (!force && this._lastScrubUs && now - this._lastScrubUs < SCRUB_THROTTLE_US)
                     return;
                 this._lastScrubUs = force ? now : this._lastScrubUs;
+                this._seekPendingUntil = now + 600000;
                 const track = this._owner._currentTrack();
                 if (track?.lengthMs > 0)
                     this._owner._mediaManager?.seek(Math.round(fraction * track.lengthMs))?.catch?.(() => {});
@@ -1037,18 +1107,28 @@ class MediaFloatingCardLogic {
             return false;
         if (actor.hover)
             return true;
-        if (actor._box?.hover || actor._compactLabelWidget?.hover || actor._statusIconWidget?.hover || actor._appMenuButton?.hover || actor._appMenuButton?._box?.hover)
+        if (actor._box?.hover || actor._compactLabelWidget?.hover || actor._statusIconWidget?.hover || actor._mediaChip?.hover)
             return true;
         if (typeof global !== 'undefined' && global.get_pointer) {
             try {
                 const [x, y] = global.get_pointer();
                 if (x >= 0 && y >= 0) {
-                    const target = actor._box || actor._appMenuButton || actor;
-                    if (typeof target.get_transformed_position === 'function' && typeof target.get_transformed_size === 'function') {
-                        const [ax, ay] = target.get_transformed_position();
-                        const [aw, ah] = target.get_transformed_size();
-                        if (x >= ax && x <= ax + aw && y >= ay && y <= ay + ah)
-                            return true;
+                    const targets = [];
+                    if (actor._mediaChip && actor._mediaChip.visible) targets.push(actor._mediaChip);
+                    if (actor._box) targets.push(actor._box);
+                    targets.push(actor);
+                    for (const target of targets) {
+                        if (typeof target.get_transformed_position === 'function') {
+                            const [ax, ay] = target.get_transformed_position();
+                            let aw = 0, ah = 0;
+                            if (typeof target.get_transformed_size === 'function') {
+                                try { [aw, ah] = target.get_transformed_size(); } catch (e) {}
+                            }
+                            if (aw <= 0) aw = target.get_width?.() ?? target.width ?? 0;
+                            if (ah <= 0) ah = target.get_height?.() ?? target.height ?? 0;
+                            if (x >= ax - 2 && x <= ax + aw + 2 && y >= ay - 2 && y <= ay + ah + 2)
+                                return true;
+                        }
                     }
                 }
             } catch (e) {}
@@ -1122,22 +1202,37 @@ class MediaFloatingCardLogic {
     isPointerOver() {
         if (this._isPointerOver(this) || this._isPointerOver(this._anchorActor))
             return true;
-        if (typeof global !== 'undefined' && global.get_pointer && this._isOpen && this._anchorActor) {
+        if (typeof global !== 'undefined' && global.get_pointer && this._isOpen && this._anchorActor && this.visible) {
             try {
                 const [x, y] = global.get_pointer();
                 if (x >= 0 && y >= 0) {
-                    const target = this._anchorActor._box || this._anchorActor;
+                    const target = this._anchorActor._mediaChip || this._anchorActor._box || this._anchorActor;
                     if (typeof target.get_transformed_position === 'function' && typeof this.get_transformed_position === 'function') {
                         const [ax, ay] = target.get_transformed_position();
-                        const [aw, ah] = target.get_transformed_size();
+                        let aw = 0, ah = 0;
+                        if (typeof target.get_transformed_size === 'function') {
+                            try { [aw, ah] = target.get_transformed_size(); } catch (e) {}
+                        }
+                        if (aw <= 0) aw = target.get_width?.() ?? target.width ?? 0;
+                        if (ah <= 0) ah = target.get_height?.() ?? target.height ?? 0;
+
                         const [cx, cy] = this.get_transformed_position();
-                        const [cw, ch] = this.get_transformed_size();
-                        const minX = Math.min(ax, cx) - 24;
-                        const maxX = Math.max(ax + aw, cx + cw) + 24;
-                        const minY = Math.min(ay, cy);
-                        const maxY = Math.max(ay + ah, cy + ch);
-                        if (x >= minX && x <= maxX && y >= minY && y <= maxY)
-                            return true;
+                        let cw = 0, ch = 0;
+                        if (typeof this.get_transformed_size === 'function') {
+                            try { [cw, ch] = this.get_transformed_size(); } catch (e) {}
+                        }
+                        if (cw <= 0) cw = this.get_width?.() ?? this.width ?? 0;
+                        if (ch <= 0) ch = this.get_height?.() ?? this.height ?? 0;
+
+                        // Only check the small vertical bridge directly between anchor bottom and card top
+                        const gapTop = Math.min(ay + ah, cy);
+                        const gapBottom = Math.max(ay + ah, cy);
+                        if (gapBottom >= gapTop && gapBottom - gapTop <= 24 && y >= gapTop - 1 && y <= gapBottom + 1) {
+                            const minX = Math.min(ax, cx) - 8;
+                            const maxX = Math.max(ax + aw, cx + cw) + 8;
+                            if (x >= minX && x <= maxX)
+                                return true;
+                        }
                     }
                 }
             } catch (e) {}
@@ -1151,6 +1246,8 @@ class MediaFloatingCardLogic {
         if (this._waveArea?._dragging || this.isPointerOver() || this._hasKeyboardFocus()) {
             this._cancelGraceTimer();
             this._cancelKeyboardFocusClose();
+            if (this._anchorActor && typeof this._anchorActor._cancelLeaveGraceTimer === 'function')
+                this._anchorActor._cancelLeaveGraceTimer();
             return;
         }
         if (this._openTimerId) {
@@ -1261,13 +1358,17 @@ class MediaFloatingCardLogic {
     _easeOpacity(opacity) {
         if (typeof this.ease === 'function') {
             const serial = this._fadeSerial;
+            this.remove_all_transitions?.();
             this.ease({
                 opacity,
                 duration: this._fadeDurationMs,
                 mode: Clutter?.AnimationMode?.EASE_OUT_QUAD,
                 onComplete: () => {
-                    if (opacity === 0 && !this._isOpen && serial === this._fadeSerial)
-                        this.visible = false;
+                    if (serial === this._fadeSerial) {
+                        this.opacity = opacity;
+                        if (opacity === 0 && !this._isOpen)
+                            this.visible = false;
+                    }
                 },
             });
         } else {
@@ -1303,6 +1404,7 @@ class MediaFloatingCardLogic {
             return;
         this._destroyed = true;
         this._isOpen = false;
+        this.remove_all_transitions?.();
         if (this._openTimerId)
             GLib.source_remove(this._openTimerId);
         if (this._graceTimerId)
