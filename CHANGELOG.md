@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.1] - 2026-09-28
+
+### Major Architectural Highlights
+
+* **Idle Global Menu Collapse & Live Indicator Reveal (`src/taskIndicatorButton.js`, `extension.js`)**:
+  * Implemented an intelligent state model where global menu buttons gracefully collapse when idle while a live indicator is active, freeing top panel space for media playback and task status.
+  * Moving the pointer into the top-left menu zone smoothly expands the global menu buttons with configurable 180ms ease-out animations.
+  * Slot reservation architecture preserves layout geometry so the top panel does not jump or shift when menu items reveal or collapse.
+  * Controlled via new GSettings key `menu-hide-when-idle` (default: enabled).
+
+* **Media Card & Submenu Pinning Architecture**:
+  * Added keyboard shortcuts (`F10`, `Alt+F`, `Escape`) and click-to-pin support for the floating media card.
+  * Suppresses automatic pointer leave-grace dismissal while pinned, allowing users to comfortably adjust playback, scrub waveforms, and review track history.
+
+---
+
+### Added
+
+* **Live Indicator Reveal & Hide Motion Preferences (`prefs.js`)**:
+  * Added Libadwaita preferences switches:
+    * "Hide the Global Menu When Idle": Automatically collapse menu buttons when live media or tasks are active.
+    * "Hide the Indicator When the Menu Appears": Option to share or yield the panel slot when the pointer hovers over the global menu.
+  * Added configuration options for reveal animation styles (`slide-fade`, `fade`, `none`) and transition duration (0–400ms).
+* **GSettings Schema Additions (`schemas/org.gnome.shell.extensions.fuhgawzglbmenu.gschema.xml`)**:
+  * Added `menu-hide-when-idle`, `task-indicator-reveal`, `task-indicator-reveal-ms`, `task-indicator-reduced-motion`, `indicator-hide-on-hover`, and `indicator-hide-return`.
+  * Fully respects system-wide animation settings (`org.gnome.desktop.interface.enable-animations`).
+
+---
+
+### Fixed
+
+* **Waveform Equalizer & Seek Scrubbing (`src/mediaFloatingCard.js`)**:
+  * Fixed issue where clicking on an unallocated waveform area caused playback to reset to `0:00`.
+  * Added throttle (120ms) for drag-scrubbing with explicit press and release commitments, preventing seek flooding over D-Bus.
+* **Media Player Identity Normalization (`src/mediaManager.js`)**:
+  * Normalized MPRIS player titles by prioritizing the D-Bus `Identity` property over process instance numbers, properly displaying application names like "Firefox" instead of "instance4321".
+* **Marquee Title Stability & Bar Wobble**:
+  * Fixed panel width jitter during track title scrolling by pinning the title label width (`MEDIA_LABEL_MAX_WIDTH`) during marquee animations.
+* **Hover Disappearance & Contention Guards**:
+  * Prevented indicator hover dropouts when interacting with playback controls, volume sliders, or multi-level submenus.
+  * Unified leave-grace timer so popovers and menu zones collapse synchronously without race conditions.
+
+---
+
+### Packaging, CI & Compatibility
+
+* **Version Bump**:
+  * Bumped extension version to 3 (1.1.1) supporting GNOME Shell 45, 46, 47, 48, 49, 50, and 51.
+
+---
+
 ## [1.1.0] - 2026-09-25
 
 ### Major Architectural Highlights
