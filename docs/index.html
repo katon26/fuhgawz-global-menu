@@ -587,41 +587,101 @@
         <!-- Card 1: Featured App Menu -->
         <div class="spec-card spec-card--featured">
           <div class="spec-card__top">
-            <span class="spec-card__tag">Core Engine</span>
+            <span class="spec-card__tag">Core Engine · Tier 1</span>
             <span class="chip chip--ok">gtk-modules=appmenu-gtk-module</span>
           </div>
           <h3 class="spec-card__title">Direct App Menu Integration</h3>
           <p class="spec-card__body">
             File, Edit, View, and Help from the focused application are extracted and rendered directly into GNOME's top panel. Hovering between menus triggers instant submenus with full keyboard accelerator support.
           </p>
-          <div class="spec-card__preview" aria-hidden="true">
-            <span class="spec-preview-pill">File</span>
-            <span class="spec-preview-pill">Edit</span>
-            <span class="spec-preview-pill">View</span>
-            <span class="spec-preview-pill">Terminal</span>
-            <span class="spec-preview-pill">Help</span>
+
+          <!-- Authentic Adwaita Menu Preview -->
+          <div class="spec-card__preview spec-card__preview--menu" aria-hidden="true">
+            <div class="adw-menu-popover">
+              <div class="adw-menu-row">
+                <span class="adw-menu-label">New Text File</span>
+                <kbd class="adw-menu-accel">Ctrl+N</kbd>
+              </div>
+              <div class="adw-menu-rule"></div>
+              <div class="adw-menu-row">
+                <span class="adw-menu-label">New Window</span>
+                <kbd class="adw-menu-accel">Ctrl+Shift+N</kbd>
+              </div>
+              <div class="adw-menu-rule"></div>
+              <div class="adw-menu-row">
+                <span class="adw-menu-label">Open File…</span>
+                <kbd class="adw-menu-accel">Ctrl+O</kbd>
+              </div>
+              <div class="adw-menu-rule"></div>
+              <div class="adw-menu-row">
+                <span class="adw-menu-label">Save</span>
+                <kbd class="adw-menu-accel">Ctrl+S</kbd>
+              </div>
+            </div>
+          </div>
+
+          <!-- Future Improvement: Custom User-Defined Profiles -->
+          <div class="future-improvement-card">
+            <div class="future-improvement-card__head">
+              <span class="future-improvement-card__badge">Upcoming</span>
+              <h4 class="future-improvement-card__title">Future Improvement: Custom User-Defined Profiles</h4>
+            </div>
+            <p class="future-improvement-card__desc">
+              Extensible profile manager allowing custom JSON menu definitions, per-app override rules, and declarative shortcut mappings loaded from <code>~/.config/fuhgawz/profiles.d/</code> without touching extension source code.
+            </p>
+            <div class="future-improvement-card__preview">
+              <code class="future-schema-code"><span class="future-schema-key">"profile"</span>: <span class="future-schema-str">"custom.app"</span>, <span class="future-schema-key">"rules"</span>: [{ <span class="future-schema-key">"match"</span>: <span class="future-schema-str">"wm_class"</span>, <span class="future-schema-key">"actions"</span>: [<span class="future-schema-str">"Ctrl+Shift+P"</span>] }]</code>
+            </div>
           </div>
         </div>
 
         <!-- Card 2: Dynamic Live Media & Task Indicator -->
         <div class="spec-card spec-card--live">
           <div class="spec-card__top">
-            <span class="spec-card__tag">Live Activity</span>
+            <span class="spec-card__tag spec-card__tag--live">Live Activity</span>
             <span class="chip chip--ok">MPRIS + Nautilus I/O</span>
           </div>
           <h3 class="spec-card__title">Dynamic Live Indicator</h3>
           <p class="spec-card__body">
             More than a static menubar. As your media player streams or Nautilus transfers files, the top panel integrates an interactive live indicator capsule with Cairo wave equalizers, progress scrubbing, and Libadwaita hover cards.
           </p>
-          <div class="spec-card__preview" aria-hidden="true">
-            <span class="spec-preview-pill spec-preview-pill--media">
-              <span class="pill-dot pill-dot--media"></span>
-              Media &middot; Playing
-            </span>
-            <span class="spec-preview-pill spec-preview-pill--task">
-              <span class="pill-dot pill-dot--task"></span>
-              Nautilus &middot; 84%
-            </span>
+          <div class="spec-card__preview spec-card__preview--live" aria-hidden="true">
+            <div class="live-card-preview-item live-card-preview-item--media">
+              <div class="live-preview-head">
+                <span class="live-preview-icon">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                </span>
+                <div class="live-preview-info">
+                  <span class="live-preview-title">Gravity Chasm — Conan</span>
+                  <span class="live-preview-meta">0:42 / 3:18 · MPRIS</span>
+                </div>
+              </div>
+              <div class="live-preview-wave">
+                <span class="live-wave-bar"></span>
+                <span class="live-wave-bar"></span>
+                <span class="live-wave-bar"></span>
+                <span class="live-wave-bar"></span>
+                <span class="live-wave-bar"></span>
+                <span class="live-wave-bar"></span>
+                <span class="live-wave-bar"></span>
+                <span class="live-wave-bar"></span>
+              </div>
+            </div>
+            <div class="live-card-preview-item live-card-preview-item--task">
+              <div class="live-preview-head">
+                <span class="live-preview-icon live-preview-icon--task">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+                </span>
+                <div class="live-preview-info">
+                  <span class="live-preview-title">Nautilus · 3 files</span>
+                  <span class="live-preview-meta">archive-ubuntu-24.04.iso</span>
+                </div>
+                <span class="live-preview-badge">84%</span>
+              </div>
+              <div class="live-preview-progress">
+                <div class="live-preview-progress-bar" style="width: 84%;"></div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -635,6 +695,11 @@
           <p class="spec-card__body">
             Modern libadwaita apps (such as GNOME Text Editor and GNOME Builder) do not export classic menus by default. The extension inspects <code>org.gtk.Actions</code> from active headerbars and groups them logically so modern apps stay fully accessible.
           </p>
+          <div class="spec-card__preview" aria-hidden="true">
+            <span class="spec-chip-item">win.save</span>
+            <span class="spec-chip-item">app.preferences</span>
+            <span class="spec-chip-item">win.find</span>
+          </div>
         </div>
 
         <!-- Card 4: D-Bus Registrar -->
@@ -647,6 +712,11 @@
           <p class="spec-card__body">
             A background D-Bus registrar lets Qt 5/6, KDE, and open-source editor applications like VSCodium broadcast their menu structures automatically without per-application launcher overrides.
           </p>
+          <div class="spec-card__preview" aria-hidden="true">
+            <span class="spec-chip-item">Qt 5/6</span>
+            <span class="spec-chip-item">KDE Apps</span>
+            <span class="spec-chip-item">VSCodium</span>
+          </div>
         </div>
 
         <!-- Card 5: System Menu -->
@@ -659,18 +729,28 @@
           <p class="spec-card__body">
             User switcher, recent documents, force quit, and quick-settings hiders live on the exact same shortcut key as the app menu. Fast access when you need it, invisible when you do not.
           </p>
+          <div class="spec-card__preview" aria-hidden="true">
+            <span class="spec-chip-item">Force Quit</span>
+            <span class="spec-chip-item">User Switch</span>
+            <span class="spec-chip-item">Recent Docs</span>
+          </div>
         </div>
 
         <!-- Card 6: GNOME Compatibility -->
         <div class="spec-card">
           <div class="spec-card__top">
             <span class="spec-card__tag">Compatibility</span>
-            <span class="chip chip--ok">GNOME 45–50</span>
+            <span class="chip chip--ok">GNOME 45–51</span>
           </div>
           <h3 class="spec-card__title">Modern GNOME Shell</h3>
           <p class="spec-card__body">
-            Maintained and verified across GNOME 45, 46, 47, 48, 49, and 50. Ships with a full libadwaita preferences dialog for menu placement, dynamic indicator tuning, and hotkey binding.
+            Maintained and verified across GNOME 45, 46, 47, 48, 49, 50, and 51. Ships with a full libadwaita preferences dialog for menu placement, dynamic indicator tuning, and hotkey binding.
           </p>
+          <div class="spec-card__preview" aria-hidden="true">
+            <span class="spec-chip-item">AdwDialog</span>
+            <span class="spec-chip-item">Wayland + X11</span>
+            <span class="spec-chip-item">GJS ESM</span>
+          </div>
         </div>
 
         <!-- Card 7: Distro Agnostic Banner (Spans full grid width to balance the Bento layout) -->
@@ -709,56 +789,130 @@
       </div>
     </section>
 
-    <!-- Dark graphite band — Architectural Pipeline -->
+    <!-- Dark graphite band — Architectural Pipeline & Fallback Engine -->
     <section class="band" id="fallbacks" aria-labelledby="band-head">
       <div class="band__inner">
+        <!-- 1. The 3-Layer Architectural Pipeline -->
         <div class="band__header" data-reveal>
+          <span class="band__eyebrow">02 · Architecture Pipeline</span>
           <h2 class="band__head" id="band-head">How menus reach the bar</h2>
           <p class="band__subhead">A resilient 3-layer pipeline guarantees your panel always has a menu ready.</p>
         </div>
 
-        <div class="tiers" data-reveal>
-          <article class="tier-card">
-            <div class="tier-card__head">
-              <span class="tier-card__num">01</span>
-              <span class="tier-card__badge">Source</span>
+        <div class="pipeline-grid" data-reveal>
+          <article class="pipeline-card">
+            <div class="pipeline-card__header">
+              <span class="pipeline-card__num">01</span>
+              <span class="pipeline-card__badge">SOURCE</span>
             </div>
-            <h3 class="tier-card__title">Application Layer</h3>
-            <code class="tier-card__proto">gtk-modules=appmenu-gtk-module</code>
-            <p class="tier-card__desc">
-              Classic GTK 3 and compatible applications export their native menu trees over D-Bus automatically.
-            </p>
+            <h3 class="pipeline-card__title">Application Layer</h3>
+            <code class="pipeline-card__code">gtk-modules=appmenu-gtk-module</code>
+            <p class="pipeline-card__desc">Classic GTK 3 and compatible applications export their native menu trees over D-Bus automatically.</p>
           </article>
 
-          <article class="tier-card">
-            <div class="tier-card__head">
-              <span class="tier-card__num">02</span>
-              <span class="tier-card__badge">Bridge</span>
+          <article class="pipeline-card">
+            <div class="pipeline-card__header">
+              <span class="pipeline-card__num">02</span>
+              <span class="pipeline-card__badge">BRIDGE</span>
             </div>
-            <h3 class="tier-card__title">Resolution Engine</h3>
-            <code class="tier-card__proto">org.gtk.Actions &amp; dbusmenu</code>
-            <p class="tier-card__desc">
-              When an app uses GTK 4 or Qt, the fallback engine queries action groups and session registrars to build menu structures dynamically.
-            </p>
+            <h3 class="pipeline-card__title">Resolution Engine</h3>
+            <code class="pipeline-card__code">org.gtk.Actions &amp; dbusmenu</code>
+            <p class="pipeline-card__desc">When an app uses GTK 4 or Qt, the fallback engine queries action groups and session registrars to build menu structures dynamically.</p>
           </article>
 
-          <article class="tier-card">
-            <div class="tier-card__head">
-              <span class="tier-card__num">03</span>
-              <span class="tier-card__badge">Shell</span>
+          <article class="pipeline-card">
+            <div class="pipeline-card__header">
+              <span class="pipeline-card__num">03</span>
+              <span class="pipeline-card__badge">SHELL</span>
             </div>
-            <h3 class="tier-card__title">GNOME Top Bar</h3>
-            <code class="tier-card__proto">Clutter + dynamic live indicator</code>
-            <p class="tier-card__desc">
-              Rendered natively inside GNOME Shell with hover submenus, live media capsules, and a system menu fallback if no app menu answers.
-            </p>
+            <h3 class="pipeline-card__title">GNOME Top Bar</h3>
+            <code class="pipeline-card__code">Clutter + dynamic live indicator</code>
+            <p class="pipeline-card__desc">Rendered natively inside GNOME Shell with hover submenus, live media capsules, and a system menu fallback if no app menu answers.</p>
           </article>
         </div>
 
+        <!-- 2. The Detailed 6-Tier Fallback Resolution Chain -->
+        <div class="band__sub-header" data-reveal>
+          <span class="band__eyebrow">02 · Fallback Engine</span>
+          <h3 class="band__subhead-title">The 6-tier fallback chain</h3>
+          <p class="band__subhead-desc">When standard D-Bus export is unavailable, FUHGAWZ cascades through six audited resolution tiers to maintain zero panel lag.</p>
+        </div>
+
+        <div class="tiers tiers--boxed-list" data-reveal>
+          <article class="tier-card tier-card--boxed">
+            <div class="tier-card__head">
+              <span class="tier-card__num">01</span>
+              <div class="tier-card__labels">
+                <h4 class="tier-card__title">Native GTK Menu Model</h4>
+                <p class="tier-card__desc">Standard path probing picks up menu trees exported by GTK 3 and GTK 4 apps with no extra work.</p>
+              </div>
+              <code class="tier-card__proto">org.gtk.Menus</code>
+            </div>
+          </article>
+
+          <article class="tier-card tier-card--boxed">
+            <div class="tier-card__head">
+              <span class="tier-card__num">02</span>
+              <div class="tier-card__labels">
+                <h4 class="tier-card__title">DBusMenu Protocol</h4>
+                <p class="tier-card__desc">Registered through com.canonical.AppMenu.Registrar, matched by PID on Wayland and by XID on XWayland.</p>
+              </div>
+              <code class="tier-card__proto">com.canonical.dbusmenu</code>
+            </div>
+          </article>
+
+          <article class="tier-card tier-card--boxed">
+            <div class="tier-card__head">
+              <span class="tier-card__num">03</span>
+              <div class="tier-card__labels">
+                <h4 class="tier-card__title">Declarative Profiles</h4>
+                <p class="tier-card__desc">Curated JSON menu trees for Brave, Chrome, VS Code and GNOME Text Editor, with dynamic bookmark synchronization.</p>
+              </div>
+              <code class="tier-card__proto">profiles/*.json</code>
+            </div>
+          </article>
+
+          <article class="tier-card tier-card--boxed">
+            <div class="tier-card__head">
+              <span class="tier-card__num">04</span>
+              <div class="tier-card__labels">
+                <h4 class="tier-card__title">GTK Action Heuristic</h4>
+                <p class="tier-card__desc">Enumerates live action maps via DescribeAll, then dispatches synthetic keystrokes via virtual keyboard for unexported actions.</p>
+              </div>
+              <code class="tier-card__proto">DescribeAllAll</code>
+            </div>
+          </article>
+
+          <article class="tier-card tier-card--boxed">
+            <div class="tier-card__head">
+              <span class="tier-card__num">05</span>
+              <div class="tier-card__labels">
+                <h4 class="tier-card__title">Restricted AT-SPI Scan</h4>
+                <p class="tier-card__desc">50ms budget, strictly menu bars only, Chromium and Electron blacklisted to avoid a compositor stall.</p>
+              </div>
+              <code class="tier-card__proto">ATSPI_ROLE_MENU_BAR</code>
+            </div>
+          </article>
+
+          <article class="tier-card tier-card--boxed">
+            <div class="tier-card__head">
+              <span class="tier-card__num">06</span>
+              <div class="tier-card__labels">
+                <h4 class="tier-card__title">Desktop App Fallback</h4>
+                <p class="tier-card__desc">When no menu answers, launcher actions and window management still land on the same slot.</p>
+              </div>
+              <code class="tier-card__proto">Gio.DesktopAppInfo</code>
+            </div>
+          </article>
+        </div>
+
+        <!-- 3. The verification callout banner -->
         <div class="band__callout" data-reveal>
-          <span class="band__callout-icon" aria-hidden="true">✓</span>
+          <span class="band__callout-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+          </span>
           <p class="band__note">
-            The extension probes every source and renders the highest fidelity menu that answers. Apps with no exported menu fall back gracefully to the system menu, so the bar never goes empty.
+            Chromium and Electron are deliberately excluded from the accessibility scan. Declarative profiles bridge them instead, so the bar never goes empty.
           </p>
         </div>
       </div>

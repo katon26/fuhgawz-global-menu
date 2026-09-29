@@ -84,11 +84,22 @@ def test_js_syntax():
     print("PASS: test_js_syntax")
 
 def test_existing_suite():
-    res1 = subprocess.run(["gjs", str(REPO_ROOT / "tests" / "test_buttonPool_logic.js")], capture_output=True, text=True)
-    assert res1.returncode == 0, f"Button pool test failed: {res1.stderr}"
+    suites = [
+        (["gjs", str(REPO_ROOT / "tests" / "test_buttonPool_logic.js")], "Button pool test"),
+        (["gjs", "-m", str(REPO_ROOT / "tests" / "test_hoverSubMenu_logic.js")], "Hover sub menu test"),
+        (["gjs", "-m", str(REPO_ROOT / "tests" / "test_taskManager.js")], "TaskManager test"),
+        (["gjs", "-m", str(REPO_ROOT / "tests" / "test_taskProgressBar_logic.js")], "TaskProgressBar test"),
+        (["gjs", "-m", str(REPO_ROOT / "tests" / "test_virtualKeyboard.js")], "VirtualKeyboard test"),
+        (["gjs", "-m", str(REPO_ROOT / "tests" / "test_mediaFloatingCard.js")], "MediaFloatingCard test"),
+        (["gjs", "-m", str(REPO_ROOT / "tests" / "test_profileManager.js")], "ProfileManager test"),
+        (["gjs", "-m", str(REPO_ROOT / "tests" / "test_atspiScanner.js")], "AtspiScanner test"),
+        (["node", str(REPO_ROOT / "tests" / "test_media_card_dom.js")], "MediaCard DOM test"),
+        (["node", str(REPO_ROOT / "tests" / "test_ego_popover_dom.js")], "EgoPopover DOM test"),
+    ]
 
-    res2 = subprocess.run(["gjs", "-m", str(REPO_ROOT / "tests" / "test_hoverSubMenu_logic.js")], capture_output=True, text=True)
-    assert res2.returncode == 0, f"Hover sub menu test failed: {res2.stderr}"
+    for cmd, name in suites:
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        assert res.returncode == 0, f"{name} failed: {res.stderr}\n{res.stdout}"
 
     print("PASS: test_existing_suite")
 
@@ -306,6 +317,123 @@ def test_hero_stage_follows_theme():
 
     print("PASS: test_hero_stage_follows_theme")
 
+def test_future_improvement_and_gnome_cards():
+    html_path = REPO_ROOT / "docs" / "index.html"
+    css_path = REPO_ROOT / "docs" / "styles.css"
+    pen_path = REPO_ROOT / "fuhgawz-global-menu-design-concepts.pen"
+
+    html_content = html_path.read_text(encoding="utf-8")
+    css_content = css_path.read_text(encoding="utf-8")
+    pen_content = pen_path.read_text(encoding="utf-8")
+
+    # 1. Direct App Menu Integration & Future Improvement requirement
+    assert "Direct App Menu Integration" in html_content, "Direct App Menu Integration heading missing in index.html"
+    assert "Future Improvement: Custom User-Defined Profiles" in html_content, (
+        "Required Future Improvement heading missing in index.html"
+    )
+    assert "###" not in html_content, "Raw markdown hashes (###) found in index.html"
+    assert "###" not in pen_content, "Raw markdown hashes (###) found in .pen file"
+    assert "future-improvement-card" in html_content, ".future-improvement-card container missing in index.html"
+    assert "profiles.d" in html_content, "profiles.d configuration directory missing in index.html"
+    assert ".future-improvement-card" in css_content, ".future-improvement-card missing in styles.css"
+    assert ".future-schema-code" in css_content, ".future-schema-code missing in styles.css"
+    assert "border: 1px dashed" not in css_content, "Dashed border found in styles.css"
+
+    # Check .pen design concepts have future improvement and cards
+    assert "Future Improvement: Custom User-Defined Profiles" in pen_content, (
+        "Future Improvement missing in fuhgawz-global-menu-design-concepts.pen"
+    )
+
+    # 2. Authentic Adwaita Menu Preview (No macOS dots, no fake window headerbars)
+    assert "adw-preview-window" not in html_content, "adw-preview-window should be removed from index.html"
+    assert "adw-preview-headerbar" not in html_content, "adw-preview-headerbar should be removed from index.html"
+    assert "adw-control-dot" not in html_content, "macOS-style adw-control-dot should be removed from index.html"
+    assert ".adw-preview-window" not in css_content, ".adw-preview-window should be removed from styles.css"
+    assert ".adw-preview-headerbar" not in css_content, ".adw-preview-headerbar should be removed from styles.css"
+
+    assert "adw-menu-popover" in html_content, "adw-menu-popover missing in index.html"
+    assert ".adw-menu-popover" in css_content, ".adw-menu-popover missing in styles.css"
+    assert ".adw-menu-row" in css_content, ".adw-menu-row missing in styles.css"
+    for label, accel in (
+        ("New Text File", "Ctrl+N"),
+        ("New Window", "Ctrl+Shift+N"),
+        ("Open File…", "Ctrl+O"),
+        ("Save", "Ctrl+S"),
+    ):
+        assert label in html_content, f"Menu label {label} missing in index.html"
+        assert accel in html_content, f"Shortcut {accel} missing in index.html"
+
+    # 3. 3-Layer Architectural Pipeline Cards
+    assert "How menus reach the bar" in html_content, "Pipeline heading missing in index.html"
+    assert "A resilient 3-layer pipeline guarantees your panel always has a menu ready." in html_content, (
+        "3-layer pipeline subhead missing in index.html"
+    )
+    assert "pipeline-grid" in html_content, "pipeline-grid missing in index.html"
+    assert html_content.count("pipeline-card") >= 3, "Expected 3 pipeline cards in index.html"
+    for num, badge, title, code in (
+        ("01", "SOURCE", "Application Layer", "gtk-modules=appmenu-gtk-module"),
+        ("02", "BRIDGE", "Resolution Engine", "org.gtk.Actions &amp; dbusmenu"),
+        ("03", "SHELL", "GNOME Top Bar", "Clutter + dynamic live indicator"),
+    ):
+        assert num in html_content, f"Pipeline card number {num} missing in index.html"
+        assert badge in html_content, f"Pipeline badge {badge} missing in index.html"
+        assert title in html_content, f"Pipeline title {title} missing in index.html"
+        assert code in html_content, f"Pipeline code {code} missing in index.html"
+
+    assert ".pipeline-grid" in css_content, ".pipeline-grid missing in styles.css"
+    assert ".pipeline-card" in css_content, ".pipeline-card missing in styles.css"
+    assert ".pipeline-card__num" in css_content, ".pipeline-card__num missing in styles.css"
+    assert ".pipeline-card__badge" in css_content, ".pipeline-card__badge missing in styles.css"
+    assert ".pipeline-card__code" in css_content, ".pipeline-card__code missing in styles.css"
+
+    # 4. Authentic GNOME HIG 6-Tier Boxed List Architecture
+    assert "The 6-tier fallback chain" in html_content, "6-tier fallback subhead title missing in index.html"
+    assert "tiers--boxed-list" in html_content, "tiers--boxed-list container missing in index.html"
+    assert html_content.count("tier-card--boxed") == 6, "Expected exactly 6 boxed tiers in index.html"
+    for proto in (
+        "org.gtk.Menus",
+        "com.canonical.dbusmenu",
+        "profiles/*.json",
+        "DescribeAllAll",
+        "ATSPI_ROLE_MENU_BAR",
+        "Gio.DesktopAppInfo",
+    ):
+        assert proto in html_content, f"Protocol {proto} missing in boxed list tiers in index.html"
+
+    assert ".tiers--boxed-list" in css_content, ".tiers--boxed-list missing in styles.css"
+    assert ".tier-card--boxed" in css_content, ".tier-card--boxed missing in styles.css"
+    assert "Chromium and Electron are deliberately excluded" in html_content, (
+        "Callout banner note missing in index.html"
+    )
+
+    print("PASS: test_future_improvement_and_gnome_cards")
+
+def test_pen_file_validity():
+    import json
+    pen_path = REPO_ROOT / "fuhgawz-global-menu-design-concepts.pen"
+    data = json.loads(pen_path.read_text(encoding="utf-8"))
+    variables = set(data.get("variables", {}).keys())
+
+    broken = []
+    def check_node(n, path=""):
+        name = n.get("name", n.get("id", "unnamed"))
+        current_path = f"{path} > {name}"
+        for key, val in n.items():
+            if isinstance(val, str) and val.startswith("$"):
+                var_name = val[1:]
+                if var_name not in variables and key != "content" and name != "$":
+                    broken.append(f"Unknown variable at {current_path}: {key} = {val}")
+            elif isinstance(val, str) and val in ("-entry", "-accent-soft", "-accent-text", "-ink", "-dim", "-mono", "-ui"):
+                broken.append(f"Broken token at {current_path}: {key} = {val}")
+        for c in n.get("children", []):
+            check_node(c, current_path)
+
+    for c in data.get("children", []):
+        check_node(c)
+
+    assert not broken, f"Broken tokens found in .pen file:\n" + "\n".join(broken)
+    print("PASS: test_pen_file_validity")
+
 def main():
     test_font_tokens()
     test_font_html()
@@ -315,9 +443,12 @@ def main():
     test_floating_media_card_and_marquee()
     test_dual_theme_bento_and_distro_marks()
     test_hero_stage_follows_theme()
+    test_future_improvement_and_gnome_cards()
+    test_pen_file_validity()
     test_js_syntax()
     test_existing_suite()
     print("\nAll landing page and repository tests passed!")
 
 if __name__ == "__main__":
     main()
+

@@ -12,7 +12,7 @@ I'm just trying to maximize workspace utilization, reclaim some vertical screen,
 ## Features
 
 - **Unified Top Bar Interface:** Brings File, Edit, View, and Help menus directly into the GNOME top bar for active applications with smooth horizontal flyout submenus.
-- **Dynamic Live Activity & Media Indicator:** Monitors active Nautilus file copy telemetry and universal MPRIS media players with dedicated player priority (Spotify, VLC, browser tabs).
+- **Dynamic Live Activity Indicator:** Monitors active Nautilus file copy telemetry and universal MPRIS media players with dedicated player priority (Spotify, VLC, browser tabs).
 - **Interactive Waveform Scrubbing:** Real-time Cairo wave equalizer with direct seek scrubbing, elapsed/total playback time display, and album art caching.
 - **Idle Global Menu Collapse:** Automatically collapses the application menu into the live indicator while idle, smoothly expanding on pointer hover without panel layout jitter (`menu-hide-when-idle`).
 - **Keyboard Navigation & Floating Popover Pinning:** Inspect media and task status via floating cards with full keyboard shortcuts (`F10`, `Alt+F`, `Esc`).
@@ -33,7 +33,7 @@ I'm just trying to maximize workspace utilization, reclaim some vertical screen,
 
 ## Installation
 
-### Method 1: Pre-built Package (Recommended for Most Users)
+### Method 1: Pre-built Package (Recommended)
 
 Downloading the pre-built zip from the GitHub Releases page is the easiest and fastest way to get started. It requires no build tools, compilers, or setup scripts—just download, install, and enable in one step:
 
