@@ -243,6 +243,20 @@ a { color: inherit; }
   background: var(--color-stage);
 }
 
+/* Bottom dissolve — melts the stage edge into the page background so the
+   dark slab doesn't hard-cut against the light theme */
+.hero-section::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 40px;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, var(--color-paper));
+}
+
 /* Mockup Stage — fills hero, clips bottom */
 .mockup-stage {
   position: absolute;
@@ -640,7 +654,7 @@ a { color: inherit; }
 .showcase {
   max-width: var(--content-max);
   margin-inline: auto;
-  padding: var(--space-3xl) var(--page-gutter) clamp(2rem, 4vw, 4rem);
+  padding: var(--space-2xl) var(--page-gutter) clamp(2rem, 4vw, 4rem);
 }
 
 .showcase__inner {
@@ -1615,6 +1629,36 @@ a { color: inherit; }
   from {
     opacity: 0;
     transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Flipped above the trigger when the hero's clip edge leaves no room below */
+.ego-popover.is-flipped {
+  top: auto;
+  bottom: calc(100% + 0.65rem);
+  animation: popoverFadeInUp var(--dur-short) var(--ease-out);
+}
+
+.ego-popover.is-flipped .ego-popover__arrow {
+  top: auto;
+  bottom: -6px;
+  border-left: none;
+  border-top: none;
+  border-right: var(--rule-hair) solid var(--color-rule-2);
+  border-bottom: var(--rule-hair) solid var(--color-rule-2);
+  border-top-left-radius: 0;
+  border-bottom-right-radius: 2px;
+  transform: rotate(225deg);
+}
+
+@keyframes popoverFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
   }
   to {
     opacity: 1;

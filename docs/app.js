@@ -713,6 +713,19 @@
         egoPopover.style.right = 'auto';
         egoPopover.classList.remove('is-aligned-right');
       }
+      /* The hero section clips its overflow, so open upward when the
+         popover would hang past its bottom edge. */
+      const clipSection = egoTrigger.closest('.hero-section');
+      if (!clipSection) {
+        egoPopover.classList.remove('is-flipped');
+        return;
+      }
+      const sectionRect = clipSection.getBoundingClientRect();
+      const popoverHeight = egoPopover.offsetHeight || 240;
+      const gap = 12;
+      const spaceBelow = sectionRect.bottom - triggerRect.bottom;
+      const spaceAbove = triggerRect.top - sectionRect.top;
+      egoPopover.classList.toggle('is-flipped', spaceBelow < popoverHeight + gap && spaceAbove > spaceBelow);
     };
 
     openEgoPopover = () => {
