@@ -3,7 +3,17 @@
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
-import { TaskManager, MAX_RECENT_TASKS, TASK_MANAGER_OBJECT_PATH, formatBytes, formatSpeed, formatEta } from '../src/taskManager.js';
+import {
+    TaskManager,
+    MAX_RECENT_TASKS,
+    TASK_MANAGER_OBJECT_PATH,
+    formatBytes,
+    formatSpeed,
+    formatEta,
+    parseNautilusProgressText,
+    deriveOperationLabel,
+    operationTypeFromLabel,
+} from '../src/taskManager.js';
 
 function assert(condition, message) {
     if (!condition) {
@@ -190,6 +200,9 @@ try {
     assert(addedEvent.indeterminate === true, 'Nautilus transfer must set indeterminate = true');
     assert(addedEvent.source === 'inhibitor', 'Source must be inhibitor');
     assert(addedEvent.summary === 'Transferring files', 'Summary must match inhibitor reason');
+    assert(addedEvent.title === 'Transferring files', `Title must be the derived operation label, got '${addedEvent.title}'`);
+    assert(addedEvent.progressVisible === true || addedEvent.progressVisible === false, 'progressVisible must be a boolean');
+    assert(addedEvent.bytesText === '', 'No fake "0 bytes / total" may be shown before real numbers arrive');
 
     const activeNautilus = tm.getActiveTask('org.gnome.Nautilus');
     assert(activeNautilus !== null, 'Active Nautilus task should be retrievable');
@@ -228,6 +241,212 @@ try {
     assert(tm.getActiveTask('org.gnome.Nautilus') === null, 'Nautilus active task must be cleared');
 
     tm._queryRecentFiles = origQueryRecent;
+
+    // -------------------------------------------------------------
+    // 4b. Nautilus progress text parsing & honest telemetry
+    // -------------------------------------------------------------
+    console.log('4b. Verifying Nautilus progress text parsing and honest telemetry...');
+
+    // Byte pairs — both the "x of y" and "x / y" formats Nautilus renders.
+    const parsedBytes = parseNautilusProgressText('Extracting… 3.7 GB / 5.5 GB\nAbout 6 seconds left');
+    assert(parsedBytes !== null, 'Byte pair text must parse');
+    assert(Math.abs(parsedBytes.progress - 3.7e9 / 5.5e9) < 0.001, `Progress must be the byte ratio, got ${parsedBytes?.progress}`);
+    assert(parsedBytes.bytesText === '3.7 GB / 5.5 GB', `bytesText must be normalized, got '${parsedBytes?.bytesText}'`);
+    assert(parsedBytes.etaText === '6s left', `etaText must be parsed, got '${parsedBytes?.etaText}'`);
+    assert(parsedBytes.totalBytes === 5.5e9, 'totalBytes must be canonical bytes');
+
+    const parsedOf = parseNautilusProgressText('13.4 MB of 51.2 MB');
+    assert(parsedOf !== null && Math.abs(parsedOf.progress - 13.4e6 / 51.2e6) < 0.001, "'of' format must parse");
+
+    // Count and percent formats
+    const parsedCount = parseNautilusProgressText('12 of 45 files');
+    assert(parsedCount !== null && Math.abs(parsedCount.progress - 12 / 45) < 0.001, 'file-count progress must parse');
+    assert(parsedCount.bytesText === '12 / 45', `count bytesText mismatch: '${parsedCount?.bytesText}'`);
+
+    const parsedPercent = parseNautilusProgressText('67%');
+    assert(parsedPercent !== null && Math.abs(parsedPercent.progress - 0.67) < 0.001, 'percent text must parse');
+
+    assert(parseNautilusProgressText('Brave Web Browser') === null, 'irrelevant text must not parse');
+    assert(parseNautilusProgressText('') === null, 'empty text must not parse');
+    assert(parseNautilusProgressText('Home') === null, 'folder names must not parse');
+
+    // Operation labels derived from inhibitor reasons (real strings from the
+    // session inhibitor, including the capitalized variants Nautilus sends).
+    assert(deriveOperationLabel('Deleting Files') === 'Deleting files', 'deleting reason mapping');
+    assert(deriveOperationLabel('Deleting files') === 'Deleting files', 'deleting reason mapping (lowercase)');
+    assert(deriveOperationLabel('Extracting…') === 'Extracting files', 'extracting reason mapping');
+    assert(deriveOperationLabel('Copying files') === 'Copying files', 'copying reason mapping');
+    assert(deriveOperationLabel('Moving Files') === 'Moving files', 'moving reason mapping');
+    assert(operationTypeFromLabel(deriveOperationLabel('Deleting Files')) === 'delete', 'operation type for deleting');
+    assert(operationTypeFromLabel(deriveOperationLabel('Extracting files')) === 'extract', 'operation type for extracting');
+
+    // -------------------------------------------------------------
+    // 4c. AT-SPI driven determinate progress (exact Nautilus numbers)
+    // -------------------------------------------------------------
+    console.log('4c. Verifying probe-helper driven determinate progress with exact Nautilus numbers...');
+    let probeSpawnedFor = null;
+    let probeStopped = 0;
+    const tmProbe = new TaskManager(null, {
+        cacheFile: GLib.build_filenamev([testTmpDir, 'atspi-recent.json']),
+        spawnFileOpsProbe: (task, pid) => {
+            probeSpawnedFor = {taskId: task.id, pid};
+            return {stop: () => { probeStopped++; }};
+        },
+    });
+    // Deterministic pids so the test never depends on a live nautilus.
+    tmProbe._findNautilusPids = () => [4242];
+    tmProbe._findNautilusActiveTransfer = () => null;
+
+    let probeUpdated = null;
+    tmProbe.connect('task-updated', (m, task) => { probeUpdated = task; });
+
+    tmProbe._handleInhibitorAdded('/org/gnome/SessionManager/Inhibitor900', 'org.gnome.Nautilus', 'Extracting files');
+    const probeTask = tmProbe.getActiveTask('inhibitor:/org/gnome/SessionManager/Inhibitor900');
+    assert(probeTask !== null, 'probe test task must exist');
+    assert(probeTask.indeterminate === true, 'task starts indeterminate before any real reading');
+
+    // The isolated helper is spawned for the nautilus pid and streams JSON
+    // lines; feed one in as the shell-side reader would.
+    assert(probeSpawnedFor !== null && probeSpawnedFor.taskId === probeTask.id,
+        'probe helper must be spawned for the task when nautilus pids exist');
+    tmProbe._onProbeLine(probeTask.id, JSON.stringify({
+        progress: 3.7e9 / 5.5e9,
+        bytesText: '3.7 GB / 5.5 GB',
+        etaText: '6s left',
+        totalBytes: 5.5e9,
+    }));
+    assert(probeUpdated === probeTask, 'probe line must emit task-updated');
+    assert(probeTask.indeterminate === false, 'a real probe reading must switch the task to determinate');
+    assert(Math.abs(probeTask.progress - 3.7e9 / 5.5e9) < 0.001, `progress must equal the Nautilus ratio, got ${probeTask.progress}`);
+    assert(probeTask.bytesText === '3.7 GB / 5.5 GB', `bytesText must be Nautilus text, got '${probeTask.bytesText}'`);
+    assert(probeTask.etaText === '6s left', `etaText must come from Nautilus, got '${probeTask.etaText}'`);
+    assert(probeTask.progress < 0.99, 'progress must not be pinned at the old 99% cap');
+    assert(probeTask.totalBytes === 5.5e9, 'totalBytes must be tracked from the probe');
+
+    // Heartbeat lines with no reading must not disturb the shown numbers.
+    tmProbe._onProbeLine(probeTask.id, JSON.stringify({progress: null}));
+    assert(probeTask.indeterminate === false && probeTask.etaText === '6s left',
+        'heartbeat lines must not reset displayed numbers');
+
+    // Identical readings must not spam task-updated.
+    let updateCount = 0;
+    tmProbe.connect('task-updated', () => { updateCount++; });
+    tmProbe._onProbeLine(probeTask.id, JSON.stringify({
+        progress: 3.7e9 / 5.5e9,
+        bytesText: '3.7 GB / 5.5 GB',
+        etaText: '6s left',
+        totalBytes: 5.5e9,
+    }));
+    assert(updateCount === 0, 'identical probe readings must not re-emit task-updated');
+
+    // Stale readings must fall back to indeterminate instead of freezing a
+    // wrong number forever.
+    probeTask._lastRealProgressAt = Date.now() - 11000;
+    tmProbe._nautilusMonitorTick(probeTask, {pid: 999999, lastRead: 0, lastWrite: 0, lastTime: Date.now(), accumulatedCopied: 0});
+    assert(probeTask.indeterminate === true, 'stale probe data must revert to indeterminate');
+    assert(probeTask.etaText === '', 'stale probe data must clear the eta');
+
+    tmProbe._handleInhibitorRemoved('/org/gnome/SessionManager/Inhibitor900');
+    assert(probeStopped === 1, 'inhibitor removal must stop the probe helper');
+    assert(probeTask.state === 'completed' && probeTask.progress === 1.0, 'inhibitor removal completes the task');
+    tmProbe.destroy();
+
+    // -------------------------------------------------------------
+    // 4d. Immediate visibility & internal-URI filtering
+    // -------------------------------------------------------------
+    console.log('4d. Verifying immediate task visibility and Nautilus-internal URI filtering...');
+    const tmQuick = new TaskManager(null, {
+        cacheFile: GLib.build_filenamev([testTmpDir, 'grace-recent.json']),
+    });
+
+    let quickAdded = 0;
+    let quickCompleted = 0;
+    tmQuick.connect('task-added', () => { quickAdded++; });
+    tmQuick.connect('task-completed', () => { quickCompleted++; });
+
+    // Every operation is visible immediately — including quick ones. The old
+    // 600 ms grace window hid real compress/copy/delete operations and read
+    // as "the indicator is missing".
+    tmQuick._handleInhibitorAdded('/org/gnome/SessionManager/Inhibitor910', 'org.gnome.Nautilus', 'Moving Files');
+    assert(quickAdded === 1, 'task-added must fire immediately, without a grace window');
+    tmQuick._handleInhibitorRemoved('/org/gnome/SessionManager/Inhibitor910');
+    assert(quickCompleted === 1, 'task-completed must fire on removal');
+    assert(tmQuick.getRecentTasks().some(t => t.title === 'Moving files'),
+        'quick operations must land in recent history');
+
+    // Completed delete tasks keep their operation title — never 'Files' — and
+    // never pick up unrelated "recent" entries such as Nautilus's meta.db.
+    tmQuick._handleInhibitorAdded('/org/gnome/SessionManager/Inhibitor911', 'org.gnome.Nautilus', 'Deleting files');
+    tmQuick._queryRecentFiles = () => [
+        { uri: 'file:///home/user/.local/share/nautilus/tags/meta.db', title: 'meta.db', timestamp: Date.now() / 1000 },
+        { uri: 'file:///home/user/Downloads/Archive.zip', title: 'Archive.zip', timestamp: Date.now() / 1000 },
+    ];
+    tmQuick._handleInhibitorRemoved('/org/gnome/SessionManager/Inhibitor911');
+    const deletedRecent = tmQuick.getRecentTasks().find(t => t.id === 'inhibitor:/org/gnome/SessionManager/Inhibitor911');
+    assert(deletedRecent !== undefined, 'completed delete task must be in recent history');
+    assert(deletedRecent.title === 'Deleting files', `delete completion title must stay the operation label, got '${deletedRecent.title}'`);
+    assert(deletedRecent.uri === null || !deletedRecent.uri.includes('meta.db'),
+        'delete tasks must never inherit Nautilus internal URIs');
+
+    // Copy completions take the newest non-internal recent file.
+    tmQuick._handleInhibitorAdded('/org/gnome/SessionManager/Inhibitor912', 'org.gnome.Nautilus', 'Copying files');
+    tmQuick._handleInhibitorRemoved('/org/gnome/SessionManager/Inhibitor912');
+    const copiedRecent = tmQuick.getRecentTasks().find(t => t.id === 'inhibitor:/org/gnome/SessionManager/Inhibitor912');
+    assert(copiedRecent !== undefined, 'completed copy task must be in recent history');
+    assert(copiedRecent.uri === 'file:///home/user/Downloads/Archive.zip',
+        `copy completion must pick the real file, not meta.db, got '${copiedRecent.uri}'`);
+
+    tmQuick.destroy();
+
+    // -------------------------------------------------------------
+    // 4e. Real probe helper subprocess (end-to-end)
+    // -------------------------------------------------------------
+    console.log('4e. Verifying the isolated probe helper subprocess end-to-end...');
+    const helperPath = GLib.build_filenamev([
+        GLib.path_get_dirname(GLib.path_get_dirname(import.meta.url.replace('file://', ''))),
+        'bin', 'gm-fileops-probe',
+    ]);
+    const tmPipe = new TaskManager(null, {
+        cacheFile: GLib.build_filenamev([testTmpDir, 'pipe-recent.json']),
+        probeScriptPath: helperPath,
+    });
+    tmPipe._findNautilusPids = () => [4242];
+    tmPipe._findNautilusActiveTransfer = () => null;
+
+    let pipeUpdates = 0;
+    tmPipe.connect('task-updated', () => { pipeUpdates++; });
+
+    tmPipe._handleInhibitorAdded('/org/gnome/SessionManager/Inhibitor950', 'org.gnome.Nautilus', 'Copying files');
+    const pipeTask = tmPipe.getActiveTask('inhibitor:/org/gnome/SessionManager/Inhibitor950');
+    assert(pipeTask !== null, 'pipeline task must exist');
+    assert(tmPipe._probeHandles.has(pipeTask.id), 'the real probe helper must be spawned and tracked');
+
+    tmPipe._onProbeLine(pipeTask.id, JSON.stringify({
+        progress: 0.5,
+        bytesText: '1.1 GB / 2.2 GB',
+        etaText: '10s left',
+        totalBytes: 2.2e9,
+    }));
+    assert(pipeTask.indeterminate === false && Math.abs(pipeTask.progress - 0.5) < 0.001,
+        'a probe line must make the task determinate');
+
+    // Let the real subprocess tick for a few seconds: heartbeat lines flow
+    // back through the async reader and the io timer keeps emitting updates.
+    await new Promise(resolve => {
+        const waitLoop = new GLib.MainLoop(null, false);
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2600, () => {
+            waitLoop.quit();
+            return GLib.SOURCE_REMOVE;
+        });
+        waitLoop.run();
+        resolve();
+    });
+    assert(pipeUpdates >= 2, `subprocess ticks must drive task updates, got ${pipeUpdates}`);
+
+    tmPipe._handleInhibitorRemoved('/org/gnome/SessionManager/Inhibitor950');
+    assert(!tmPipe._probeHandles.has(pipeTask.id), 'removal must stop the probe helper');
+    assert(pipeTask.state === 'completed', 'pipeline task must complete');
+    tmPipe.destroy();
 
     // -------------------------------------------------------------
     // 5. Exported D-Bus Interface for CLI tasks (bin/gm-run)
@@ -721,9 +940,11 @@ try {
     assert(formatEta(30) === '30s left', `formatEta(30) failed: got ${formatEta(30)}`);
     assert(formatEta(3600) === '1h left', `formatEta(3600) failed: got ${formatEta(3600)}`);
 
-    const tmMonitor = new TaskManager(null, { cacheFile: GLib.build_filenamev([testTmpDir, 'test-mon-tasks.json']) });
+    const tmMonitor = new TaskManager(null, {
+        cacheFile: GLib.build_filenamev([testTmpDir, 'test-mon-tasks.json']),
+    });
     assert(Array.isArray(tmMonitor._findNautilusPids()), '_findNautilusPids must return an array');
-    
+
     // Simulate simulated transfer injection
     tmMonitor._findNautilusActiveTransfer = () => ({
         pid: 12345,
@@ -742,9 +963,13 @@ try {
     tmMonitor._handleInhibitorAdded('/org/gnome/SessionManager/Inhibitor99', 'org.gnome.Nautilus', 'Copying files');
     assert(taskAddedReceived !== null, 'task-added must be emitted for Nautilus inhibitor');
     assert(taskAddedReceived.fileName === 'the.bombing.of.pan.am.103.s1.web.108-pahe.in.zip', 'Task filename mismatch');
-    assert(taskAddedReceived.totalBytes === 3600000000, 'Task totalBytes mismatch');
-    assert(taskAddedReceived.bytesText === '0 bytes / 3.6 GB', `Task bytesText mismatch: got ${taskAddedReceived.bytesText}`);
-    assert(taskAddedReceived.indeterminate === false, 'Task should be determinate when totalBytes is known');
+    // The size of the largest open file is NOT the operation total: a
+    // multi-file copy would rocket past it and pin at 99%. Percentages only
+    // come from Nautilus itself (see 4c); everything else stays indeterminate.
+    assert(taskAddedReceived.totalBytes === 0, 'totalBytes must stay unknown until real numbers arrive');
+    assert(taskAddedReceived.bytesText === '', `No fake total may be shown, got '${taskAddedReceived.bytesText}'`);
+    assert(taskAddedReceived.indeterminate === true, 'Task must stay indeterminate without a real progress source');
+    assert(taskAddedReceived.title === 'Copying files', `Title must be the operation label, got '${taskAddedReceived.title}'`);
     assert(tmMonitor._nautilusMonitors.has(taskAddedReceived.id), 'I/O monitor must be registered for task');
 
     let taskCompletedReceived = null;
@@ -755,7 +980,6 @@ try {
     tmMonitor._handleInhibitorRemoved('/org/gnome/SessionManager/Inhibitor99');
     assert(taskCompletedReceived !== null, 'task-completed must be emitted on inhibitor removal');
     assert(taskCompletedReceived.progress === 1.0, 'Progress must be 1.0 on completion');
-    assert(taskCompletedReceived.bytesText === '3.6 GB', `bytesText on completion mismatch: got ${taskCompletedReceived.bytesText}`);
     assert(!tmMonitor._nautilusMonitors.has(taskAddedReceived.id), 'I/O monitor must be cleared on inhibitor removal');
 
     tmMonitor.destroy();

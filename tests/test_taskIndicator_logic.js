@@ -238,7 +238,8 @@ console.log('2b. Verifying label deduplication, anti-slop formatting & strict te
 const indDedup = new TaskIndicatorButton(null, null, { appLabel: 'Files' });
 
 // 1. Indeterminate task with appLabel="Files", summary="Deleting Files", title="Files"
-// Must display "Deleting..." (NOT "Deleting Files Files" or "Deleting Files")
+// Must display "Deleting" (NOT "Deleting Files Files" or "Deleting Files").
+// No trailing "..." — ASCII dots render like a kebab menu next to the real ⋮.
 indDedup.updateTask({
     title: 'Files',
     summary: 'Deleting Files',
@@ -246,13 +247,13 @@ indDedup.updateTask({
 }, 'Files');
 
 assert(
-    indDedup.getLabelText() === 'Deleting...',
-    `Expected compact label 'Deleting...', got '${indDedup.getLabelText()}'`
+    indDedup.getLabelText() === 'Deleting',
+    `Expected compact label 'Deleting', got '${indDedup.getLabelText()}'`
 );
 
 // Format compact label method directly with appLabel
 assert(
-    indDedup.formatCompactLabel({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files') === 'Deleting...',
+    indDedup.formatCompactLabel({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files') === 'Deleting',
     `formatCompactLabel direct check failed, got '${indDedup.formatCompactLabel({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files')}'`
 );
 
@@ -276,8 +277,8 @@ assert(
     `Expanded telemetry should filter out redundant app title: '${expandedRunningText}'`
 );
 assert(
-    indDedup.formatExpandedTelemetry({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files') === 'Deleting...',
-    `Expected formatExpandedTelemetry to filter redundant title 'Files' and return 'Deleting...', got '${indDedup.formatExpandedTelemetry({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files')}'`
+    indDedup.formatExpandedTelemetry({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files') === 'Deleting',
+    `Expected formatExpandedTelemetry to filter redundant title 'Files' and return 'Deleting', got '${indDedup.formatExpandedTelemetry({ title: 'Files', summary: 'Deleting Files', indeterminate: true }, 'Files')}'`
 );
 
 // Telemetry with bytes and speed also filters out redundant app title
@@ -416,15 +417,19 @@ indModes.setMode('hover');
 assert(indModes.getMode() === 'hover', 'Mode must be hover');
 assert(indModes._sliderToggleWidget.visible === false, 'Slider toggle widget must be hidden in hover mode');
 
-// Simulate pointer hover enter
+// Simulate pointer hover enter. In the shared-slot model the chip compresses
+// beside the revealed menu even while directly hovered: the telemetry lives
+// in the details dropdown (dwell/click), not in a third bar segment.
 indModes.onPointerEnter();
-assert(indModes.isExpanded() === true, 'Hover mode should expand on pointer enter');
-assert(indModes._telemetryLabelWidget.visible === true, 'Telemetry widget must be visible on hover');
-assert(indModes.getExpandedText().includes('50 MB / 100 MB'), 'Expanded text must be available on hover');
+assert(indModes.isExpanded() === true, 'Hover mode should still flag expanded on pointer enter');
+assert(indModes._isCompressed === true, 'The chip compresses while the zone is shared with the menu');
+assert(indModes._telemetryLabelWidget.visible === false, 'Telemetry stays out of the bar while shared with the menu');
+assert(indModes.getExpandedText().includes('50 MB / 100 MB'), 'Expanded text must still be available for the dropdown');
 
 // Simulate pointer hover leave
 indModes.onPointerLeave();
 assert(indModes.isExpanded() === false, 'Hover mode should collapse on pointer leave');
+assert(indModes._isCompressed === false, 'Leaving releases the compression');
 assert(indModes._telemetryLabelWidget.visible === false, 'Telemetry widget must be hidden after leave');
 
 // Mode: slider
@@ -491,11 +496,15 @@ assert(clampedZero === 0, `Clamped width on 0 available space should be 0, got $
 const longText = '1.2 GB / 4.5 GB • 32.0 MB/s • very_long_telemetry_filename_that_exceeds_panel_space.tar.gz';
 const truncated = indClamp.truncateTelemetry(longText, 35);
 assert(truncated.length <= 35, `Truncated text must not exceed maxChars (35), length was ${truncated.length}`);
-assert(truncated.endsWith('...'), `Truncated text should end with ellipsis '...', got '${truncated}'`);
+assert(truncated.endsWith('…'), `Truncated text should end with ellipsis '…', got '${truncated}'`);
 
-// Critical boundary test: maxWidth === 0 must truncate to '...' rather than returning full text
+// Critical boundary: no budget (or a budget too small for text + ellipsis)
+// must show NOTHING — a bare "..." renders as three dots in the panel that
+// read like a second kebab menu next to the real ⋮ (2026-10-26 reports).
 const truncatedZero = indClamp.truncateTelemetry(longText, null, 0);
-assert(truncatedZero === '...', `maxWidth = 0 must produce '...', got '${truncatedZero}'`);
+assert(truncatedZero === '', `maxWidth = 0 must produce '' (never bare dots), got '${truncatedZero}'`);
+const truncatedTiny = indClamp.truncateTelemetry(longText, 2);
+assert(truncatedTiny === '', `limit smaller than the ellipsis must produce '' (never bare dots), got '${truncatedTiny}'`);
 
 // Text shorter than limit remains untouched
 const shortText = '45 MB / 100 MB';
@@ -1103,7 +1112,7 @@ indMockup.updateTask({
     summary: 'Copying files',
     indeterminate: true,
 }, 'Files');
-assert(indMockup.getLabelText() === 'Copying...', `Expected compact label 'Copying...', got '${indMockup.getLabelText()}'`);
+assert(indMockup.getLabelText() === 'Copying', `Expected compact label 'Copying' with no fake-kebab dots, got '${indMockup.getLabelText()}'`);
 indMockup.setExpanded(true);
 assert(
     indMockup._telemetryLabelWidget.text === '',
@@ -2392,6 +2401,93 @@ contractMedia.publishStatus('Stopped');
 contractIndicator._syncVisibility();
 assert.strictEqual(contractIndicator.hasLiveIndicator(), false, 'hasLiveIndicator is false after playback stops');
 assert.strictEqual(contractHost.isIdleRevealed(), true, 'Stopping playback reveals the global menu automatically');
+
+// 6. A chip hidden by indicator-hide-on-hover must never leave the slot
+//    empty: the menu takes over while the chip is gone, and completing a
+//    task with the chip hidden reveals the menu immediately instead of
+//    holding an invisible "Done" flash (2026-10-25 screencast: rows of a
+//    bare app icon with neither indicator nor menu).
+contractIndicator._hideEnabled = true;
+contractIndicator.updateTask({
+    id: 't-hide-1',
+    title: 'Compressing files',
+    summary: 'Compressing files',
+    state: 'running',
+    progress: 0.4,
+    indeterminate: false,
+    source: 'inhibitor',
+    appId: 'org.gnome.Nautilus',
+});
+contractIndicator._syncVisibility();
+assert.strictEqual(contractHost.isIdleRevealed(), false, 'task running with chip visible keeps the menu collapsed');
+contractIndicator.onMenuZoneEnter();
+assert.strictEqual(contractIndicator._isHidden, true, 'hide-on-hover hides the chip on zone enter');
+assert.strictEqual(contractHost.isIdleRevealed(), true, 'the menu must take the slot while the chip is hidden');
+contractIndicator.setCompleted({ id: 't-hide-1', state: 'completed' });
+assert.strictEqual(contractIndicator.isCompleted(), false, 'a hidden chip skips the invisible Done flash');
+assert.strictEqual(contractHost.isIdleRevealed(), true, 'completion with hidden chip reveals the menu immediately');
+contractIndicator._hideEnabled = false;
+assert.strictEqual(contractIndicator._isHidden, false, 'disabling hide-on-hover restores the chip');
+
+// 7. Sharing the slot compresses the task chip: the telemetry text hides so
+//    it stops fighting the revealed menubar for width.
+contractIndicator.updateTask({
+    id: 't-hide-2',
+    title: 'Compressing files',
+    summary: 'Compressing files',
+    state: 'running',
+    progress: 0.4,
+    indeterminate: false,
+    source: 'inhibitor',
+    appId: 'org.gnome.Nautilus',
+    bytesText: '1.6 GB / 3.1 GB',
+    speedText: '65.3 MB/s',
+    fileName: 'video-project.zip',
+});
+contractIndicator.setExpanded(true);
+contractIndicator._updateUiComponents();
+assert.strictEqual(contractIndicator._telemetryLabelWidget.visible, true,
+    'expanded telemetry is visible while the chip owns the slot');
+contractIndicator._setChipCompressed(true);
+assert.strictEqual(contractIndicator._telemetryLabelWidget.visible, false,
+    'compressed chip hides the telemetry while sharing the slot with the menu');
+contractIndicator._setChipCompressed(false);
+assert.strictEqual(contractIndicator._telemetryLabelWidget.visible, true,
+    'telemetry returns when the chip stops sharing the slot');
+
+// 8. Zone leave restores a chip hidden by hide-on-hover for task displays
+//    too — the hidden state was never media-specific.
+contractIndicator._hideEnabled = true;
+contractIndicator.onMenuZoneEnter();
+assert.strictEqual(contractIndicator._isHidden, true, 'chip hides again on zone enter');
+contractIndicator.onMenuZoneLeave({ immediate: true });
+assert.strictEqual(contractIndicator._isHidden, false, 'zone leave restores the hidden chip (task display)');
+assert.strictEqual(contractHost.isIdleRevealed(), false, 'restored chip re-owns the slot and the menu collapses again');
+contractIndicator._hideEnabled = false;
+
+// 9. Reaching the details: the whole chip is the click target. While the
+//    pointer is in the zone the chip stays compressed beside the revealed
+//    menu and its width is pinned — one element, one stable target, no
+//    layout churn (2026-10-25 "chasing dots" / "duplicated dots" screencasts).
+const pressResult = contractIndicator._handleIndicatorButtonPress({ get_source: () => null, get_button: () => 1 });
+assert.strictEqual(pressResult, true, 'pressing anywhere on the task chip must be handled');
+assert.strictEqual(contractIndicator.isDropdownOpen(), true, 'a whole-chip press opens the details dropdown');
+contractIndicator._handleIndicatorButtonPress({ get_source: () => null, get_button: () => 1 });
+assert.strictEqual(contractIndicator.isDropdownOpen(), false, 'pressing again closes the dropdown');
+
+assert.strictEqual(contractIndicator._separatorWidget, undefined, 'no separator dot widget may exist next to the ⋮');
+contractIndicator._setChipCompressed(false);
+contractIndicator.onMenuZoneEnter();
+assert.strictEqual(contractIndicator._isCompressed, true, 'entering the zone compresses the chip beside the revealed menu');
+assert.strictEqual(contractIndicator._chipWidthPinned, true, 'entering the zone pins the compressed width');
+assert.strictEqual(contractIndicator._chipActor.width, contractIndicator._chipActor.get_preferred_width(-1)[1],
+    'the pinned width is the chip natural width');
+contractIndicator.onPointerEnter();
+assert.strictEqual(contractIndicator._isCompressed, true, 'hovering the chip keeps it compressed');
+assert.strictEqual(contractIndicator._chipWidthPinned, true, 'the width pin holds while hovered');
+contractIndicator.onMenuZoneLeave({ immediate: true });
+assert.strictEqual(contractIndicator._chipWidthPinned, false, 'leaving the zone releases the width pin');
+assert.strictEqual(contractIndicator._isCompressed, false, 'leaving the zone decompresses the chip');
 
 contractIndicator.destroy();
 console.log('-> Live indicator state model & idle menu collapse PASSED.');

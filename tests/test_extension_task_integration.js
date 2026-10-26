@@ -99,9 +99,11 @@ assert(extensionCode.includes("import { MediaManager } from './src/mediaManager.
 assert(extensionCode.includes("import { TaskIndicatorButton } from './src/taskIndicatorButton.js'"),
     'extension.js must import TaskIndicatorButton');
 
-// Verify extension.js constructor initializes TaskManager
-assert(extensionCode.includes('this._taskManager = new TaskManager(this._settings)'),
-    'FUHGlobeGlobalMenu constructor must initialize this._taskManager');
+// Verify extension.js constructor initializes TaskManager with the isolated
+// probe helper script (AT-SPI must never run inside the shell process)
+assert(extensionCode.includes('this._taskManager = new TaskManager(this._settings, {') &&
+    extensionCode.includes("GLib.build_filenamev([this._extensionPath, 'bin', 'gm-fileops-probe'])"),
+    'FUHGlobeGlobalMenu constructor must initialize this._taskManager with the isolated probe helper path');
 assert(extensionCode.includes('this._mediaManager = new MediaManager(this._settings)'),
     'FUHGlobeGlobalMenu constructor must initialize this._mediaManager');
 
@@ -130,6 +132,14 @@ const mediaCardCode = readTextFile('./src/mediaFloatingCard.js');
 assert(stylesheetCode.includes('max-height: 80px') &&
     mediaCardCode.includes('y_align: Clutter.ActorAlign.CENTER'),
     'album artwork must remain a centered square when its metadata column is taller');
+
+// Verify AppMenuButton preserves app title and icon permanently
+assert(extensionCode.includes('AppMenuButton label & icon must NEVER fade or collapse'),
+    'AppMenuButton.setIdleRevealed must ensure app label & icon remain visible');
+assert(!extensionCode.includes('this._label.opacity = 0'),
+    'extension.js must never set this._label.opacity to 0');
+assert(!extensionCode.includes('this._icon.opacity = 0'),
+    'extension.js must never set this._icon.opacity to 0');
 
 // Verify src/systemMenu.js accepts taskManager and passes to RecentItemsSubmenu
 assert(systemMenuCode.includes('_init(settings, extensionPath, extension, taskManager = null)'),
@@ -345,7 +355,7 @@ assert(typeof availableSpace === 'number' && availableSpace > 0, 'calculateAvail
 const clampedWidth = taskIndicator.clampTelemetryWidth(350, 150);
 assert(clampedWidth === 150, `clampTelemetryWidth must clamp to maxAvailable (got ${clampedWidth})`);
 const truncated = taskIndicator.truncateTelemetry('12.5 MB/s • 450 MB / 1.2 GB • 1m left', 15);
-assert(truncated.endsWith('...'), 'truncateTelemetry must truncate with ellipsis');
+assert(truncated.endsWith('…'), 'truncateTelemetry must truncate with ellipsis');
 
 console.log('-> Live task telemetry and collision guard checks PASSED.');
 

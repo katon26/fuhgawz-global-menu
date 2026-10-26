@@ -37,6 +37,7 @@ class FakeBus {
         this.watchers = new Map();
         this.calls = [];
         this.initialProperties = null;
+        this.getPositionReply = null;
         this.nextId = 1;
         this.unsubscribed = [];
         this.unwatched = [];
@@ -77,9 +78,13 @@ class FakeBus {
     call(busName, path, iface, method, params, _replyType, _flags, _timeout, _cancellable, callback) {
         this.calls.push({ busName, path, iface, method, params });
         GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-            const result = method === 'GetAll'
-                ? new GLib.Variant('(a{sv})', [this.initialProperties ?? {}])
-                : new GLib.Variant('()', []);
+            let result;
+            if (method === 'GetAll')
+                result = new GLib.Variant('(a{sv})', [this.initialProperties ?? {}]);
+            else if (method === 'Get')
+                result = new GLib.Variant('(v)', [new GLib.Variant('x', this.getPositionReply ?? 0)]);
+            else
+                result = new GLib.Variant('()', []);
             callback(this, { result });
             return GLib.SOURCE_REMOVE;
         });
@@ -146,6 +151,7 @@ const manager = new MediaManager(settings, {
     cacheFile: GLib.build_filenamev([cacheRoot, 'recent-tracks.json']),
     artCacheDir: GLib.build_filenamev([cacheRoot, 'media-art']),
     discoverPlayers: false,
+    positionPollEnabled: false,
 });
 
 assert(manager.getActiveTrack() === null, 'initial active track must be null');
@@ -229,8 +235,88 @@ const [trackId, positionUs] = seekCall.params.deep_unpack();
 assert(trackId === '/org/mpris/MediaPlayer2/track/22', 'absolute seek must carry current MPRIS track ID');
 assert(positionUs === 1_250_000, 'seek input in milliseconds must convert to microseconds');
 
+// --- Position accuracy: the MPRIS Seeked signal, pause freeze, and polling ---
+assert([...bus.subscriptions.values()].some(({signal, iface}) =>
+    signal === 'Seeked' && iface === MPRIS_PLAYER_INTERFACE),
+'must subscribe to the MPRIS Seeked signal');
+
+// Chromium-based players only report seeks through the Seeked signal.
+bus.emit(vlcOwner, MPRIS_PLAYER_INTERFACE, 'Seeked', MPRIS_OBJECT_PATH,
+    new GLib.Variant('(x)', [2_000_000]));
+const seekedPositionUs = manager.getActiveTrack()?.positionUs;
+assert(Number.isFinite(seekedPositionUs) && seekedPositionUs >= 2_000_000 && seekedPositionUs <= 2_100_000,
+    `Seeked must re-anchor the position, got ${seekedPositionUs}`);
+
+// Pausing must freeze the extrapolated position instead of rewinding to the
+// last anchor (which is 0 for players that never report Position).
+propertiesChanged(bus, vlcOwner, { PlaybackStatus: new GLib.Variant('s', 'Paused') });
+const pausedPositionUs = manager.getActiveTrack()?.positionUs;
+assert(Number.isFinite(pausedPositionUs) && pausedPositionUs >= 2_000_000,
+    `pausing must freeze the extrapolated position, got ${pausedPositionUs}`);
+await new Promise(resolve => {
+    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 25, () => {
+        resolve();
+        return GLib.SOURCE_REMOVE;
+    });
+});
+assert(manager.getActiveTrack()?.positionUs === pausedPositionUs,
+    'a paused position must not drift');
+
+// Resuming continues from the frozen position rather than counting the pause.
+propertiesChanged(bus, vlcOwner, { PlaybackStatus: new GLib.Variant('s', 'Playing') });
+assert((manager.getActiveTrack()?.positionUs ?? -1) >= pausedPositionUs,
+    'resume must continue from the frozen position, not restart at zero');
+
+// The periodic Position poll corrects drift from ads, rate changes, and
+// stale anchors.
+bus.getPositionReply = 3_000_000;
+manager._pollActivePosition();
+await new Promise(resolve => {
+    GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+        resolve();
+        return GLib.SOURCE_REMOVE;
+    });
+});
+const polledPositionUs = manager.getActiveTrack()?.positionUs;
+assert(Number.isFinite(polledPositionUs) && polledPositionUs >= 3_000_000 && polledPositionUs <= 3_100_000,
+    `the Position poll must re-anchor drifted playback, got ${polledPositionUs}`);
+bus.getPositionReply = null;
+
+// A zero answer from a broken player must not rewind an obviously-playing
+// track. The fixture above is only 4.2 s long; positions are capped at the
+// track length, so switch to a longer track first.
+propertiesChanged(bus, vlcOwner, {
+    Metadata: new GLib.Variant('a{sv}', {
+        'mpris:trackid': new GLib.Variant('o', '/org/mpris/MediaPlayer2/track/long'),
+        'xesam:title': new GLib.Variant('s', 'Long Track'),
+        'xesam:artist': new GLib.Variant('as', ['Artist']),
+        'mpris:length': new GLib.Variant('x', 600_000_000),
+    }),
+});
+bus.getPositionReply = 6_500_000;
+manager._pollActivePosition();
+await new Promise(resolve => {
+    GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+        resolve();
+        return GLib.SOURCE_REMOVE;
+    });
+});
+assert((manager.getActiveTrack()?.positionUs ?? 0) >= 6_500_000,
+    `a later poll must push the position past the freshness threshold, got ${manager.getActiveTrack()?.positionUs}`);
+bus.getPositionReply = 0;
+manager._pollActivePosition();
+await new Promise(resolve => {
+    GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+        resolve();
+        return GLib.SOURCE_REMOVE;
+    });
+});
+assert((manager.getActiveTrack()?.positionUs ?? 0) >= 6_500_000,
+    'a polled position of 0 must be ignored for established playback');
+bus.getPositionReply = null;
+
 manager._removePlayer('org.mpris.MediaPlayer2.vlc', vlcOwner);
-assert(manager.getRecentTracks()[0]?.title === 'Track 12',
+assert(manager.getRecentTracks()[0]?.title === 'Long Track',
     'removing a player must preserve its final track in recent history');
 
 let eventsAfterDestroy = 0;
