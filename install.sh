@@ -19,7 +19,31 @@ error()   { echo -e "${RED}[ERROR]${RESET} $*" >&2; }
 UUID="fuhgawzglbmenu@katon26.github.io"
 EXT_DIR="${HOME}/.local/share/gnome-shell/extensions/${UUID}"
 
+# Check for --link flag for developer symlink mode
+if [[ "${1:-}" == "--link" ]]; then
+    info "Setting up development symlink to ${EXT_DIR}..."
+    mkdir -p "${HOME}/.local/share/gnome-shell/extensions"
+    if [[ -L "${EXT_DIR}" ]]; then
+        rm -f "${EXT_DIR}"
+    elif [[ -d "${EXT_DIR}" ]]; then
+        rm -rf "${EXT_DIR}"
+    fi
+    ln -s "$(pwd -P)" "${EXT_DIR}"
+    success "Created development symlink: ${EXT_DIR} -> $(pwd -P)"
+    if [[ -d schemas ]]; then
+        glib-compile-schemas schemas/
+        success "Schemas recompiled in place."
+    fi
+    exit 0
+fi
+
 info "Installing FUHGAWZ Global Menu to ${EXT_DIR}..."
+
+# Safety check: if EXT_DIR is an existing symlink pointing to another location, remove the symlink only
+if [[ -L "${EXT_DIR}" ]]; then
+    warn "Detected existing symlink at ${EXT_DIR}. Safely unlinking to protect source files..."
+    rm -f "${EXT_DIR}"
+fi
 
 # Check if EXT_DIR points to the current directory (development symlink)
 SRC_DIR="$(pwd -P)"
@@ -40,6 +64,13 @@ else
             cp -rf "${dir}"/* "${EXT_DIR}/${dir}/"
         fi
     done
+    # The AT-SPI file-ops probe helper must ship inside the extension dir; it
+    # runs as its own process so a11y round trips can never block the shell.
+    if [[ -d bin ]]; then
+        mkdir -p "${EXT_DIR}/bin"
+        cp -f bin/* "${EXT_DIR}/bin/"
+        chmod +x "${EXT_DIR}/bin/"* 2>/dev/null || true
+    fi
     if [[ -d schemas ]]; then
         mkdir -p "${EXT_DIR}/schemas"
         cp -f schemas/* "${EXT_DIR}/schemas/"

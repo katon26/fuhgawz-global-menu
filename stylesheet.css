@@ -143,6 +143,19 @@
   spacing: 4px;
 }
 
+/* The whole chip opens the task details (the ⋮ is only the affordance), so
+   give it a clear hover state like any other panel button. */
+.fuhgawz-task-indicator:hover {
+  background-color: rgba(255, 255, 255, 0.10);
+  border-radius: 8px;
+}
+
+/* Generous hit area for the ⋮ affordance: it sits at the chip's moving end,
+   so every pixel of target helps. */
+.fuhgawz-task-action-button {
+  padding: 5px 9px;
+}
+
 .fuhgawz-task-indicator-unified {
   background-color: transparent;
   border: none;
@@ -222,12 +235,6 @@
 }
 
 /* Subtle dot separator replacing harsh vertical bar line */
-.fuhgawz-task-separator {
-  color: rgba(255, 255, 255, 0.45);
-  font-weight: bold;
-  padding: 0 4px;
-}
-
 .fuhgawz-task-indicator-label {
   font-size: 1em;
   font-weight: 600;

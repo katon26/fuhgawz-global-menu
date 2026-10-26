@@ -18,6 +18,13 @@ export const MPRIS_ROOT_INTERFACE = 'org.mpris.MediaPlayer2';
 export const MPRIS_PLAYER_INTERFACE = `${MPRIS_ROOT_INTERFACE}.Player`;
 export const MPRIS_TRACKLIST_INTERFACE = `${MPRIS_ROOT_INTERFACE}.TrackList`;
 export const MPRIS_OBJECT_PATH = '/org/mpris/MediaPlayer2';
+
+/** How often the real MPRIS Position property is re-read to correct drift. */
+export const POSITION_POLL_MS = 5000;
+/** Re-anchor only when the player's answer differs from our estimate by this much. */
+const POSITION_SYNC_TOLERANCE_US = 500_000;
+/** A polled position of 0 is only trusted while the track is younger than this. */
+const POSITION_FRESH_US = 5_000_000;
 const DBUS_INTERFACE = 'org.freedesktop.DBus';
 const NO_TRACK_ID = '/org/mpris/MediaPlayer2/TrackList/NoTrack';
 
@@ -137,6 +144,8 @@ export const MediaManager = GObject.registerClass(
             this._spotifyWatcherId = 0;
             this._spotifyPriority = options.spotifyPriority ?? this._readSpotifyPriority();
             this._isSeeking = false;
+            this._positionPollId = 0;
+            this._positionPollEnabled = options.positionPollEnabled ?? true;
 
             const cacheRoot = GLib.build_filenamev([GLib.get_user_cache_dir(), 'fuhgawz-global-menu']);
             this._cacheFile = options.cacheFile ?? GLib.build_filenamev([cacheRoot, 'recent-tracks.json']);
@@ -151,6 +160,7 @@ export const MediaManager = GObject.registerClass(
 
             this._connectSettings();
             this._subscribeToBus();
+            this._startPositionPoll();
         }
 
         _getSessionBus() {
@@ -227,6 +237,30 @@ export const MediaManager = GObject.registerClass(
                 this._subscriptions.push(ownerId);
             } catch (error) {
                 // Name watches below still provide Spotify lifecycle notifications.
+            }
+
+            // Chromium-derived browsers never include Position in
+            // PropertiesChanged; they only announce seeks through this signal.
+            // Without it the position anchor goes stale and every drift ends
+            // pinned at the track length (the panel chip shows 0:00 left).
+            try {
+                const seekedId = bus.signal_subscribe(
+                    null, MPRIS_PLAYER_INTERFACE, 'Seeked', MPRIS_OBJECT_PATH,
+                    null, Gio.DBusSignalFlags.NONE,
+                    (_connection, sender, _path, _interface, _signal, parameters) => {
+                        if (this._destroyed)
+                            return;
+                        try {
+                            const [position] = parameters.deep_unpack();
+                            this._handleSeeked(sender, position);
+                        } catch (error) {
+                            // A malformed Seeked from an unrelated client is ignorable.
+                        }
+                    }
+                );
+                this._subscriptions.push(seekedId);
+            } catch (error) {
+                // Position polling still corrects drift without the signal.
             }
 
             const watchName = this._options.watchName ?? ((connection, name, flags, appeared, vanished) => {
@@ -323,6 +357,7 @@ export const MediaManager = GObject.registerClass(
                 positionUs: 0,
                 positionTimestamp: GLib.get_monotonic_time(),
                 status: 'Stopped',
+                rate: 1,
                 order: ++this._sequence,
             };
             this._players.set(name, state);
@@ -406,8 +441,26 @@ export const MediaManager = GObject.registerClass(
 
             if (Object.prototype.hasOwnProperty.call(changed, 'PlaybackStatus')) {
                 const status = changed.PlaybackStatus;
-                if (['Playing', 'Paused', 'Stopped'].includes(status))
+                if (['Playing', 'Paused', 'Stopped'].includes(status)) {
+                    if (state.status === 'Playing' && status !== 'Playing') {
+                        // Freeze the live extrapolation into the anchor so the
+                        // paused position is the one playback actually reached;
+                        // otherwise pausing rewinds the display to the last
+                        // anchored value (0 for browsers that never report it).
+                        state.positionUs = this._positionForState(state);
+                        state.positionTimestamp = GLib.get_monotonic_time();
+                    } else if (state.status !== 'Playing' && status === 'Playing') {
+                        // Resume: keep the frozen position, restart the clock so
+                        // the paused interval is not counted as playback time.
+                        state.positionTimestamp = GLib.get_monotonic_time();
+                    }
                     state.status = status;
+                }
+            }
+            if (Object.prototype.hasOwnProperty.call(changed, 'Rate')) {
+                const rate = Number(changed.Rate);
+                if (Number.isFinite(rate) && rate > 0)
+                    state.rate = rate;
             }
             if (Object.prototype.hasOwnProperty.call(changed, 'Position')) {
                 state.positionUs = Math.max(0, Number(changed.Position) || 0);
@@ -459,9 +512,78 @@ export const MediaManager = GObject.registerClass(
 
         _positionForState(state) {
             let position = state.positionUs;
-            if (state.status === 'Playing')
-                position += Math.max(0, GLib.get_monotonic_time() - state.positionTimestamp);
+            if (state.status === 'Playing') {
+                const rate = Number.isFinite(state.rate) && state.rate > 0 ? state.rate : 1;
+                position += Math.max(0, GLib.get_monotonic_time() - state.positionTimestamp) * rate;
+            }
             return state.lengthUs > 0 ? Math.min(position, state.lengthUs) : position;
+        }
+
+        _handleSeeked(sender, position) {
+            const name = this._ownerToName.get(sender) ??
+                (typeof sender === 'string' && sender.startsWith(`${MPRIS_ROOT_INTERFACE}.`) ? sender : null);
+            const state = name ? this._players.get(name) : null;
+            if (!state)
+                return;
+            state.positionUs = Math.max(0, Number(position) || 0);
+            state.positionTimestamp = GLib.get_monotonic_time();
+            this._refreshActivePlayer(true);
+        }
+
+        _startPositionPoll() {
+            if (!this._positionPollEnabled || this._positionPollId || this._destroyed)
+                return;
+            this._positionPollId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, POSITION_POLL_MS, () => {
+                if (this._destroyed) {
+                    this._positionPollId = 0;
+                    return GLib.SOURCE_REMOVE;
+                }
+                this._pollActivePosition();
+                return GLib.SOURCE_CONTINUE;
+            });
+            this._timers.add(this._positionPollId);
+        }
+
+        /**
+         * Re-reads the real Position property of the active playing player.
+         * Wall-clock extrapolation from the last anchor drifts whenever the
+         * player pauses without a status change, buffers, plays an ad, or runs
+         * at a non-1.0 rate; this poll is what keeps the chip honest.
+         */
+        _pollActivePosition() {
+            const player = this._activePlayerName ? this._players.get(this._activePlayerName) : null;
+            if (!player || player.status !== 'Playing')
+                return;
+
+            this._call(player.owner, MPRIS_OBJECT_PATH, 'org.freedesktop.DBus.Properties', 'Get',
+                new GLib.Variant('(ss)', [MPRIS_PLAYER_INTERFACE, 'Position']),
+                new GLib.VariantType('(v)'))
+                .then(result => {
+                    if (this._destroyed || this._players.get(player.name) !== player)
+                        return;
+                    let polledUs;
+                    try {
+                        const [value] = result.deep_unpack();
+                        polledUs = Number(value?.deep_unpack ? value.deep_unpack() : value) || 0;
+                    } catch (error) {
+                        return;
+                    }
+                    if (!Number.isFinite(polledUs) || polledUs < 0)
+                        return;
+
+                    const extrapolated = this._positionForState(player);
+                    // Some players answer 0 forever; only trust that while the
+                    // track is young enough for 0 to be plausible.
+                    if (polledUs === 0 && extrapolated >= POSITION_FRESH_US)
+                        return;
+                    if (Math.abs(polledUs - extrapolated) < POSITION_SYNC_TOLERANCE_US)
+                        return;
+
+                    player.positionUs = polledUs;
+                    player.positionTimestamp = GLib.get_monotonic_time();
+                    this._refreshActivePlayer(true);
+                })
+                .catch(() => {});
         }
 
         _refreshActivePlayer(positionChanged = false) {
@@ -706,6 +828,7 @@ export const MediaManager = GObject.registerClass(
             for (const id of this._timers)
                 GLib.source_remove(id);
             this._timers.clear();
+            this._positionPollId = 0;
 
             if (this._dbusConnection && typeof this._dbusConnection.signal_unsubscribe === 'function') {
                 for (const id of this._subscriptions) {

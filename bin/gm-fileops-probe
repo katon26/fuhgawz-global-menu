@@ -1,0 +1,78 @@
+#!/usr/bin/env -S gjs -m
+// SPDX-License-Identifier: GPL-3.0-or-later
+// bin/gm-fileops-probe — isolated AT-SPI progress probe for Nautilus file
+// operations.
+//
+// This program is spawned by the extension's TaskManager and MUST stay a
+// separate process: synchronous AT-SPI IPC inside gnome-shell blocks the
+// compositor main loop and freezes the whole screen when the target
+// application's a11y cache is slow or broken. Here a hung round trip only
+// stalls this disposable helper, and the shell keeps running.
+//
+// Usage: gm-fileops-probe <nautilus-pid> [interval-ms]
+// Emits one JSON object per line on stdout:
+//   {"progress":0.67,"bytesText":"3.7 GB / 5.5 GB","etaText":"6s left","totalBytes":5500000000}
+//   {"progress":null}   — heartbeat: nothing readable right now
+// Exits when stdin closes (parent gone) or when killed.
+
+import System from 'system';
+import GLib from 'gi://GLib';
+import Gio from 'gi://Gio';
+import GioUnix from 'gi://GioUnix';
+import { AtspiScanner } from '../src/atspiScanner.js';
+import { parseNautilusProgressText } from '../src/taskManager.js';
+
+const pid = Number(ARGV[0] ?? 0);
+const intervalMs = Math.max(250, Number(ARGV[1] ?? 1000));
+
+const stdout = GioUnix.OutputStream.new(1, false);
+function emit(obj) {
+    try {
+        stdout.write_all(new TextEncoder().encode(`${JSON.stringify(obj)}\n`), null);
+    } catch (e) {
+        System.exit(0);
+    }
+}
+
+if (!Number.isFinite(pid) || pid <= 0) {
+    emit({progress: null, error: 'bad-pid'});
+    System.exit(1);
+}
+
+// Orphan guard: the parent holds stdin open; a clean EOF means it is gone.
+// Read errors (e.g. would-block on a terminal) are ignored — the parent also
+// kills the helper explicitly.
+const stdin = GioUnix.InputStream.new(0, false);
+stdin.read_bytes_async(64, GLib.PRIORITY_DEFAULT, null, (src, res) => {
+    try {
+        if (src.read_bytes_finish(res).get_size() === 0)
+            System.exit(0);
+    } catch (e) {}
+});
+
+const scanner = new AtspiScanner();
+// Kick off Atspi loading but do not gate on it: Atspi.init() performs
+// synchronous D-Bus calls to the a11y registry and can stall arbitrarily.
+// findProgressText() simply reports nothing until loading completed, so a
+// stalled registry only means heartbeats, never a hang that matters.
+scanner.waitForAtspi();
+
+const loop = new GLib.MainLoop(null, false);
+GLib.timeout_add(GLib.PRIORITY_DEFAULT, intervalMs, () => {
+    let parsed = null;
+    try {
+        const found = scanner.findProgressText([pid]);
+        if (found)
+            parsed = parseNautilusProgressText(found.texts.join('\n'));
+    } catch (e) {
+        parsed = null;
+    }
+    emit(parsed ? {
+        progress: parsed.progress,
+        bytesText: parsed.bytesText,
+        etaText: parsed.etaText,
+        totalBytes: parsed.totalBytes,
+    } : {progress: null});
+    return GLib.SOURCE_CONTINUE;
+});
+loop.run();

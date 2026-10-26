@@ -382,6 +382,7 @@ class BaseIndicatorLogic {
         this._isPointerInZone = false;
         this._isHidden = false;
         this._isCompressed = false;
+        this._chipWidthPinned = false;
         this._floatingCardActor = options.floatingCardActor ?? null;
         this._customChipActor = null;
         this._customHideEnabled = undefined;
@@ -504,10 +505,7 @@ class BaseIndicatorLogic {
                         if (key === 'menu-hide-when-idle') {
                             // Turning idle hide off must show the menu now, not on
                             // the next hover: the user asked to see it.
-                            if (this._menuIdleHideEnabled && this.hasLiveIndicator())
-                                this._collapseMenuZone();
-                            else
-                                this._revealMenuZone();
+                            this._syncMenuZone();
                         }
                         this._updateUiComponents();
                     });
@@ -686,7 +684,11 @@ class BaseIndicatorLogic {
             return Clutter ? Clutter.EVENT_PROPAGATE : false;
         }
 
-        if (this._placement === 'standalone') {
+        // The whole chip is the details target — in every placement. The
+        // ⋮ button stays as the visual affordance, but it is a small target
+        // at the moving end of the chip; demanding a precise hit on it is
+        // what made the details feel unreachable (2026-10-25 screencasts).
+        if (this._activeTask || this._isCompleted || this._hasActiveTask()) {
             this.toggleDropdown();
             return Clutter ? Clutter.EVENT_STOP : true;
         }
@@ -804,12 +806,7 @@ class BaseIndicatorLogic {
             }
         }
 
-        const hasLive = this.hasLiveIndicator();
-        if (!hasLive) {
-            this._revealMenuZone();
-        } else if (!this._isPointerInZone && !this._isPinned && !this.isCardOpen()) {
-            this._collapseMenuZone();
-        }
+        this._syncMenuZone();
     }
 
     _showIndicator() {
@@ -967,13 +964,7 @@ class BaseIndicatorLogic {
                 this.add_style_class_name('fuhgawz-task-indicator-standalone');
             }
 
-            // 7. Hide separator in standalone mode
-            if (this._separatorWidget) {
-                if (typeof this._separatorWidget.hide === 'function') this._separatorWidget.hide();
-                this._separatorWidget.visible = false;
-            }
-
-            // 8. Auto-hide behavior synchronized across indicator and its container
+            // 7. Auto-hide behavior synchronized across indicator and its container
             this._syncVisibility();
 
         } else {
@@ -1080,19 +1071,7 @@ class BaseIndicatorLogic {
                 this.add_style_class_name('fuhgawz-task-indicator-unified');
             }
 
-            // 6. Restore separator based on content
-            if (this._separatorWidget) {
-                const hasContent = Boolean(this._labelText || this._activeTask || this._isCompleted);
-                if (hasContent) {
-                    if (typeof this._separatorWidget.show === 'function') this._separatorWidget.show();
-                    this._separatorWidget.visible = true;
-                } else {
-                    if (typeof this._separatorWidget.hide === 'function') this._separatorWidget.hide();
-                    this._separatorWidget.visible = false;
-                }
-            }
-
-            // 7. Auto-hide behavior synchronized across indicator and its container
+            // 6. Auto-hide behavior synchronized across indicator and its container
             this._syncVisibility();
         }
 
@@ -1216,13 +1195,12 @@ class BaseIndicatorLogic {
             while (endPattern.test(cleaned)) {
                 cleaned = cleaned.replace(endPattern, '').trim();
             }
-            if (cleaned) {
-                if (!cleaned.endsWith('...') && !cleaned.endsWith('…')) {
-                    cleaned += '...';
-                }
-                return cleaned;
-            }
-            return '';
+            // No trailing "..." is appended on purpose: three ASCII dots in a
+            // panel label render exactly like a kebab-menu affordance and sat
+            // 17px from the real ⋮ button, reading as a second, dead set of
+            // dots (2026-10-25 "useless duplicated dots" screencast). The
+            // spinner already communicates that the operation is ongoing.
+            return cleaned;
         }
 
         // Check if text contains appLabel as a whole word
@@ -1231,13 +1209,7 @@ class BaseIndicatorLogic {
             let cleaned = text.replace(wordPattern, '').replace(/\s{2,}/g, ' ').trim();
             // Clean up dangling prepositions like "to", "from", "in" at the end
             cleaned = cleaned.replace(/\s+(?:to|from|in|into)$/i, '').trim();
-            if (cleaned) {
-                if (!cleaned.endsWith('...') && !cleaned.endsWith('…')) {
-                    cleaned += '...';
-                }
-                return cleaned;
-            }
-            return '';
+            return cleaned;
         }
 
         return text;
@@ -1260,7 +1232,7 @@ class BaseIndicatorLogic {
 
         if (task.indeterminate) {
             const sanitizedText = this._sanitizeLabel(effectiveAppLabel, task.title, task.summary);
-            return sanitizedText || 'In progress...';
+            return sanitizedText || 'In progress';
         }
 
         const rawVal = Number(task.progress);
@@ -1399,6 +1371,13 @@ class BaseIndicatorLogic {
         }
 
         this._isCompleted = true;
+        if (this._isHidden) {
+            // The chip is hidden (indicator-hide-on-hover): a "Done" flash
+            // would be invisible and only hold the menu out of the slot for
+            // the auto-hide delay. Collapse straight away instead.
+            this._autoCollapseCompletion();
+            return;
+        }
         this._labelText = this.formatCompactLabel(this._activeTask, effectiveAppLabel);
         this._expandedText = this.formatExpandedTelemetry(this._activeTask, effectiveAppLabel);
 
@@ -1455,6 +1434,7 @@ class BaseIndicatorLogic {
         this._labelText = '';
         this._expandedText = '';
         this.setExpanded(false);
+        this._pinChipWidth(false);
 
         if (this._progressBar) {
             this._progressBar.setProgress(0.0);
@@ -1483,6 +1463,16 @@ class BaseIndicatorLogic {
             this.hideChipIn();
         }
         this._syncIndicatorDisplay();
+
+        if (!this._isMediaDisplay) {
+            // While the pointer is anywhere in the zone the menu is revealed
+            // beside the chip, so the chip stays COMPRESSED and its width
+            // pinned: one element (spinner + status + ⋮), one stable target,
+            // and the once-a-second telemetry updates cannot re-layout it.
+            // Full numbers live in the dropdown, one click away.
+            this._setChipCompressed(true);
+            this._pinChipWidth(true);
+        }
 
         if (this._isMediaDisplay && this._readMediaSetting('media-hover-popover', true)) {
             this._mediaCard?.showForActor?.(this, this._mediaTrack, this._mediaPlaybackStatus);
@@ -1544,6 +1534,7 @@ class BaseIndicatorLogic {
     }
 
     _isPointerOverIndicator() {
+        if (this._isHidden) return false;
         if (this.hover || this._box?.hover || this._compactLabelWidget?.hover || this._statusIconWidget?.hover || this._mediaChip?.hover) return true;
         if (this._isPointerOverCard()) return true;
         if (typeof global !== 'undefined' && global.get_pointer) {
@@ -1559,7 +1550,7 @@ class BaseIndicatorLogic {
                         }
                         if (aw <= 0) aw = target.get_width?.() ?? target.width ?? 0;
                         if (ah <= 0) ah = target.get_height?.() ?? target.height ?? 0;
-                        if (x >= ax - 4 && x <= ax + aw + 4 && y >= ay - 2 && y <= ay + ah + 2) return true;
+                        if (aw > 0 && ah > 0 && x >= ax - 4 && x <= ax + aw + 4 && y >= ay - 2 && y <= ay + ah + 2) return true;
                     }
                 }
             } catch (e) {}
@@ -1569,21 +1560,52 @@ class BaseIndicatorLogic {
 
     _handleLeaveGraceTrigger() {
         if (this._destroyed || this._isPinned) return;
-        if (this._isPointerInZone || this._isPointerOverIndicator() || this._isPointerOverCard() || (this._mediaCard?._waveArea?._dragging)) return;
+        if (this._isPointerInZone || this._isPointerOverIndicator() || this._isPointerOverCard() || this._isPointerOverDropdown() || (this._mediaCard?._waveArea?._dragging)) return;
         if (this._appMenuButton && typeof this._appMenuButton.isAnyMenuOpen === 'function' && this._appMenuButton.isAnyMenuOpen()) return;
         this._setChipCompressed(false);
-        this._collapseMenuZone();
+        this._pinChipWidth(false);
         if (this._mode === 'hover') {
             this.setExpanded(false);
         }
+        this._pinChipWidth(false);
         if (this._isMediaDisplay) {
             this._mediaCard?.hideCard?.();
-            if (this._isHidden && this.getHideReturnTrigger() === 'zone-leave') {
-                this.hideChipIn();
-            }
         } else if (this.isDropdownOpen()) {
             this.closeDropdown();
         }
+        // Restore a chip hidden by indicator-hide-on-hover on zone leave,
+        // whatever is on display — the hidden state was never media-specific.
+        if (this._isHidden && this.getHideReturnTrigger() === 'zone-leave') {
+            this.hideChipIn();
+        }
+        // Single decision point: chip visible again + pointer away → the
+        // indicator owns the slot; anything else reveals the menu.
+        this._syncMenuZone();
+    }
+
+    /**
+     * Whether the pointer currently sits over the open task dropdown. Moving
+     * from the chip to the panel must not close it mid-transit.
+     *
+     * @returns {boolean}
+     */
+    _isPointerOverDropdown() {
+        if (!this._isDropdownOpen || !this.menu?.actor)
+            return false;
+        if (this.menu.actor.hover)
+            return true;
+        try {
+            if (typeof global !== 'undefined' && global.get_pointer &&
+                typeof this.menu.actor.get_transformed_position === 'function') {
+                const [x, y] = global.get_pointer();
+                const [ax, ay] = this.menu.actor.get_transformed_position();
+                let aw = 0, ah = 0;
+                try { [aw, ah] = this.menu.actor.get_transformed_size(); } catch (e) {}
+                if (x >= ax && x <= ax + aw && y >= ay && y <= ay + ah)
+                    return true;
+            }
+        } catch (e) {}
+        return false;
     }
 
     _cancelCardDwellTimer() {
@@ -1753,10 +1775,16 @@ class BaseIndicatorLogic {
         const limit = maxChars !== null
             ? maxChars
             : (maxWidth !== null ? Math.floor(maxWidth / charWidth) : text.length);
-        if (limit <= 0) return '...';
+        // A label that is nothing but "..." renders as three bare dots in the
+        // panel — indistinguishable from a kebab-menu affordance next to the
+        // real ⋮ button (the 2026-10-25/26 "useless duplicated dots"
+        // reports). No budget or a budget smaller than the ellipsis means
+        // there is no room for telemetry at all: show nothing.
+        if (limit <= 0) return '';
         if (text.length <= limit) return text;
-        const keep = Math.max(0, limit - 3);
-        return text.substring(0, keep) + '...';
+        const keep = limit - 3;
+        if (keep <= 0) return '';
+        return text.substring(0, keep) + '…';
     }
 
     // ---------------------------------------------------------------------
@@ -2170,11 +2198,17 @@ class BaseIndicatorLogic {
         // Clear any compressed state first: the natural width below must be the
         // uncompressed width, or the chip restores narrower than it started.
         this._setChipCompressed(false);
-        this._hideNaturalWidth = typeof this._chipActor.get_preferred_width === 'function'
+        this._pinChipWidth(false);
+        this._chipActor.remove_all_transitions?.();
+        const currentPrefWidth = typeof this._chipActor.get_preferred_width === 'function'
             ? this._chipActor.get_preferred_width(-1)[1]
             : (this._chipActor._naturalWidth ?? this._chipActor.width ?? 120);
+        if (currentPrefWidth > 0) {
+            this._hideNaturalWidth = currentPrefWidth;
+        }
 
         this._isHidden = true;
+        this._syncMenuZone();
         if (this._shouldReduceMotion()) {
             this._chipActor.opacity = 0;
             this._chipActor.width = 0;
@@ -2200,10 +2234,12 @@ class BaseIndicatorLogic {
         if (!this._isHidden)
             return;
         this._isHidden = false;
-        if (this !== this._chipActor) {
+        if (this !== this._chipActor && this.hasLiveIndicator()) {
             this.visible = true;
             this.show?.();
         }
+        this._syncMenuZone();
+        this._chipActor.remove_all_transitions?.();
         const naturalWidth = this._hideNaturalWidth || (typeof this._chipActor.get_preferred_width === 'function'
             ? this._chipActor.get_preferred_width(-1)[1]
             : (this._chipActor._naturalWidth ?? this._chipActor.width ?? 120));
@@ -2249,13 +2285,19 @@ class BaseIndicatorLogic {
         if (this._destroyed) return;
         this._isPointerInZone = true;
         this._cancelLeaveGraceTimer();
-        this._revealMenuZone();
-        if (this._hideEnabled && !this._isPointerOverIndicator()) {
-            this.hideChipOut();
-        } else {
-            this._setChipCompressed(true);
-            if (this._isMediaDisplay) {
-                this.onPointerEnter();
+        this._syncMenuZone();
+        if (this.hasLiveIndicator()) {
+            if (this._hideEnabled && !this._isPointerOverIndicator()) {
+                this.hideChipOut();
+            } else {
+                // The menu is revealed next to the chip: compress once and pin
+                // that width, so the chip settles immediately instead of jumping
+                // again on every pointer move or telemetry tick.
+                this._setChipCompressed(true);
+                this._pinChipWidth(true);
+                if (this._isMediaDisplay) {
+                    this.onPointerEnter();
+                }
             }
         }
     }
@@ -2273,6 +2315,47 @@ class BaseIndicatorLogic {
         if (!button || typeof button.setIdleRevealed !== 'function')
             return;
         button.setIdleRevealed(true);
+    }
+
+    /**
+     * The single decision point for whether the global menu is visible.
+     *
+     * The menu collapses only while the live indicator actually owns the
+     * slot: a live indicator exists AND the pointer is away AND the chip is
+     * on screen. Any other combination — no indicator, pointer in the zone,
+     * a pinned/dropdown state, or a chip hidden by indicator-hide-on-hover —
+     * reveals the menu. Before this existed, reveal/collapse calls were
+     * scattered across hover handlers, hide animations and completion
+     * timers, which raced and left the slot showing nothing but the app
+     * icon (see the 2026-10-25 screencast).
+     *
+     * @returns {void}
+     */
+    _syncMenuZone() {
+        if (this._destroyed) return;
+        const chipOwnsSlot = this.hasLiveIndicator() &&
+            !this._isPointerInZone &&
+            !this._isPinned &&
+            !this.isCardOpen() &&
+            !this._isHidden &&
+            this._chipDisplayed();
+        if (chipOwnsSlot)
+            this._collapseMenuZone();
+        else
+            this._revealMenuZone();
+    }
+
+    /**
+     * Whether the chip is actually presented to the user right now, as
+     * opposed to existing but hidden.
+     *
+     * @returns {boolean}
+     */
+    _chipDisplayed() {
+        if (this._placement === 'standalone')
+            return true;
+        const hasTaskContent = Boolean(this._activeTask || this._isCompleted);
+        return Boolean((this._enabled && hasTaskContent) || this._isMediaDisplay);
     }
 
     _collapseMenuZone() {
@@ -2307,27 +2390,35 @@ class BaseIndicatorLogic {
     onMenuZoneLeave(options = {}) {
         if (this._destroyed || this._isPinned) return;
         this._isPointerInZone = false;
-        if (this._isHidden) {
-            if (this.getHideReturnTrigger() === 'zone-leave') {
-                const graceMs = options.graceMs ?? this._leaveGraceMs;
-                if (options.immediate || graceMs <= 0) {
-                    this._cancelLeaveGraceTimer();
-                    this._handleLeaveGraceTrigger();
-                } else {
-                    this._cancelLeaveGraceTimer();
-                    this._leaveGraceTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, graceMs, () => {
-                        this._leaveGraceTimerId = 0;
-                        if (this._destroyed) return GLib.SOURCE_REMOVE;
-                        if (this._isHidden && this.getHideReturnTrigger() === 'zone-leave' && !this._isPinned) {
-                            this._handleLeaveGraceTrigger();
-                        }
-                        return GLib.SOURCE_REMOVE;
-                    });
+        if (this.hasLiveIndicator()) {
+            if (this._isHidden) {
+                if (this.getHideReturnTrigger() === 'zone-leave') {
+                    const graceMs = options.graceMs ?? this._leaveGraceMs;
+                    if (options.immediate || graceMs <= 0) {
+                        this._cancelLeaveGraceTimer();
+                        this._handleLeaveGraceTrigger();
+                    } else {
+                        this._cancelLeaveGraceTimer();
+                        this._leaveGraceTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, graceMs, () => {
+                            this._leaveGraceTimerId = 0;
+                            if (this._destroyed) return GLib.SOURCE_REMOVE;
+                            if (this._isHidden && this.getHideReturnTrigger() === 'zone-leave' && !this._isPinned) {
+                                this._handleLeaveGraceTrigger();
+                            }
+                            return GLib.SOURCE_REMOVE;
+                        });
+                    }
                 }
+            } else {
+                this._setChipCompressed(false);
+                this._pinChipWidth(false);
+                this.onPointerLeave(options);
             }
         } else {
+            this._cancelLeaveGraceTimer();
             this._setChipCompressed(false);
-            this.onPointerLeave(options);
+            this._pinChipWidth(false);
+            this._syncMenuZone();
         }
     }
 
@@ -2349,6 +2440,47 @@ class BaseIndicatorLogic {
         else
             this.remove_style_class_name?.('fuhgawz-chip-compressed');
         this._updateUiComponents();
+    }
+
+    /**
+     * Freezes the chip's width while the pointer is over it.
+     *
+     * Live telemetry rewrites the labels once a second, and every rewrite
+     * re-measures the chip, so the ⋮ button at its end drifted a few pixels
+     * each second — right when someone is trying to click it. While hovered
+     * the chip keeps the width it had on entry (overflow ellipsized) and
+     * returns to natural sizing when the pointer leaves the zone.
+     *
+     * @param {boolean} pinned
+     * @returns {void}
+     */
+    _pinChipWidth(pinned) {
+        const chip = this._chipActor;
+        if (!chip || typeof chip.set_width !== 'function')
+            return;
+        if (pinned) {
+            if (this._chipWidthPinned)
+                return;
+            let natural = 0;
+            if (typeof chip.get_preferred_width === 'function') {
+                try {
+                    [, natural] = chip.get_preferred_width(-1);
+                } catch (e) {}
+            }
+            if (!Number.isFinite(natural) || natural <= 0)
+                natural = typeof chip.get_width === 'function' ? chip.get_width() : (chip.width ?? 0);
+            if (!Number.isFinite(natural) || natural <= 0)
+                return;
+            this._chipWidthPinned = true;
+            chip.set_width(natural);
+            try { chip.clip_to_allocation = true; } catch (e) {}
+        } else {
+            if (!this._chipWidthPinned)
+                return;
+            this._chipWidthPinned = false;
+            chip.set_width(-1);
+            try { chip.clip_to_allocation = false; } catch (e) {}
+        }
     }
 
     handleHideReturnClick() {
@@ -2556,6 +2688,10 @@ class BaseIndicatorLogic {
             activeCard = {
                 id: this._activeTask.id,
                 title: this._activeTask.title,
+                appId: this._activeTask.appId || '',
+                opType: this._activeTask.opType,
+                state: this._activeTask.state || 'running',
+                canCancel: this._activeTask.canCancel ?? true,
                 progress: this._activeTask.progress,
                 indeterminate: Boolean(this._activeTask.indeterminate),
                 summary: this._activeTask.summary || '',
@@ -2604,8 +2740,13 @@ class BaseIndicatorLogic {
                     vertical: false,
                     style_class: 'fuhgawz-popover-header',
                 });
+                const headerIconName = card.opType === 'delete'
+                    ? 'user-trash-symbolic'
+                    : (card.opType === 'compress' || card.opType === 'extract'
+                        ? 'package-x-generic-symbolic'
+                        : (card.opType === 'copy' ? 'edit-copy-symbolic' : 'text-x-generic-symbolic'));
                 const headerIcon = new St.Icon({
-                    icon_name: 'text-x-generic-symbolic',
+                    icon_name: headerIconName,
                     style_class: 'fuhgawz-popover-header-icon',
                     y_align: Clutter?.ActorAlign?.CENTER ?? 0,
                 });
@@ -2694,21 +2835,23 @@ class BaseIndicatorLogic {
                 actionsBox.add_child(pauseBtn);
 
                 // Cancel Button
-                const cancelBtn = new St.Button({
-                    style_class: 'fuhgawz-pop-btn fuhgawz-pop-btn-cancel cancel',
-                    reactive: true,
-                    can_focus: true,
-                    x_expand: true,
-                });
-                const cancelContent = new St.BoxLayout({ vertical: false, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
-                const cancelText = new St.Label({ text: 'Cancel' });
-                cancelContent.add_child(cancelText);
-                cancelBtn.set_child(cancelContent);
-                cancelBtn.connect('clicked', () => {
-                    this.cancelTask(card.id);
-                    this.closeDropdown();
-                });
-                actionsBox.add_child(cancelBtn);
+                if (card.canCancel !== false) {
+                    const cancelBtn = new St.Button({
+                        style_class: 'fuhgawz-pop-btn fuhgawz-pop-btn-cancel cancel',
+                        reactive: true,
+                        can_focus: true,
+                        x_expand: true,
+                    });
+                    const cancelContent = new St.BoxLayout({ vertical: false, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
+                    const cancelText = new St.Label({ text: 'Cancel' });
+                    cancelContent.add_child(cancelText);
+                    cancelBtn.set_child(cancelContent);
+                    cancelBtn.connect('clicked', () => {
+                        this.cancelTask(card.id);
+                        this.closeDropdown();
+                    });
+                    actionsBox.add_child(cancelBtn);
+                }
 
                 // Show in Files Button
                 const revealBtn = new St.Button({
@@ -3036,21 +3179,8 @@ class BaseIndicatorLogic {
 
     _updateUiComponents() {
         this._syncIndicatorDisplay();
-        if (this._separatorWidget) {
-            if (this._placement === 'standalone') {
-                if (typeof this._separatorWidget.hide === 'function') this._separatorWidget.hide();
-                else this._separatorWidget.visible = false;
-            } else {
-                const hasContent = Boolean(this._labelText || this._activeTask || this._isCompleted);
-                if (hasContent) {
-                    if (typeof this._separatorWidget.show === 'function') this._separatorWidget.show();
-                    else this._separatorWidget.visible = true;
-                } else {
-                    if (typeof this._separatorWidget.hide === 'function') this._separatorWidget.hide();
-                    else this._separatorWidget.visible = false;
-                }
-            }
-        }
+
+        const hasTaskContent = Boolean(this._activeTask || this._isCompleted);
 
         if (this._compactLabelWidget) {
             if (this._isMediaDisplay) {
@@ -3066,12 +3196,18 @@ class BaseIndicatorLogic {
                 if (typeof this._compactLabelWidget.hide === 'function')
                     this._compactLabelWidget.hide();
                 this._compactLabelWidget.visible = false;
-            } else {
+            } else if (hasTaskContent) {
                 this._stopMediaMarquee();
                 this._compactLabelWidget.tooltip_text = '';
                 if (typeof this._compactLabelWidget.show === 'function')
                     this._compactLabelWidget.show();
                 this._compactLabelWidget.visible = true;
+            } else {
+                this._stopMediaMarquee();
+                this._compactLabelWidget.tooltip_text = '';
+                if (typeof this._compactLabelWidget.hide === 'function')
+                    this._compactLabelWidget.hide();
+                this._compactLabelWidget.visible = false;
             }
             this._compactLabelWidget.text = this._marqueeActiveText || this._labelText;
             if (this._isMediaDisplay) {
@@ -3216,7 +3352,7 @@ class BaseIndicatorLogic {
         }
 
         if (this._actionButton) {
-            if (this._isMediaDisplay) {
+            if (this._isMediaDisplay || !hasTaskContent) {
                 if (typeof this._actionButton.hide === 'function') this._actionButton.hide();
                 this._actionButton.visible = false;
             } else {
@@ -3241,7 +3377,10 @@ class BaseIndicatorLogic {
         }
 
         if (this._telemetryLabelWidget) {
-            if (this._isExpanded && this._expandedText) {
+            // While the chip shares the slot with a revealed menu it compresses
+            // to spinner + status; the full telemetry would fight the menubar
+            // for width (see the 2026-10-25 screencast).
+            if (!this._isCompressed && this._isExpanded && this._expandedText) {
                 let displayText = this.getDisplayedTelemetryText();
                 const cleanLabel = (this._labelText || '').trim().toLowerCase();
                 const cleanDisplay = (displayText || '').trim().toLowerCase();
@@ -3300,15 +3439,30 @@ class BaseIndicatorLogic {
         }
 
         if (this._statusIconWidget) {
-            const iconName = this._isMediaDisplay
-                ? 'audio-x-generic-symbolic'
-                : (this._isCompleted ? 'object-select-symbolic' : 'content-loading-symbolic');
+            let iconName = 'content-loading-symbolic';
+            if (this._isMediaDisplay) {
+                iconName = 'audio-x-generic-symbolic';
+            } else if (this._isCompleted) {
+                iconName = 'object-select-symbolic';
+            } else if (this._activeTask?.opType) {
+                const op = this._activeTask.opType;
+                if (op === 'delete')
+                    iconName = 'user-trash-symbolic';
+                else if (op === 'copy')
+                    iconName = 'edit-copy-symbolic';
+                else if (op === 'move')
+                    iconName = 'folder-download-symbolic';
+                else if (op === 'compress' || op === 'extract')
+                    iconName = 'package-x-generic-symbolic';
+                else
+                    iconName = 'content-loading-symbolic';
+            }
             if (typeof this._statusIconWidget.set_icon_name === 'function') {
                 this._statusIconWidget.set_icon_name(iconName);
             } else {
                 this._statusIconWidget.icon_name = iconName;
             }
-            if (this._isMediaDisplay) {
+            if (this._isMediaDisplay || !hasTaskContent) {
                 if (typeof this._statusIconWidget.hide === 'function')
                     this._statusIconWidget.hide();
                 this._statusIconWidget.visible = false;
@@ -3508,6 +3662,7 @@ class BaseIndicatorLogic {
         this._cancelCardDwellTimer();
         this._cancelLeaveGraceTimer();
         this._clearStaggerTimers();
+        this._pinChipWidth(false);
         if (this._mediaWaveWidget && typeof this._mediaWaveWidget.destroy === 'function') {
             try { this._mediaWaveWidget.destroy(); } catch (e) {}
         }
@@ -3684,13 +3839,6 @@ if (hasStWidget) {
                 });
                 this.clip_to_allocation = true;
 
-                this._separatorWidget = new St.Label({
-                    style_class: 'fuhgawz-task-separator',
-                    text: '·',
-                    y_align: Clutter.ActorAlign.CENTER,
-                });
-                this._box.add_child(this._separatorWidget);
-
                 this._statusIconWidget = new St.Icon({
                     style_class: 'fuhgawz-task-icon',
                     icon_name: 'content-loading-symbolic',
@@ -3698,6 +3846,8 @@ if (hasStWidget) {
                     reactive: true,
                     track_hover: true,
                 });
+                this._statusIconWidget.hide();
+                this._statusIconWidget.visible = false;
                 this._statusIconWidget.connect('button-release-event', (_actor, event) => {
                     if (this._isMediaDisplay) {
                         let button = 0;
@@ -3718,6 +3868,8 @@ if (hasStWidget) {
                     reactive: true,
                     track_hover: true,
                 });
+                this._compactLabelWidget.hide();
+                this._compactLabelWidget.visible = false;
                 this._compactLabelWidget.clutter_text.ellipsize = Pango.EllipsizeMode.END;
                 this._compactLabelWidget.connect('button-release-event', (_actor, event) => {
                     if (this._isMediaDisplay) {
@@ -3804,6 +3956,10 @@ if (hasStWidget) {
                     style_class: 'fuhgawz-task-telemetry-label',
                     y_align: Clutter.ActorAlign.CENTER,
                 });
+                // The chip's width is frozen while hovered (see _pinChipWidth):
+                // live telemetry must ellipsize against that width, not push it.
+                if (this._telemetryLabelWidget.clutter_text)
+                    this._telemetryLabelWidget.clutter_text.ellipsize = Pango.EllipsizeMode.END;
                 this._telemetryLabelWidget.hide();
                 this._telemetryLabelWidget.opacity = 0;
                 this._box.add_child(this._telemetryLabelWidget);
@@ -3849,6 +4005,8 @@ if (hasStWidget) {
                     can_focus: true,
                     track_hover: true,
                 });
+                this._actionButton.hide();
+                this._actionButton.visible = false;
                 this._actionButton.set({
                     reactive: true,
                     can_focus: true,
@@ -4069,16 +4227,16 @@ if (hasStWidget) {
                 this.container = this;
                 this.style_class = 'fuhgawz-task-indicator';
                 this.style_classes = new Set(['fuhgawz-task-indicator']);
+                this._explicitWidth = -1;
 
-                this._separatorWidget = {
-                    text: '·',
-                    visible: false,
-                    show() { this.visible = true; },
-                    hide() { this.visible = false; },
-                };
                 this._compactLabelWidget = {
                     text: '',
                     style_class: 'fuhgawz-task-indicator-label',
+                    visible: false,
+                    show() { this.visible = true; },
+                    hide() { this.visible = false; },
+                    connect() { return 1; },
+                    clutter_text: { ellipsize: 3 },
                     add_style_class_name(name) {
                         const classes = new Set((this.style_class || '').split(/\s+/).filter(Boolean));
                         classes.add(name);
@@ -4099,6 +4257,9 @@ if (hasStWidget) {
                 this._statusIconWidget = {
                     icon_name: 'content-loading-symbolic',
                     style_class: 'fuhgawz-task-icon',
+                    visible: false,
+                    show() { this.visible = true; },
+                    hide() { this.visible = false; },
                     set_icon_name(name) { this.icon_name = name; },
                     reactive: true,
                     track_hover: true,
@@ -4161,7 +4322,7 @@ if (hasStWidget) {
                 this._actionButton = new MockStButton({
                     label: '• • •',
                     child: this._actionIcon,
-                    visible: true,
+                    visible: false,
                     reactive: true,
                     can_focus: true,
                     track_hover: true,
@@ -4242,6 +4403,11 @@ if (hasStWidget) {
 
             get_width() {
                 return this.width;
+            }
+
+            set_width(w) {
+                this._explicitWidth = w;
+                this.width = w > 0 ? w : (this._naturalWidth ?? 120);
             }
 
             get_height() {

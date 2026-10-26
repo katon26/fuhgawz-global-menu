@@ -469,6 +469,13 @@ class AppMenuButton extends PanelMenu.Button {
         this._idleInitialised = false;
         this._idleRevealMs = 180;
 
+        this.connect('enter-event', () => {
+            this._globalMenu?._taskIndicator?.onMenuZoneEnter?.();
+        });
+        this.connect('leave-event', () => {
+            this._globalMenu?._taskIndicator?.onMenuZoneLeave?.();
+        });
+
         if (!metaWindow) {
             this.hide();
         }
@@ -493,36 +500,19 @@ class AppMenuButton extends PanelMenu.Button {
 
         const duration = next ? this._idleRevealMs : Math.round(this._idleRevealMs * 0.6);
 
-        // 1. AppMenuButton label & icon fade (app title/icon collapses while indicator remains visible)
-        const targets = [];
-        if (this._label) targets.push(this._label);
-        if (this._icon) targets.push(this._icon);
-
-        for (const target of targets) {
-            target.remove_all_transitions?.();
-            if (!animate) {
-                target.opacity = next ? 255 : 0;
-                target.visible = next;
-                if (!next) target.hide?.();
-                else target.show?.();
-            } else {
-                if (next) {
-                    target.visible = true;
-                    target.show?.();
-                }
-                target.ease({
-                    opacity: next ? 255 : 0,
-                    duration,
-                    mode: Clutter.AnimationMode.EASE_OUT_CUBIC,
-                    onComplete: () => {
-                        if (!next && this._idleRevealed === false) {
-                            target.opacity = 0;
-                            target.visible = false;
-                            target.hide?.();
-                        }
-                    },
-                });
-            }
+        // 1. AppMenuButton label & icon must NEVER fade or collapse.
+        // The application title and icon identify the active application in the top bar.
+        if (this._label) {
+            this._label.remove_all_transitions?.();
+            this._label.opacity = 255;
+            this._label.visible = true;
+            this._label.show?.();
+        }
+        if (this._icon) {
+            this._icon.remove_all_transitions?.();
+            this._icon.opacity = 255;
+            this._icon.visible = true;
+            this._icon.show?.();
         }
 
         // 2. Global Menu Button Pool (PooledMenuButtons File, Edit, View, etc.)
@@ -539,16 +529,11 @@ class AppMenuButton extends PanelMenu.Button {
                 slot.hide?.();
                 continue;
             }
+            slot.visible = true;
+            slot.show?.();
             if (!animate) {
                 slot.opacity = next ? 255 : 0;
-                slot.visible = next;
-                if (!next) slot.hide?.();
-                else slot.show?.();
             } else {
-                if (next) {
-                    slot.visible = true;
-                    slot.show?.();
-                }
                 slot.ease({
                     opacity: next ? 255 : 0,
                     duration,
@@ -556,8 +541,6 @@ class AppMenuButton extends PanelMenu.Button {
                     onComplete: () => {
                         if (!next && this._idleRevealed === false) {
                             slot.opacity = 0;
-                            slot.visible = false;
-                            slot.hide?.();
                         }
                     },
                 });
@@ -566,16 +549,11 @@ class AppMenuButton extends PanelMenu.Button {
         for (const slot of overflow) {
             if (!slot) continue;
             slot.remove_all_transitions?.();
+            slot.visible = true;
+            slot.show?.();
             if (!animate) {
                 slot.opacity = next ? 255 : 0;
-                slot.visible = next;
-                if (!next) slot.hide?.();
-                else slot.show?.();
             } else {
-                if (next) {
-                    slot.visible = true;
-                    slot.show?.();
-                }
                 slot.ease({
                     opacity: next ? 255 : 0,
                     duration,
@@ -583,8 +561,6 @@ class AppMenuButton extends PanelMenu.Button {
                     onComplete: () => {
                         if (!next && this._idleRevealed === false) {
                             slot.opacity = 0;
-                            slot.visible = false;
-                            slot.hide?.();
                         }
                     },
                 });
@@ -785,20 +761,18 @@ class AppMenuButton extends PanelMenu.Button {
         }
         this._ensureIndicatorAtEnd();
 
-        if (this._taskIndicator?.hasLiveIndicator?.() && !this._taskIndicator?._isPointerInZone) {
-            if (!this._idleRevealed) {
-                if (this._label) {
-                    this._label.opacity = 0;
-                    this._label.visible = false;
-                    this._label.hide?.();
-                }
-                if (this._icon) {
-                    this._icon.opacity = 0;
-                    this._icon.visible = false;
-                    this._icon.hide?.();
-                }
-            }
-        } else if (!this._idleRevealed) {
+        if (this._label) {
+            this._label.opacity = 255;
+            this._label.visible = true;
+            this._label.show?.();
+        }
+        if (this._icon) {
+            this._icon.opacity = 255;
+            this._icon.visible = true;
+            this._icon.show?.();
+        }
+
+        if (!this._taskIndicator?.hasLiveIndicator?.() && !this._idleRevealed) {
             this.setIdleRevealed(true, { animate: false, force: true });
         }
     }
@@ -2113,13 +2087,8 @@ class PooledMenuButton extends PanelMenu.Button {
         if (this._globalMenu?._appMenuButton && typeof this._globalMenu._appMenuButton.isIdleRevealed === 'function') {
             const revealed = this._globalMenu._appMenuButton.isIdleRevealed();
             this.opacity = revealed ? 255 : 0;
-            if (revealed) {
-                this.show();
-                this.visible = true;
-            } else {
-                this.hide();
-                this.visible = false;
-            }
+            this.show();
+            this.visible = true;
         } else {
             this.show();
             this.visible = true;
@@ -2335,8 +2304,11 @@ class FUHGlobeGlobalMenu {
         this._profileManager.loadProfiles();
         this._atspiScanner = new AtspiScanner();
 
-        // Headless desktop task ingestion engine
-        this._taskManager = new TaskManager(this._settings);
+        // Headless desktop task ingestion engine. The AT-SPI progress probe
+        // runs only inside bin/gm-fileops-probe — never in the shell process.
+        this._taskManager = new TaskManager(this._settings, {
+            probeScriptPath: GLib.build_filenamev([this._extensionPath, 'bin', 'gm-fileops-probe']),
+        });
         this._mediaManager = new MediaManager(this._settings);
 
         // Initialize persistent zero-churn button pool
@@ -2429,9 +2401,8 @@ class FUHGlobeGlobalMenu {
         if (this._appMenuButton && typeof this._appMenuButton.isIdleRevealed === 'function') {
             const revealed = this._appMenuButton.isIdleRevealed();
             slot.opacity = revealed ? 255 : 0;
-            slot.visible = revealed;
-            if (!revealed) slot.hide?.();
-            else slot.show?.();
+            slot.visible = true;
+            slot.show?.();
         }
         return slot;
     }
