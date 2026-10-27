@@ -60,12 +60,18 @@ When media playback or background tasks are active, the top-left global menu but
 # 1. Download the release archive
 wget https://github.com/katon26/fuhgawz-global-menu/releases/download/v1.1.1/fuhgawzglbmenu@katon26.github.io.shell-extension.zip
 
-# 2. Install using GNOME Extensions CLI
+# 2. Safety check: remove existing development symlink before force-installing
+[ -L ~/.local/share/gnome-shell/extensions/fuhgawzglbmenu@katon26.github.io ] && rm -f ~/.local/share/gnome-shell/extensions/fuhgawzglbmenu@katon26.github.io
+
+# 3. Install using GNOME Extensions CLI
 gnome-extensions install --force fuhgawzglbmenu@katon26.github.io.shell-extension.zip
 
-# 3. Enable the extension
+# 4. Enable the extension
 gnome-extensions enable fuhgawzglbmenu@katon26.github.io
 ```
+
+> [!WARNING]
+> **Developer Safety Notice:** If you previously used a symbolic link (`install.sh --link` or `ln -s`) pointing `~/.local/share/gnome-shell/extensions/fuhgawzglbmenu@katon26.github.io` to your Git workspace, **always remove the symlink (`rm -f ~/.local/...`) before running `gnome-extensions install --force`**. GNOME's extension installer deletes target contents when `--force` replacing existing directories, which will follow symlinks and empty your Git development folder!
 
 ---
 

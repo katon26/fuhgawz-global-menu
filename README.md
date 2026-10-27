@@ -39,11 +39,13 @@ Downloading the pre-built zip from the GitHub Releases page is the easiest and f
 
 ```bash
 curl -sLO https://github.com/katon26/fuhgawz-global-menu/releases/latest/download/fuhgawzglbmenu@katon26.github.io.shell-extension.zip
+# Safety check: safely remove existing dev symlink if upgrading from a git checkout
+[ -L ~/.local/share/gnome-shell/extensions/fuhgawzglbmenu@katon26.github.io ] && rm -f ~/.local/share/gnome-shell/extensions/fuhgawzglbmenu@katon26.github.io
 gnome-extensions install --force fuhgawzglbmenu@katon26.github.io.shell-extension.zip
 gnome-extensions enable fuhgawzglbmenu@katon26.github.io
 ```
 
-> **Note on Pre-built Packages:** While this method is hassle-free for regular users, it installs a pre-packaged bundle. If you are a developer, power user, or contributor who wants to modify the source code, adjust schema definitions, or test internal scripts, use **Method 2** below instead.
+> **Note on Pre-built Packages:** While this method is hassle-free for regular users, it installs a pre-packaged bundle. If you are a developer, power user, or contributor who wants to modify the source code, adjust schema definitions, or test internal scripts, use **Method 2** below instead. Always remove existing development symlinks before running `gnome-extensions install --force` to avoid GNOME's installer following the symlink and wiping your local checkout.
 
 ### Method 2: Build from Source (For Builders & Contributors)
 
