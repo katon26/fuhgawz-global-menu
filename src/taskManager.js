@@ -132,14 +132,16 @@ export function parseNautilusProgressText(text) {
  */
 export function deriveOperationLabel(reason) {
     const text = String(reason ?? '').trim();
-    if (!text) return 'Working on files';
+    if (!text) return 'Transferring files';
     const lower = text.toLowerCase();
     if (/(extract|unzip|unpack|uncompress|decompress)/.test(lower)) return 'Extracting files';
     if (/(compress|archiv)/.test(lower)) return 'Compressing files';
     if (/(delet|trash|remove|unlink|empty)/.test(lower)) return 'Deleting files';
     if (/(copy|paste|duplicat)/.test(lower)) return 'Copying files';
     if (/(mov|renam)/.test(lower)) return 'Moving files';
-    if (/(transfer|send|receiv)/.test(lower)) return 'Transferring files';
+    if (/(transfer|send|receiv|drag|drop)/.test(lower)) return 'Transferring files';
+    if (/(work)/.test(lower)) return 'Working on files';
+    if (/(file)/.test(lower)) return 'Transferring files';
     return text.replace(/\s*\.+$/, '');
 }
 
@@ -155,6 +157,7 @@ export function operationTypeFromLabel(label) {
     if (lower.startsWith('copy')) return 'copy';
     if (lower.startsWith('mov')) return 'move';
     if (lower.startsWith('transf')) return 'transfer';
+    if (lower.includes('work') || lower.includes('file')) return 'transfer';
     return 'other';
 }
 
@@ -358,6 +361,8 @@ export const TaskManager = GObject.registerClass(
 
             this._activeTasks = new Map(); // taskId -> taskObj
             this._activeInhibitors = new Map(); // inhibitorPath -> taskId
+            this._pendingInhibitors = new Set(); // inhibitorPath -> pending async resolution
+            this._earlyRemovedInhibitors = new Set(); // inhibitorPath -> removed before async add completed
             this._notificationSignals = new Map(); // notification -> [signalId, ...]
             this._nautilusMonitors = new Map(); // taskId -> monitorState
             this._probeHandles = new Map(); // taskId -> {stop()}
@@ -417,7 +422,7 @@ export const TaskManager = GObject.registerClass(
             // 2. Subscribe to org.gnome.SessionManager InhibitorAdded & InhibitorRemoved
             try {
                 this._inhibitorAddedSubId = this._dbusConnection.signal_subscribe(
-                    'org.gnome.SessionManager',
+                    null,
                     'org.gnome.SessionManager',
                     'InhibitorAdded',
                     '/org/gnome/SessionManager',
@@ -434,7 +439,7 @@ export const TaskManager = GObject.registerClass(
 
             try {
                 this._inhibitorRemovedSubId = this._dbusConnection.signal_subscribe(
-                    'org.gnome.SessionManager',
+                    null,
                     'org.gnome.SessionManager',
                     'InhibitorRemoved',
                     '/org/gnome/SessionManager',
@@ -776,7 +781,9 @@ export const TaskManager = GObject.registerClass(
         // ---------------------------------------------------------------------
 
         _onInhibitorAdded(inhibitorPath) {
-            if (this._destroyed || !this._dbusConnection) return;
+            if (this._destroyed || !this._dbusConnection || !inhibitorPath) return;
+
+            this._pendingInhibitors.add(inhibitorPath);
 
             Gio.DBusProxy.new(
                 this._dbusConnection,
@@ -789,6 +796,13 @@ export const TaskManager = GObject.registerClass(
                 (source, res) => {
                     try {
                         const proxy = Gio.DBusProxy.new_finish(res);
+
+                        if (this._earlyRemovedInhibitors.has(inhibitorPath)) {
+                            this._earlyRemovedInhibitors.delete(inhibitorPath);
+                            this._pendingInhibitors.delete(inhibitorPath);
+                            return;
+                        }
+
                         proxy.call(
                             'GetAppId',
                             null,
@@ -800,7 +814,17 @@ export const TaskManager = GObject.registerClass(
                                 try {
                                     const [appIdVariant] = pApp.call_finish(resApp).deep_unpack();
                                     appId = appIdVariant;
-                                } catch (e) {}
+                                } catch (e) {
+                                    this._pendingInhibitors.delete(inhibitorPath);
+                                    this._earlyRemovedInhibitors.delete(inhibitorPath);
+                                    return;
+                                }
+
+                                if (this._earlyRemovedInhibitors.has(inhibitorPath)) {
+                                    this._earlyRemovedInhibitors.delete(inhibitorPath);
+                                    this._pendingInhibitors.delete(inhibitorPath);
+                                    return;
+                                }
 
                                 proxy.call(
                                     'GetReason',
@@ -809,11 +833,21 @@ export const TaskManager = GObject.registerClass(
                                     -1,
                                     this._cancellable,
                                     (pReason, resReason) => {
+                                        this._pendingInhibitors.delete(inhibitorPath);
+
+                                        if (this._earlyRemovedInhibitors.has(inhibitorPath)) {
+                                            this._earlyRemovedInhibitors.delete(inhibitorPath);
+                                            return;
+                                        }
+
                                         let reason = '';
                                         try {
                                             const [reasonVariant] = pReason.call_finish(resReason).deep_unpack();
                                             reason = reasonVariant;
-                                        } catch (e) {}
+                                        } catch (e) {
+                                            this._earlyRemovedInhibitors.delete(inhibitorPath);
+                                            return;
+                                        }
 
                                         this._handleInhibitorAdded(inhibitorPath, appId, reason);
                                     }
@@ -821,7 +855,8 @@ export const TaskManager = GObject.registerClass(
                             }
                         );
                     } catch (e) {
-                        // Proxy creation failed or cancelled
+                        this._pendingInhibitors.delete(inhibitorPath);
+                        this._earlyRemovedInhibitors.delete(inhibitorPath);
                     }
                 }
             );
@@ -1055,6 +1090,8 @@ export const TaskManager = GObject.registerClass(
                 lastWrite: initialIo?.wchar ?? 0,
                 lastTime: Date.now(),
                 accumulatedCopied: 0,
+                idleTicks: 0,
+                tickCount: 0,
             };
 
             monitorState.timerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, NAUTILUS_MONITOR_INTERVAL_MS, () => {
@@ -1073,21 +1110,46 @@ export const TaskManager = GObject.registerClass(
          * One telemetry tick for an active Nautilus operation.
          *
          * @param {object} task
-         * @param {object} monitorState - {pid, lastRead, lastWrite, lastTime, accumulatedCopied}
+         * @param {object} monitorState - {pid, lastRead, lastWrite, lastTime, accumulatedCopied, idleTicks, tickCount}
          */
         _nautilusMonitorTick(task, monitorState) {
             const now = Date.now();
             const dt = Math.max(0.1, (now - monitorState.lastTime) / 1000);
             const pid = monitorState.pid;
+            monitorState.tickCount = (monitorState.tickCount || 0) + 1;
+
+            // Check inhibitor liveness against SessionManager periodically
+            if (task.inhibitorPath && monitorState.tickCount % 2 === 0) {
+                this._checkInhibitorLiveness(task);
+            }
+
+            if (!this._activeTasks.has(task.id)) return;
+
+            // In-flight filename enrichment if not already discovered
+            if (!task.fileName && pid) {
+                const active = this._findNautilusActiveTransfer([pid]);
+                if (active?.fileName) {
+                    task.fileName = active.fileName;
+                    if (active.uri) task.uri = active.uri;
+                    if (!task.title || task.title === 'Working on files' || task.title === 'Transferring files') {
+                        task.title = active.fileName;
+                    }
+                }
+            }
 
             // Exact numbers arrive asynchronously from the isolated probe
-            // helper (see _onProbeLine). If they stop arriving, stop showing
-            // numbers we can no longer confirm.
+            // helper (see _onProbeLine). If they stop arriving:
             if (task._lastRealProgressAt &&
-                now - task._lastRealProgressAt > ATSPI_STALE_MS &&
-                !task.indeterminate) {
-                task.indeterminate = true;
-                task.etaText = '';
+                now - task._lastRealProgressAt > ATSPI_STALE_MS) {
+                // If progress was nearly finished (>= 0.95), treat probe disappearance as completion
+                if (task.progress >= 0.95 && task.inhibitorPath && this._activeInhibitors.has(task.inhibitorPath)) {
+                    this._handleInhibitorRemoved(task.inhibitorPath);
+                    return;
+                }
+                if (!task.indeterminate) {
+                    task.indeterminate = true;
+                    task.etaText = '';
+                }
             }
 
             const currentIo = this._readProcessIo(pid);
@@ -1099,17 +1161,70 @@ export const TaskManager = GObject.registerClass(
                 monitorState.lastTime = now;
 
                 const delta = Math.max(dRead, dWrite);
-                if (delta > 0) {
+                if (delta > 16384) {
                     monitorState.accumulatedCopied += delta;
+                    monitorState.idleTicks = 0;
                     task.speedText = formatSpeed(delta / dt);
                     if (task.indeterminate)
                         task.bytesText = formatBytes(monitorState.accumulatedCopied);
                 } else {
+                    monitorState.idleTicks = (monitorState.idleTicks || 0) + 1;
                     task.speedText = '';
+
+                    // If probe has stopped reporting and I/O has settled idle for consecutive ticks,
+                    // check whether Nautilus is still holding active transfer fds.
+                    if (monitorState.idleTicks >= 3 && (!task._lastRealProgressAt || (now - task._lastRealProgressAt > 3000))) {
+                        const active = this._findNautilusActiveTransfer([pid]);
+                        if (!active && task.inhibitorPath) {
+                            this._checkInhibitorLiveness(task);
+                            if (monitorState.idleTicks >= 5 && this._activeInhibitors.has(task.inhibitorPath)) {
+                                this._handleInhibitorRemoved(task.inhibitorPath);
+                                return;
+                            }
+                        }
+                    }
                 }
             }
 
             this.emit('task-updated', task);
+        }
+
+        /**
+         * Verifies whether an active inhibitor still exists in SessionManager.
+         * If the inhibitor was removed externally or signal was lost, marks it complete.
+         *
+         * @param {object} task
+         */
+        _checkInhibitorLiveness(task) {
+            if (this._destroyed || !this._dbusConnection || !task?.inhibitorPath) return;
+
+            try {
+                this._dbusConnection.call(
+                    'org.gnome.SessionManager',
+                    '/org/gnome/SessionManager',
+                    'org.gnome.SessionManager',
+                    'GetInhibitors',
+                    null,
+                    new GLib.VariantType('(ao)'),
+                    Gio.DBusCallFlags.NONE,
+                    1000,
+                    this._cancellable,
+                    (conn, res) => {
+                        try {
+                            const targetConn = conn || this._dbusConnection;
+                            const reply = targetConn?.call_finish ? targetConn.call_finish(res) : (res?.call_finish ? res.call_finish() : null);
+                            if (!reply) return;
+                            const [inhibitors] = reply.deep_unpack();
+                            const activeList = Array.isArray(inhibitors) ? inhibitors : [];
+                            if (!activeList.includes(task.inhibitorPath)) {
+                                this._handleInhibitorRemoved(task.inhibitorPath);
+                            }
+                        } catch (e) {
+                            // If SessionManager call fails or isn't available, ignore
+                        }
+                    }
+                );
+            } catch (e) {}
         }
 
         /**
@@ -1144,13 +1259,16 @@ export const TaskManager = GObject.registerClass(
 
             const pids = this._findNautilusPids();
             const activeTransfer = this._findNautilusActiveTransfer(pids);
+            const resolvedFileName = activeTransfer?.fileName || this.extractFilenameFromText(reason);
+            const isGenericLabel = !opLabel || opLabel === 'Working on files' || opLabel === 'Transferring files';
+            const initialTitle = (isGenericLabel && resolvedFileName) ? resolvedFileName : opLabel;
 
             const taskId = `inhibitor:${inhibitorPath}`;
             const task = {
                 id: taskId,
                 appId: 'org.gnome.Nautilus',
                 desktopId: 'org.gnome.Nautilus.desktop',
-                title: opLabel,
+                title: initialTitle,
                 summary: opLabel,
                 progress: 0.0,
                 progressVisible: true,
@@ -1165,7 +1283,7 @@ export const TaskManager = GObject.registerClass(
                 inhibitorPath: inhibitorPath,
                 opType: opType,
                 uri: activeTransfer?.uri || null,
-                fileName: activeTransfer?.fileName || null,
+                fileName: resolvedFileName || null,
                 totalBytes: 0,
                 etaText: '',
                 speedText: '',
@@ -1287,6 +1405,12 @@ export const TaskManager = GObject.registerClass(
                 task._lastRealProgressAt = Date.now();
                 if (!unchanged)
                     this.emit('task-updated', task);
+
+                // If AT-SPI confirms the operation has reached 100% completion,
+                // trigger inhibitor completion so the task does not stall as a ghost.
+                if (progress >= 1.0 && task.inhibitorPath && this._activeInhibitors.has(task.inhibitorPath)) {
+                    this._handleInhibitorRemoved(task.inhibitorPath);
+                }
             }
             // progress:null lines are heartbeats: nothing new to show.
         }
@@ -1325,6 +1449,11 @@ export const TaskManager = GObject.registerClass(
         _handleInhibitorRemoved(inhibitorPath) {
             if (this._destroyed || !inhibitorPath) return;
 
+            if (this._pendingInhibitors.has(inhibitorPath)) {
+                this._pendingInhibitors.delete(inhibitorPath);
+                this._earlyRemovedInhibitors.add(inhibitorPath);
+            }
+
             if (!this._activeInhibitors.has(inhibitorPath)) return;
 
             const taskId = this._activeInhibitors.get(inhibitorPath);
@@ -1344,6 +1473,11 @@ export const TaskManager = GObject.registerClass(
                     if (topFile.title) task.title = topFile.title;
                     if (topFile.uri) task.uri = topFile.uri;
                 }
+            }
+
+            // Fallback: If title is generic and task has a resolved fileName, enrich title
+            if (task.fileName && (!task.title || task.title === 'Working on files' || task.title === 'Transferring files')) {
+                task.title = task.fileName;
             }
 
             task.indeterminate = false;
@@ -1613,6 +1747,9 @@ export const TaskManager = GObject.registerClass(
             task.state = 'cancelled';
             this._stopNautilusIoMonitor(task.id);
             this._stopFileOpsProbe(task.id);
+            if (task.inhibitorPath) {
+                this._activeInhibitors.delete(task.inhibitorPath);
+            }
             this._activeTasks.delete(task.id);
             this.emit('task-removed', task.id);
 
@@ -1822,6 +1959,8 @@ export const TaskManager = GObject.registerClass(
 
             this._activeTasks.clear();
             this._activeInhibitors.clear();
+            this._pendingInhibitors?.clear();
+            this._earlyRemovedInhibitors?.clear();
         }
     }
 );

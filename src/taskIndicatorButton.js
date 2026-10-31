@@ -1175,7 +1175,14 @@ class BaseIndicatorLogic {
      * @returns {string}
      */
     _sanitizeLabel(appLabel, taskTitle, summary) {
-        const text = (summary || taskTitle || '').trim();
+        let text = '';
+        if (taskTitle && taskTitle.trim() && taskTitle.trim().toLowerCase() !== appLabel?.trim()?.toLowerCase()) {
+            text = taskTitle.trim();
+        } else if (summary && summary.trim()) {
+            text = summary.trim();
+        } else {
+            text = (taskTitle || '').trim();
+        }
         if (!text) return '';
         if (!appLabel || typeof appLabel !== 'string' || !appLabel.trim()) {
             return text;
@@ -1231,6 +1238,9 @@ class BaseIndicatorLogic {
         const effectiveAppLabel = appLabel || task.appLabel || this.getAppLabel?.() || '';
 
         if (task.indeterminate) {
+            if (task.fileName) {
+                return task.fileName;
+            }
             const sanitizedText = this._sanitizeLabel(effectiveAppLabel, task.title, task.summary);
             return sanitizedText || 'In progress';
         }
