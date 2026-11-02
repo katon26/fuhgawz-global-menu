@@ -1,5 +1,5 @@
 import GLib from 'gi://GLib';
-import { MediaFloatingCard, NUM_WAVE_BARS, OPEN_DELAY_MS, GRACE_PERIOD_MS } from '../src/mediaFloatingCard.js';
+import { MediaFloatingCard, NUM_WAVE_BARS, OPEN_DELAY_MS, GRACE_PERIOD_MS, waveformBarHeights } from '../src/mediaFloatingCard.js';
 
 function assert(condition, message) {
     if (!condition)
@@ -380,5 +380,49 @@ bridgeCard._waveArea._dragging = false;
 
 bridgeCard.destroy();
 globalThis.global = savedGlobal;
+
+// Test waveformBarHeights when playing vs paused
+const playingHeights = waveformBarHeights(24, true, 0);
+const pausedHeights = waveformBarHeights(24, false, 0);
+
+assert(pausedHeights.length === 16, 'paused waveform must have 16 bars');
+const minPaused = Math.min(...pausedHeights);
+const maxPaused = Math.max(...pausedHeights);
+assert(maxPaused > minPaused + 5, `paused waveform bars must retain dynamic heights, got min=${minPaused}, max=${maxPaused}`);
+
+// Test scrubCommit on waveArea
+const scrubTestCard = new MediaFloatingCard(manager, { uiGroup, settings });
+scrubTestCard._waveArea.width = 200;
+scrubTestCard._waveArea.x = 0;
+let soughtMs = null;
+manager.seek = function (ms) {
+    soughtMs = ms;
+    return Promise.resolve();
+};
+scrubTestCard._trackInfo = { title: 'Scrub Track', lengthMs: 120_000, positionMs: 10_000 };
+scrubTestCard._waveArea._scrubCommit({ x: 100 }, { force: true });
+assert(soughtMs === 60_000, `scrubCommit at 50% of 120,000ms must seek to 60,000ms, got ${soughtMs}`);
+assert(scrubTestCard._waveArea._progress === 0.5, 'scrubCommit must set progress to 0.5');
+
+// Test seeking state guards in MediaFloatingCard
+let seekingFlag = false;
+manager.isSeeking = () => seekingFlag;
+
+// updateState should preserve trackInfo and active playback status while isSeeking
+seekingFlag = true;
+scrubTestCard._playbackStatus = 'Playing';
+scrubTestCard.updateState(null, 'Stopped');
+assert(scrubTestCard._trackInfo?.title === 'Scrub Track',
+    'updateState with null track while isSeeking must retain existing trackInfo');
+assert(scrubTestCard._playbackStatus === 'Playing',
+    'updateState with Stopped status while isSeeking must retain active Playing status');
+
+// _startGraceTimer should NOT schedule hide while isSeeking
+scrubTestCard._startGraceTimer();
+assert(scrubTestCard._graceTimerId === 0,
+    '_startGraceTimer must be a no-op while isSeeking is true');
+
+seekingFlag = false;
+scrubTestCard.destroy();
 
 console.log('MediaFloatingCard test suite passed successfully!');

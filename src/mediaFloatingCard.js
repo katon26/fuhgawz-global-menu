@@ -51,6 +51,13 @@ export const FADE_DURATION_MS = 150;
 const PULSE_INTERVAL_MS = 33;
 const BAR_PROFILE = [0.30, 0.45, 0.68, 0.86, 0.72, 0.56, 0.75, 1.0, 0.80, 0.58, 0.76, 0.62, 0.47, 0.36, 0.26, 0.18];
 
+export function waveformBarHeights(height, playing = true, phase = 0) {
+    return BAR_PROFILE.map((base, index) => {
+        const pulse = playing ? 0.68 + 0.32 * Math.sin(phase + index * 0.73) : 0.62;
+        return Math.max(3, height * base * pulse * 0.82);
+    });
+}
+
 function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
@@ -241,6 +248,9 @@ class MockWaveArea extends MockActor {
         this.accessibleMinimumValue = 0;
         this.accessibleMaximumValue = 100;
         this.accessibleValue = 0;
+        this._lastCommittedFraction = null;
+        this._lastScrubUs = 0;
+        this._seekPendingUntil = 0;
     }
 
     _waveWidth() {
@@ -270,6 +280,25 @@ class MockWaveArea extends MockActor {
             ? this.get_transformed_position()
             : [this.x ?? 0];
         return clamp((stageX - actorX) / width, 0, 1);
+    }
+
+    _scrubCommit(event, { force = false } = {}) {
+        const fraction = this._scrubFraction(event);
+        if (fraction === null)
+            return;
+        const now = GLib.get_monotonic_time();
+        if (!force && this._lastScrubUs && now - this._lastScrubUs < SCRUB_THROTTLE_US)
+            return;
+        this._lastScrubUs = force ? now : this._lastScrubUs;
+        this._lastCommittedFraction = fraction;
+        this._seekPendingUntil = now + 600000;
+        const track = this._owner._currentTrack();
+        if (track?.lengthMs > 0)
+            this._owner._mediaManager?.seek(Math.round(fraction * track.lengthMs))?.catch?.(() => {});
+        this._progress = fraction;
+        this.progress = fraction;
+        this.accessibleValue = fraction * 100;
+        this.queue_repaint();
     }
 
     update(track, status, style) {
@@ -356,6 +385,7 @@ if (hasStDrawingArea) {
                 this._phase = 0;
                 this._visualizerStyle = 'wave';
                 this._dragging = false;
+                this._lastCommittedFraction = null;
                 this._lastScrubUs = 0;
                 this._accessibleValue = null;
                 this._accessibleSignalIds = [];
@@ -384,8 +414,12 @@ if (hasStDrawingArea) {
                 });
                 this._releaseSignalId = this.connect('button-release-event', (_area, event) => {
                     if (event.get_button() === 1) {
-                        if (this._dragging)
-                            this._scrubCommit(event, { force: true });
+                        if (this._dragging) {
+                            const fraction = this._scrubFraction(event);
+                            if (fraction !== null && (this._lastCommittedFraction === null || Math.abs(fraction - this._lastCommittedFraction) > 0.001)) {
+                                this._scrubCommit(event, { force: true });
+                            }
+                        }
                         this._dragging = false;
                         return Clutter.EVENT_STOP;
                     }
@@ -568,6 +602,7 @@ if (hasStDrawingArea) {
                 if (!force && this._lastScrubUs && now - this._lastScrubUs < SCRUB_THROTTLE_US)
                     return;
                 this._lastScrubUs = force ? now : this._lastScrubUs;
+                this._lastCommittedFraction = fraction;
                 this._seekPendingUntil = now + 600000;
                 const track = this._owner._currentTrack();
                 if (track?.lengthMs > 0)
@@ -624,10 +659,7 @@ if (hasStDrawingArea) {
                 const barWidth = Math.max(2, (width - gap * (NUM_WAVE_BARS - 1)) / NUM_WAVE_BARS);
                 const centerY = height / 2;
                 const playing = this._owner._playbackStatus === 'Playing';
-                const heights = BAR_PROFILE.map((base, index) => {
-                    const pulse = playing ? 0.68 + 0.32 * Math.sin(this._phase + index * 0.73) : 0.16;
-                    return Math.max(3, height * base * pulse * 0.82);
-                });
+                const heights = waveformBarHeights(height, playing, this._phase);
 
                 for (let index = 0; index < NUM_WAVE_BARS; index++) {
                     const x = index * (barWidth + gap);
@@ -948,6 +980,9 @@ class MediaFloatingCardLogic {
     updateState(trackInfo, playbackStatus = 'Stopped') {
         if (this._destroyed)
             return;
+        if (!trackInfo && this._trackInfo && (this._mediaManager?.isSeeking?.() || this._waveArea?._dragging)) {
+            return;
+        }
         this._trackInfo = trackInfo ? { ...trackInfo } : null;
         this._playbackStatus = playbackStatus || 'Stopped';
         this._visualizerStyle = this._readVisualizerStyle();
@@ -1243,7 +1278,7 @@ class MediaFloatingCardLogic {
     _onHoverChanged() {
         if (this._destroyed)
             return;
-        if (this._waveArea?._dragging || this.isPointerOver() || this._hasKeyboardFocus()) {
+        if (this._waveArea?._dragging || this.isPointerOver() || this._hasKeyboardFocus() || this._mediaManager?.isSeeking?.()) {
             this._cancelGraceTimer();
             this._cancelKeyboardFocusClose();
             if (this._anchorActor && typeof this._anchorActor._cancelLeaveGraceTimer === 'function')
@@ -1259,11 +1294,11 @@ class MediaFloatingCardLogic {
     }
 
     _startGraceTimer() {
-        if (this._graceTimerId || this._destroyed || this._anchorActor?.isPinned || this._waveArea?._dragging)
+        if (this._graceTimerId || this._destroyed || this._anchorActor?.isPinned || this._waveArea?._dragging || this._mediaManager?.isSeeking?.())
             return;
         this._graceTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, this._gracePeriodMs, () => {
             this._graceTimerId = 0;
-            if (this._anchorActor?.isPinned || this._waveArea?._dragging)
+            if (this._anchorActor?.isPinned || this._waveArea?._dragging || this._mediaManager?.isSeeking?.())
                 return GLib.SOURCE_REMOVE;
             if (!this.isPointerOver() && !this._hasKeyboardFocus())
                 this.hideCard();

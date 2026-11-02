@@ -1,6 +1,6 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
-import { MediaManager, MPRIS_PLAYER_INTERFACE, MPRIS_OBJECT_PATH } from '../src/mediaManager.js';
+import { MediaManager, MPRIS_PLAYER_INTERFACE, MPRIS_OBJECT_PATH, extractFilenameFromUri } from '../src/mediaManager.js';
 
 function assert(condition, message) {
     if (!condition)
@@ -328,5 +328,155 @@ assert(bus.unwatched.length > 0 && bus.watchers.size === 0, 'destroy must remove
 assert(settings.handlers.size === 0, 'destroy must disconnect GSettings handlers');
 propertiesChanged(bus, vlcOwner, { Metadata: metadata('After Destroy', 'Nobody', 99) });
 assert(eventsAfterDestroy === 0, 'destroyed manager must ignore late D-Bus events');
+
+// --- Edge case & regression tests for local media and transient seek flushes ---
+
+// 1. extractFilenameFromUri helper
+assert(extractFilenameFromUri('file:///home/kaf/Videos/The.Terminal.List.S02E05.mkv') === 'The.Terminal.List.S02E05.mkv',
+    'extractFilenameFromUri must extract plain file name');
+assert(extractFilenameFromUri('file:///home/kaf/Videos/My%20Movie%20(2024).mp4?token=123') === 'My Movie (2024).mp4',
+    'extractFilenameFromUri must decode URI components and strip query params');
+assert(extractFilenameFromUri('') === '' && extractFilenameFromUri(null) === '',
+    'extractFilenameFromUri must handle empty and null inputs');
+
+// 2. Local media playback with xesam:url and missing xesam:title
+const localBus = new FakeBus();
+const localManager = new MediaManager(null, {
+    dbusConnection: localBus,
+    cacheFile: GLib.build_filenamev([cacheRoot, 'local-recent-tracks.json']),
+    artCacheDir: GLib.build_filenamev([cacheRoot, 'local-media-art']),
+    discoverPlayers: false,
+    positionPollEnabled: false,
+});
+const celluloidOwner = ':1.99';
+announce(localBus, 'org.mpris.MediaPlayer2.celluloid', celluloidOwner);
+
+propertiesChanged(localBus, celluloidOwner, {
+    Metadata: new GLib.Variant('a{sv}', {
+        'mpris:trackid': new GLib.Variant('o', '/io/github/celluloid_player/Celluloid/Track/0'),
+        'xesam:url': new GLib.Variant('s', 'file:///home/kaf/Videos/The.Terminal.List.S02E05.mkv'),
+        'mpris:length': new GLib.Variant('x', 3_360_000_000),
+    }),
+    PlaybackStatus: new GLib.Variant('s', 'Playing'),
+});
+
+const localTrack = localManager.getActiveTrack();
+assert(localTrack?.title === 'The.Terminal.List.S02E05.mkv',
+    `local media without xesam:title must extract filename from xesam:url, got ${localTrack?.title}`);
+assert(localTrack?.lengthMs === 3_360_000,
+    `local media track length in ms must match microseconds / 1000, got ${localTrack?.lengthMs}`);
+
+// 3. Transient empty Metadata update during seek must NOT wipe active track
+propertiesChanged(localBus, celluloidOwner, {
+    Metadata: new GLib.Variant('a{sv}', {}),
+});
+assert(localManager.getActiveTrack()?.title === 'The.Terminal.List.S02E05.mkv',
+    'empty Metadata dictionary must not wipe active track title');
+
+// 4. Invalidation of Metadata must NOT drop active track
+localBus.initialProperties = {
+    Metadata: new GLib.Variant('a{sv}', {
+        'mpris:trackid': new GLib.Variant('o', '/io/github/celluloid_player/Celluloid/Track/0'),
+        'xesam:url': new GLib.Variant('s', 'file:///home/kaf/Videos/The.Terminal.List.S02E05.mkv'),
+        'mpris:length': new GLib.Variant('x', 3_360_000_000),
+    }),
+};
+propertiesChanged(localBus, celluloidOwner, {}, ['Metadata']);
+assert(localManager.getActiveTrack()?.title === 'The.Terminal.List.S02E05.mkv',
+    'invalidated Metadata must not drop active track');
+
+// 5. Player with trackId: NO_TRACK_ID while Playing must remain an active track
+const radioOwner = ':1.100';
+announce(localBus, 'org.mpris.MediaPlayer2.webstream', radioOwner);
+propertiesChanged(localBus, radioOwner, {
+    Metadata: new GLib.Variant('a{sv}', {
+        'mpris:trackid': new GLib.Variant('o', '/org/mpris/MediaPlayer2/TrackList/NoTrack'),
+        'xesam:title': new GLib.Variant('s', 'Live Stream Radio'),
+    }),
+    PlaybackStatus: new GLib.Variant('s', 'Playing'),
+});
+assert(localManager.getActiveTrack()?.title === 'Live Stream Radio',
+    'track with NO_TRACK_ID while Playing must be accepted as active track');
+
+// 6. Relative seek fallback: when SetPosition fails, queries real Position and invokes Seek(offset)
+localBus.calls = [];
+localBus.call = function (busName, path, iface, method, params, _replyType, _flags, _timeout, _cancellable, callback) {
+    this.calls.push({ busName, path, iface, method, params });
+    GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+        let result;
+        if (method === 'SetPosition') {
+            callback(this, { error: new Error('SetPosition not supported') });
+            return GLib.SOURCE_REMOVE;
+        } else if (method === 'Get') {
+            result = new GLib.Variant('(v)', [new GLib.Variant('x', 1_000_000_000)]);
+        } else {
+            result = new GLib.Variant('()', []);
+        }
+        callback(this, { result });
+        return GLib.SOURCE_REMOVE;
+    });
+};
+
+await localManager.seek(1_005_000);
+const seekCalls = localBus.calls.filter(c => c.method === 'Seek');
+assert(seekCalls.length === 1, 'failed SetPosition must fall back to Seek(offset)');
+const [offsetUs] = seekCalls[0].params.deep_unpack();
+assert(offsetUs === 5_000_000, `offset must be computed from queried Position (target - realPos), expected 5000000 but got ${offsetUs}`);
+
+localManager.destroy();
+
+// 7. Seek settling window: transient Stopped during seek pipeline flush must NOT drop active track
+const settleBus = new FakeBus();
+const settleManager = new MediaManager(null, {
+    dbusConnection: settleBus,
+    cacheFile: GLib.build_filenamev([cacheRoot, 'settle-recent-tracks.json']),
+    artCacheDir: GLib.build_filenamev([cacheRoot, 'settle-media-art']),
+    discoverPlayers: false,
+    positionPollEnabled: false,
+});
+const settleOwner = ':1.101';
+announce(settleBus, 'org.mpris.MediaPlayer2.celluloid', settleOwner);
+propertiesChanged(settleBus, settleOwner, {
+    Metadata: new GLib.Variant('a{sv}', {
+        'mpris:trackid': new GLib.Variant('o', '/io/github/celluloid_player/Celluloid/Track/0'),
+        'xesam:url': new GLib.Variant('s', 'file:///home/kaf/Videos/TestMovie.mp4'),
+        'mpris:length': new GLib.Variant('x', 60_000_000),
+    }),
+    PlaybackStatus: new GLib.Variant('s', 'Playing'),
+});
+assert(settleManager.getActiveTrack()?.title === 'TestMovie.mp4', 'track must be active before seek');
+
+// Initiate seek
+await settleManager.seek(30_000);
+assert(settleManager.isSeeking() === true, 'isSeeking must be true immediately after seek()');
+
+// 1. Celluloid demuxer flushes pipeline and emits PlaybackStatus: Stopped
+propertiesChanged(settleBus, settleOwner, {
+    PlaybackStatus: new GLib.Variant('s', 'Stopped'),
+});
+assert(settleManager.getActiveTrack()?.title === 'TestMovie.mp4',
+    'transient PlaybackStatus: Stopped during seek settling window must NOT drop active track');
+assert(settleManager.getPlaybackStatus() === 'Playing',
+    'active playback status must be retained during transient Stopped');
+assert(settleManager.isSeeking() === true, 'isSeeking must remain true during pipeline flush');
+
+// 2. Celluloid emits Seeked signal while pipeline was flushed
+settleBus.emit(settleOwner, MPRIS_PLAYER_INTERFACE, 'Seeked', MPRIS_OBJECT_PATH,
+    new GLib.Variant('(x)', [30_000_000]));
+assert(settleManager.getActiveTrack()?.title === 'TestMovie.mp4',
+    'Seeked arriving during transient flush must NOT drop active track');
+
+// 3. Celluloid restarts playback and emits PlaybackStatus: Playing
+propertiesChanged(settleBus, settleOwner, {
+    PlaybackStatus: new GLib.Variant('s', 'Playing'),
+});
+assert(settleManager.getActiveTrack()?.title === 'TestMovie.mp4',
+    'track must remain active when playback resumes');
+assert(settleManager.isSeeking() === false,
+    'seeking settles once playback returns to Playing');
+
+// Verify destroy() idempotency and timer cleanup
+settleManager.destroy();
+assert(settleManager.isSeeking() === false, 'destroy() must reset isSeeking to false');
 
 console.log('MediaManager test suite passed successfully!');

@@ -54,6 +54,19 @@ function normalizeArtist(value) {
     return typeof value === 'string' ? value : '';
 }
 
+export function extractFilenameFromUri(uri) {
+    if (!uri || typeof uri !== 'string')
+        return '';
+    try {
+        const cleanUri = uri.replace(/\/+$/, '');
+        const lastPart = cleanUri.split('/').pop().split('?')[0];
+        const decoded = decodeURIComponent(lastPart).trim();
+        return decoded;
+    } catch (e) {
+        return '';
+    }
+}
+
 function trackKey(track) {
     if (!track)
         return '';
@@ -144,6 +157,7 @@ export const MediaManager = GObject.registerClass(
             this._spotifyWatcherId = 0;
             this._spotifyPriority = options.spotifyPriority ?? this._readSpotifyPriority();
             this._isSeeking = false;
+            this._seekSettlingTimerId = 0;
             this._positionPollId = 0;
             this._positionPollEnabled = options.positionPollEnabled ?? true;
 
@@ -411,24 +425,46 @@ export const MediaManager = GObject.registerClass(
 
             if (Object.prototype.hasOwnProperty.call(changed, 'Metadata')) {
                 const metadata = changed.Metadata ?? {};
-                state.trackId = metadata['mpris:trackid'] ?? NO_TRACK_ID;
-                state.title = metadata['xesam:title'] || 'Unknown Title';
-                state.artist = normalizeArtist(metadata['xesam:artist']);
-                state.album = metadata['xesam:album'] || '';
-                state.artUrl = metadata['mpris:artUrl'] || '';
-                state.lengthUs = Math.max(0, Number(metadata['mpris:length']) || 0);
-                if (state.artUrl !== previousTrack?.artUrl)
-                    state.cachedArtUrl = null;
-                if (state.trackId === NO_TRACK_ID)
-                    state.title = '';
+                const keys = Object.keys(metadata);
+                if (keys.length > 0) {
+                    if (metadata['mpris:trackid'] !== undefined)
+                        state.trackId = metadata['mpris:trackid'] ?? NO_TRACK_ID;
+
+                    let title = metadata['xesam:title'] || '';
+                    if (!title && metadata['xesam:url'])
+                        title = extractFilenameFromUri(metadata['xesam:url']);
+
+                    if (title)
+                        state.title = title;
+                    else if (!state.title || state.title === 'Unknown Title')
+                        state.title = 'Unknown Title';
+
+                    if (metadata['xesam:artist'] !== undefined)
+                        state.artist = normalizeArtist(metadata['xesam:artist']);
+                    if (metadata['xesam:album'] !== undefined)
+                        state.album = metadata['xesam:album'] || '';
+                    if (metadata['mpris:artUrl'] !== undefined) {
+                        state.artUrl = metadata['mpris:artUrl'] || '';
+                        if (state.artUrl !== previousTrack?.artUrl)
+                            state.cachedArtUrl = null;
+                    }
+                    if (metadata['mpris:length'] !== undefined)
+                        state.lengthUs = Math.max(0, Number(metadata['mpris:length']) || 0);
+
+                    if (state.trackId === NO_TRACK_ID && state.status === 'Stopped' && !metadata['xesam:title'] && !metadata['xesam:url'])
+                        state.title = '';
+                }
             } else if (invalid.includes('Metadata')) {
-                state.trackId = NO_TRACK_ID;
-                state.title = '';
-                state.artist = '';
-                state.album = '';
-                state.artUrl = '';
-                state.cachedArtUrl = null;
-                state.lengthUs = 0;
+                this._call(state.owner, MPRIS_OBJECT_PATH, 'org.freedesktop.DBus.Properties', 'Get',
+                    new GLib.Variant('(ss)', [MPRIS_PLAYER_INTERFACE, 'Metadata']),
+                    new GLib.VariantType('(v)'))
+                    .then(result => {
+                        if (this._destroyed || this._players.get(name) !== state)
+                            return;
+                        const [val] = result.deep_unpack();
+                        this._handlePropertiesChanged(owner, MPRIS_PLAYER_INTERFACE, { Metadata: val }, []);
+                    })
+                    .catch(() => {});
             }
 
             if (Object.prototype.hasOwnProperty.call(changed, 'Identity')) {
@@ -454,7 +490,19 @@ export const MediaManager = GObject.registerClass(
                         // the paused interval is not counted as playback time.
                         state.positionTimestamp = GLib.get_monotonic_time();
                     }
-                    state.status = status;
+                    if (this.isSeeking() && status === 'Stopped' && state.status !== 'Stopped') {
+                        // Retain active status while seek is settling
+                    } else {
+                        state.status = status;
+                        if (this.isSeeking() && (status === 'Playing' || status === 'Paused')) {
+                            if (this._seekSettlingTimerId) {
+                                GLib.source_remove(this._seekSettlingTimerId);
+                                this._timers.delete(this._seekSettlingTimerId);
+                                this._seekSettlingTimerId = 0;
+                            }
+                            this._isSeeking = false;
+                        }
+                    }
                 }
             }
             if (Object.prototype.hasOwnProperty.call(changed, 'Rate')) {
@@ -467,8 +515,12 @@ export const MediaManager = GObject.registerClass(
                 state.positionTimestamp = GLib.get_monotonic_time();
                 positionChanged = true;
             } else if (Object.prototype.hasOwnProperty.call(changed, 'Metadata')) {
-                state.positionUs = 0;
-                state.positionTimestamp = GLib.get_monotonic_time();
+                const nextTrack = this._trackForPlayer(state);
+                const trackChanged = !previousTrack || !nextTrack || trackKey(previousTrack) !== trackKey(nextTrack);
+                if (trackChanged && !this.isSeeking()) {
+                    state.positionUs = 0;
+                    state.positionTimestamp = GLib.get_monotonic_time();
+                }
             }
 
             if (state.status === 'Playing')
@@ -487,7 +539,9 @@ export const MediaManager = GObject.registerClass(
         }
 
         _trackForPlayer(state) {
-            if (!state || !state.title || state.trackId === NO_TRACK_ID)
+            if (!state || !state.title)
+                return null;
+            if (state.trackId === NO_TRACK_ID && state.status === 'Stopped' && !state.lengthUs)
                 return null;
             return {
                 trackId: state.trackId,
@@ -527,6 +581,14 @@ export const MediaManager = GObject.registerClass(
                 return;
             state.positionUs = Math.max(0, Number(position) || 0);
             state.positionTimestamp = GLib.get_monotonic_time();
+            if (this.isSeeking() && state.status !== 'Stopped') {
+                if (this._seekSettlingTimerId) {
+                    GLib.source_remove(this._seekSettlingTimerId);
+                    this._timers.delete(this._seekSettlingTimerId);
+                    this._seekSettlingTimerId = 0;
+                }
+                this._isSeeking = false;
+            }
             this._refreshActivePlayer(true);
         }
 
@@ -551,6 +613,8 @@ export const MediaManager = GObject.registerClass(
          * at a non-1.0 rate; this poll is what keeps the chip honest.
          */
         _pollActivePosition() {
+            if (this.isSeeking())
+                return;
             const player = this._activePlayerName ? this._players.get(this._activePlayerName) : null;
             if (!player || player.status !== 'Playing')
                 return;
@@ -559,7 +623,7 @@ export const MediaManager = GObject.registerClass(
                 new GLib.Variant('(ss)', [MPRIS_PLAYER_INTERFACE, 'Position']),
                 new GLib.VariantType('(v)'))
                 .then(result => {
-                    if (this._destroyed || this._players.get(player.name) !== player)
+                    if (this._destroyed || this._players.get(player.name) !== player || this.isSeeking())
                         return;
                     let polledUs;
                     try {
@@ -600,16 +664,21 @@ export const MediaManager = GObject.registerClass(
                 selected = playing.sort((a, b) => b.order - a.order)[0];
             else {
                 const current = this._activePlayerName ? this._players.get(this._activePlayerName) : null;
-                if (current?.status === 'Paused' && this._trackForPlayer(current))
+                const keepCurrent = current && (current.status === 'Paused' || (this.isSeeking() && current.status === 'Stopped')) && this._trackForPlayer(current);
+                if (keepCurrent)
                     selected = current;
                 else
-                    selected = players.filter(player => player.status === 'Paused' && this._trackForPlayer(player))
+                    selected = players.filter(player => (player.status === 'Paused' || (this.isSeeking() && player.status === 'Stopped')) && this._trackForPlayer(player))
                         .sort((a, b) => b.order - a.order)[0] ?? null;
             }
 
             const previousName = this._activePlayerName;
             const previousTrack = this._activeTrack;
             const previousStatus = this._playbackStatus;
+
+            if (this.isSeeking() && !selected && previousTrack)
+                return;
+
             this._activePlayerName = selected?.name ?? null;
             this._activeTrack = selected ? this._trackForPlayer(selected) : null;
             this._playbackStatus = selected?.status ?? 'Stopped';
@@ -759,17 +828,38 @@ export const MediaManager = GObject.registerClass(
 
         seek(positionMs) {
             this._isSeeking = true;
-            const finish = () => { this._isSeeking = false; };
+            if (this._seekSettlingTimerId) {
+                GLib.source_remove(this._seekSettlingTimerId);
+                this._timers.delete(this._seekSettlingTimerId);
+                this._seekSettlingTimerId = 0;
+            }
             const player = this._activePlayerName ? this._players.get(this._activePlayerName) : null;
             const track = player ? this._trackForPlayer(player) : null;
             if (!player || !track) {
-                finish();
+                this._isSeeking = false;
                 return Promise.reject(new Error('No active track to seek'));
             }
             const targetUs = Math.max(0, Math.round((Number(positionMs) || 0) * 1000));
+            const currentPositionUs = track.positionUs;
             player.positionUs = targetUs;
             player.positionTimestamp = GLib.get_monotonic_time();
             this._refreshActivePlayer(true);
+
+            const finish = () => {
+                if (this._seekSettlingTimerId) {
+                    GLib.source_remove(this._seekSettlingTimerId);
+                    this._timers.delete(this._seekSettlingTimerId);
+                }
+                this._seekSettlingTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 800, () => {
+                    this._timers.delete(this._seekSettlingTimerId);
+                    this._seekSettlingTimerId = 0;
+                    this._isSeeking = false;
+                    this._refreshActivePlayer();
+                    this._pollActivePosition();
+                    return GLib.SOURCE_REMOVE;
+                });
+                this._timers.add(this._seekSettlingTimerId);
+            };
 
             const onComplete = (r) => {
                 finish();
@@ -780,20 +870,29 @@ export const MediaManager = GObject.registerClass(
                 throw err;
             };
 
+            const seekRelative = async () => {
+                let basePos = currentPositionUs;
+                try {
+                    const res = await this._call(player.owner, MPRIS_OBJECT_PATH, 'org.freedesktop.DBus.Properties', 'Get',
+                        new GLib.Variant('(ss)', [MPRIS_PLAYER_INTERFACE, 'Position']),
+                        new GLib.VariantType('(v)'));
+                    const [val] = res.deep_unpack();
+                    const realPos = Number(val?.deep_unpack ? val.deep_unpack() : val);
+                    if (Number.isFinite(realPos) && realPos >= 0)
+                        basePos = realPos;
+                } catch (e) {}
+                const offset = targetUs - basePos;
+                return this._call(player.owner, MPRIS_OBJECT_PATH, MPRIS_PLAYER_INTERFACE, 'Seek',
+                    new GLib.Variant('(x)', [offset]));
+            };
+
             if (track.trackId && track.trackId !== NO_TRACK_ID && typeof track.trackId === 'string' && track.trackId.startsWith('/')) {
                 return this._call(player.owner, MPRIS_OBJECT_PATH, MPRIS_PLAYER_INTERFACE, 'SetPosition',
                     new GLib.Variant('(ox)', [track.trackId, targetUs]))
-                    .catch(() => {
-                        const offset = targetUs - track.positionUs;
-                        return this._call(player.owner, MPRIS_OBJECT_PATH, MPRIS_PLAYER_INTERFACE, 'Seek',
-                            new GLib.Variant('(x)', [offset]));
-                    })
+                    .catch(() => seekRelative())
                     .then(onComplete, onError);
             }
-            const offset = targetUs - track.positionUs;
-            return this._call(player.owner, MPRIS_OBJECT_PATH, MPRIS_PLAYER_INTERFACE, 'Seek',
-                new GLib.Variant('(x)', [offset]))
-                .then(onComplete, onError);
+            return seekRelative().then(onComplete, onError);
         }
 
         isSeeking() {
@@ -829,6 +928,8 @@ export const MediaManager = GObject.registerClass(
                 GLib.source_remove(id);
             this._timers.clear();
             this._positionPollId = 0;
+            this._seekSettlingTimerId = 0;
+            this._isSeeking = false;
 
             if (this._dbusConnection && typeof this._dbusConnection.signal_unsubscribe === 'function') {
                 for (const id of this._subscriptions) {

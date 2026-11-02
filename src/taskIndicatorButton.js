@@ -570,7 +570,12 @@ class BaseIndicatorLogic {
         try {
             this._mediaSignalIds.push(manager.connect('track-changed', (_manager, track) => {
                 if (this._destroyed) return;
-                this._mediaTrack = track ?? manager.getActiveTrack?.() ?? null;
+                const isSeeking = manager.isSeeking?.() || this._mediaCard?._waveArea?._dragging || this._mediaCard?.isOpen?.();
+                if (isSeeking && !track && (this._mediaTrack || this._mediaCard?._trackInfo)) {
+                    // Retain track while seek/drag or open card is in flight
+                } else {
+                    this._mediaTrack = track ?? manager.getActiveTrack?.() ?? null;
+                }
                 this._mediaPlaybackStatus = manager.getPlaybackStatus?.() ?? this._mediaPlaybackStatus;
                 this._mediaCard?.updateState?.(this._mediaTrack, this._mediaPlaybackStatus);
                 if (this._isHidden) {
@@ -580,7 +585,12 @@ class BaseIndicatorLogic {
             }));
             this._mediaSignalIds.push(manager.connect('status-changed', (_manager, status) => {
                 if (this._destroyed) return;
-                this._mediaPlaybackStatus = status || manager.getPlaybackStatus?.() || 'Stopped';
+                const isSeeking = manager.isSeeking?.() || this._mediaCard?._waveArea?._dragging || this._mediaCard?.isOpen?.();
+                if (isSeeking && status === 'Stopped' && this._mediaPlaybackStatus && this._mediaPlaybackStatus !== 'Stopped') {
+                    // Retain active status while seek/drag or open card is in flight
+                } else {
+                    this._mediaPlaybackStatus = status || manager.getPlaybackStatus?.() || 'Stopped';
+                }
                 this._mediaTrack = manager.getActiveTrack?.() ?? this._mediaTrack;
                 this._mediaCard?.updateState?.(this._mediaTrack, this._mediaPlaybackStatus);
                 if (this._isHidden) {
@@ -607,7 +617,11 @@ class BaseIndicatorLogic {
     }
 
     _hasDisplayableMedia() {
-        if (!this._readMediaSetting('enable-media-indicator', true) || !this._mediaTrack)
+        if (!this._readMediaSetting('enable-media-indicator', true))
+            return false;
+        if (this._mediaCard?.isOpen?.() || this._mediaCard?._waveArea?._dragging || this._mediaManager?.isSeeking?.())
+            return Boolean(this._mediaTrack || this._mediaCard?._trackInfo);
+        if (!this._mediaTrack)
             return false;
         if (this._mediaPlaybackStatus === 'Playing')
             return true;
@@ -624,8 +638,12 @@ class BaseIndicatorLogic {
             return;
         }
 
-        const track = this._hasDisplayableMedia() ? this._mediaTrack : null;
+        const activeTrack = this._mediaTrack || (this._hasDisplayableMedia() ? this._mediaCard?._trackInfo : null);
+        const track = this._hasDisplayableMedia() ? activeTrack : null;
         if (!track) {
+            if (this._mediaCard?.isOpen?.() || this._mediaCard?._waveArea?._dragging || this._mediaManager?.isSeeking?.()) {
+                return;
+            }
             if (this._isMediaDisplay || this._activeTask || this._isCompleted) {
                 this._labelText = '';
                 this._expandedText = '';
@@ -1570,7 +1588,7 @@ class BaseIndicatorLogic {
 
     _handleLeaveGraceTrigger() {
         if (this._destroyed || this._isPinned) return;
-        if (this._isPointerInZone || this._isPointerOverIndicator() || this._isPointerOverCard() || this._isPointerOverDropdown() || (this._mediaCard?._waveArea?._dragging)) return;
+        if (this._isPointerInZone || this._isPointerOverIndicator() || this._isPointerOverCard() || this._isPointerOverDropdown() || (this._mediaCard?._waveArea?._dragging) || (this._mediaManager?.isSeeking?.())) return;
         if (this._appMenuButton && typeof this._appMenuButton.isAnyMenuOpen === 'function' && this._appMenuButton.isAnyMenuOpen()) return;
         this._setChipCompressed(false);
         this._pinChipWidth(false);
