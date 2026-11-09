@@ -34,6 +34,7 @@ class MockSettings extends GObject.Object {
             ['task-indicator-reveal-ms', 180],
             ['task-indicator-reduced-motion', true],
             ['task-indicator-details', true],
+            ['media-chip-appearance', 'accent'],
             ['indicator-hide-on-hover', false],
             ['indicator-hide-return', 'zone-leave'],
         ]);
@@ -1296,8 +1297,28 @@ assert(mediaIndicator.can_focus === true,
 mediaIndicator.emit('key-focus-in');
 assert(fakeCard.shownFor.length === 1,
     'keyboard focus must reveal the media card without requiring pointer hover');
+mediaIndicator._mediaChip.hover = true;
 mediaIndicator.emit('enter-event', {});
 assert(fakeCard.shownFor.length === 2, 'hover should send the active track to the media card');
+mediaIndicator._mediaChip.hover = false;
+const directChipEntryCount = fakeCard.shownFor.length;
+mediaIndicator._mediaChip.emit('enter-event', {});
+assert(fakeCard.shownFor.length === directChipEntryCount + 1,
+    'a direct media-chip enter must open the card before hover state or bounds settle');
+assert.strictEqual(fakeCard.isOpen(), true, 'direct media-chip entry opens the card before hover state settles');
+mediaIndicator.onPointerLeave({ immediate: true });
+assert.strictEqual(fakeCard.isOpen(), false, 'immediate chip leave closes the direct-entry card');
+mediaIndicator._mediaChip.emit('enter-event', {});
+assert(fakeCard.shownFor.length === directChipEntryCount + 2,
+    'a repeated direct media-chip enter after leave must reopen the card without settled hover state');
+assert.strictEqual(fakeCard.isOpen(), true, 'repeated direct media-chip entry reopens the card after close');
+mediaIndicator.onPointerLeave();
+assert(mediaIndicator._leaveGraceTimerId > 0, 'media chip leave starts an indicator grace-close timer');
+mediaIndicator._mediaChip.emit('enter-event', {});
+assert.strictEqual(mediaIndicator._leaveGraceTimerId, 0,
+    'direct media-chip re-entry cancels the pending indicator grace-close timer');
+assert(fakeCard.shownFor.length === directChipEntryCount + 3,
+    'direct media-chip re-entry continues to show the card after grace cancellation');
 assert(fakeCard.shownFor[0].actor === mediaIndicator && fakeCard.shownFor[0].status === 'Playing', 'focus card should anchor to the indicator and receive current playback state');
 assert(fakeCard.shownFor[0].keyboard === true,
     'keyboard entry should use the card focus handoff path');
@@ -1311,6 +1332,14 @@ assert(fakeMedia.calls.raise === 1 && fakeMedia.calls.playPause === 1, 'right cl
 mediaIndicator.emit('key-focus-out');
 assert(fakeCard.keyboardCloseScheduled === true,
     'leaving keyboard focus should schedule closing the floating card');
+fakeCard.shownFor.length = 0;
+fakeCard.keyboardCloseScheduled = false;
+mediaIndicator._mediaChip.emit('key-focus-in');
+assert(fakeCard.shownFor.length === 1 && fakeCard.shownFor[0].keyboard === true,
+    'focusing the media button itself must open the card through the keyboard handoff path');
+mediaIndicator._mediaChip.emit('key-focus-out');
+assert(fakeCard.keyboardCloseScheduled === true,
+    'leaving focus from the media button must schedule card dismissal');
 
 // Test running text marquee for long song/artist with Unicode emojis
 const longTrack = {
@@ -1345,7 +1374,7 @@ hostAppMenu._box = new MockActor();
 mediaIndicator.bindToAppMenu(hostAppMenu);
 const preHoverCardCount = fakeCard.shownFor.length;
 hostAppMenu.emit('enter-event', {});
-assert(fakeCard.shownFor.length === preHoverCardCount + 1, 'hovering host AppMenuButton must trigger media floating card');
+assert(fakeCard.shownFor.length === preHoverCardCount, 'hovering host AppMenuButton away from the media chip must not open the card');
 hostAppMenu.emit('leave-event', {});
 
 const mediaConnectionIds = mediaIndicator._mediaSignalIds.slice();
@@ -2025,7 +2054,14 @@ hiddenIndicator.onMenuZoneEnter();
 assert.strictEqual(hiddenIndicator.isHidden, false, 'Zone enter must not hide the chip with the switch off');
 assert.strictEqual(hiddenIndicator.isCompressed, true, 'With indicator-hide-on-hover false, chip enters compressed state');
 hiddenIndicator.onMenuZoneLeave();
-assert.strictEqual(hiddenIndicator.isCompressed, false, 'Leaving menu zone exits compressed state');
+assert.strictEqual(hiddenIndicator.isCompressed, true, 'Leave grace preserves compact state while a sibling may be entered');
+const compactGraceLoop = new GLib.MainLoop(null, false);
+GLib.timeout_add(GLib.PRIORITY_DEFAULT, 130, () => {
+    compactGraceLoop.quit();
+    return GLib.SOURCE_REMOVE;
+});
+compactGraceLoop.run();
+assert.strictEqual(hiddenIndicator.isCompressed, false, 'A real zone exit ends the compact state after leave grace');
 
 // J. Deferred polish from Task 3: closeDropdown clears stagger timers
 const indPolish = new TaskIndicatorButton(hideSettings, null);
@@ -2050,9 +2086,9 @@ hiddenIndicator.destroy();
 console.log('-> Hide indicator motion & contention arbitration PASSED.');
 
 // ---------------------------------------------------------------------
-// 17. Keyboard Pinning (F10 / Alt+F / Esc) & Pinning State Machine
+// 17. Keyboard Pinning (F10 / Esc) & Pinning State Machine
 // ---------------------------------------------------------------------
-console.log('17. Verifying Keyboard Pinning (F10 / Alt+F / Esc), leave grace suppression & quality items...');
+console.log('17. Verifying Keyboard Pinning (F10 / Esc), Alt+F propagation, leave grace suppression & quality items...');
 
 const pinSettings = new MockSettingsClass();
 pinSettings._values.set('enable-task-indicator', true);
@@ -2143,20 +2179,31 @@ assert.strictEqual(pinIndicator.isPinned, false, 'Escape key must unpin indicato
 assert.strictEqual(pinIndicator.isDropdownOpen(), false, 'Escape key must dismiss/close dropdown');
 assert.strictEqual(resEsc, true, 'Escape key event must be consumed (return true)');
 
-// F. Pressing Alt+F pins open card/menu and pressing F10 again unpins and dismisses
+// F. Alt+F propagates to the application menu without pinning the indicator
 const altFEvent = new MockKeyInputEvent(KEY_f_CODE, MOD1_MASK_CODE);
 const resAltF = pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(altFEvent) : pinIndicator.emit('key-press-event', altFEvent);
-assert.strictEqual(pinIndicator.isPinned, true, 'Pressing Alt+F must pin open card/menu');
-assert.strictEqual(pinIndicator.isDropdownOpen(), true, 'Dropdown must be open after Alt+F pin');
-assert.strictEqual(resAltF, true, 'Alt+F key event must be consumed (return true)');
+assert.strictEqual(pinIndicator.isPinned, false, 'Alt+F must not pin the indicator');
+assert.strictEqual(pinIndicator.isDropdownOpen(), false, 'Alt+F must not open the dropdown');
+assert.strictEqual(resAltF, false, 'Alt+F key event must propagate to the application (return false)');
 
-// F10 again releases/dismisses
-const f10ReleaseEvent = new MockKeyInputEvent(KEY_F10_CODE, 0);
-pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(f10ReleaseEvent) : pinIndicator.emit('key-press-event', f10ReleaseEvent);
+// Alt+Shift+F also propagates without pinning
+const altShiftFEvent = new MockKeyInputEvent(KEY_F_CODE, MOD1_MASK_CODE | 1);
+const resAltShiftF = pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(altShiftFEvent) : pinIndicator.emit('key-press-event', altShiftFEvent);
+assert.strictEqual(pinIndicator.isPinned, false, 'Alt+Shift+F must not pin the indicator');
+assert.strictEqual(pinIndicator.isDropdownOpen(), false, 'Alt+Shift+F must not open the dropdown');
+assert.strictEqual(resAltShiftF, false, 'Alt+Shift+F key event must propagate to the application (return false)');
+
+// F10 again pins and unpins the indicator
+pinIndicator.openDropdown();
+const f10PinAfterAltEvent = new MockKeyInputEvent(KEY_F10_CODE, 0);
+pinIndicator.handleKeyPress(f10PinAfterAltEvent);
+assert.strictEqual(pinIndicator.isPinned, true, 'F10 must still pin after Alt+F propagates');
+const f10UnpinEvent = new MockKeyInputEvent(KEY_F10_CODE, 0);
+pinIndicator.handleKeyPress(f10UnpinEvent);
 assert.strictEqual(pinIndicator.isPinned, false, 'Pressing F10 again must unpin indicator');
 assert.strictEqual(pinIndicator.isDropdownOpen(), false, 'Pressing F10 again must dismiss dropdown');
 
-// G. Media card pinning via keyboard
+// G. Media card pinning via F10
 pinMedia.publishTrack({
     player: 'org.mpris.MediaPlayer2.spotify',
     title: 'Rusty Cage',
@@ -2168,20 +2215,30 @@ pinIndicator._activeTask = null;
 pinIndicator._syncIndicatorDisplay();
 assert.strictEqual(pinIndicator._isMediaDisplay, true, 'Indicator in media mode');
 
-// Alt+F with capital F pins media card
+// Alt+Shift+F with capital F propagates and does not pin the media card
 const altFCapEvent = new MockKeyInputEvent(KEY_F_CODE, MOD1_MASK_CODE);
-pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(altFCapEvent) : pinIndicator.emit('key-press-event', altFCapEvent);
-assert.strictEqual(pinIndicator.isPinned, true, 'Alt+Shift+F / Alt+F (capital) must pin media card');
-assert.strictEqual(pinCard.isOpen(), true, 'Media card must be open after pinning');
+const resAltFCap = pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(altFCapEvent) : pinIndicator.emit('key-press-event', altFCapEvent);
+assert.strictEqual(pinIndicator.isPinned, false, 'Alt+F with capital F must not pin the media card');
+assert.strictEqual(pinCard.isOpen(), false, 'Alt+F with capital F must not open the media card');
+assert.strictEqual(resAltFCap, false, 'Alt+F with capital F must propagate to the application');
 
-// Pointer leave does NOT close media card while pinned
-pinIndicator.onPointerLeave({ immediate: true });
-assert.strictEqual(pinCard.isOpen(), true, 'Pointer leave must NOT close media card while pinned');
+const altShiftFCapEvent = new MockKeyInputEvent(KEY_F_CODE, MOD1_MASK_CODE | 1);
+const resAltShiftFCap = pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(altShiftFCapEvent) : pinIndicator.emit('key-press-event', altShiftFCapEvent);
+assert.strictEqual(pinIndicator.isPinned, false, 'Alt+Shift+F must not pin the media card');
+assert.strictEqual(pinCard.isOpen(), false, 'Alt+Shift+F must not open the media card');
+assert.strictEqual(resAltShiftFCap, false, 'Alt+Shift+F must propagate to the application');
 
-// Escape unpins and closes media card
-pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(escEvent) : pinIndicator.emit('key-press-event', escEvent);
-assert.strictEqual(pinIndicator.isPinned, false, 'Escape unpins media card');
-assert.strictEqual(pinCard.isOpen(), false, 'Escape closes media card');
+const mediaF10Event = new MockKeyInputEvent(KEY_F10_CODE, 0);
+const resMediaF10 = pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(mediaF10Event) : pinIndicator.emit('key-press-event', mediaF10Event);
+assert.strictEqual(pinIndicator.isPinned, true, 'F10 must pin the media indicator');
+assert.strictEqual(pinCard.isOpen(), true, 'F10 must open the media card');
+assert.strictEqual(resMediaF10, true, 'F10 must be consumed while pinning the media card');
+
+const mediaF10AgainEvent = new MockKeyInputEvent(KEY_F10_CODE, 0);
+const resMediaF10Again = pinIndicator.handleKeyPress ? pinIndicator.handleKeyPress(mediaF10AgainEvent) : pinIndicator.emit('key-press-event', mediaF10AgainEvent);
+assert.strictEqual(pinIndicator.isPinned, false, 'F10 again must unpin the media indicator');
+assert.strictEqual(pinCard.isOpen(), false, 'F10 again must close the media card');
+assert.strictEqual(resMediaF10Again, true, 'F10 again must be consumed while unpinning the media card');
 
 // H. Task 4 quality fixes:
 // 1. hideChipOut idempotency
@@ -2200,7 +2257,7 @@ assert.strictEqual(pinIndicator._hideNaturalWidth, hiddenNaturalWidth, 'Cached n
 pinSettings.set_boolean('indicator-hide-on-hover', false);
 assert.strictEqual(pinIndicator.isHidden, false, 'Setting indicator-hide-on-hover to false while hidden must restore chip');
 
-// 3. Pure modifier filtering checks on F10 and Alt+F
+// 3. Pure modifier filtering checks on F10 and modified F keys
 const ctrlF10Event = new MockKeyInputEvent(KEY_F10_CODE, 4); // Ctrl+F10
 assert.strictEqual(pinIndicator.handleKeyPress(ctrlF10Event), false, 'Ctrl+F10 must be ignored');
 const shiftF10Event = new MockKeyInputEvent(KEY_F10_CODE, 1); // Shift+F10
@@ -2228,9 +2285,9 @@ pinIndicator.destroy();
 console.log('-> Keyboard Pinning & Quality Fixes PASSED.');
 
 // ---------------------------------------------------------------------
-// 18. Click Pinning, Pin Release On Dismissal & Compressed Chip State
+// 18. Transient Click Dismissal & Compressed Chip State
 // ---------------------------------------------------------------------
-console.log('18. Verifying click pins the media card, pins release on dismissal, and the compressed chip is a real state...');
+console.log('18. Verifying chip clicks open a transient media card and the compressed chip is a real state...');
 
 const handSettings = new MockSettingsClass();
 handSettings._values.set('enable-media-indicator', true);
@@ -2250,21 +2307,23 @@ const handIndicator = new TaskIndicatorButton(handSettings, handTasks, {
 handMedia.publishTrack(sampleTrack);
 handMedia.publishStatus('Playing');
 
-// 1. Click pins: a click-opened card is not hover-owned, so leaving must not close it.
+// 1. A chip click opens the card without pinning it, so leaving dismisses it.
 handIndicator.toggleMediaCard();
 assert.strictEqual(handCard.isOpen(), true, 'clicking the media chip must open the card');
-assert.strictEqual(handIndicator.isPinned, true, 'a click-opened media card must be pinned');
+assert.strictEqual(handIndicator.isPinned, false, 'an ordinary chip click must not pin the card');
 handIndicator.onPointerLeave({ immediate: true });
-assert.strictEqual(handCard.isOpen(), true, 'pointer leave must not close a click-pinned card');
+assert.strictEqual(handCard.isOpen(), false, 'pointer leave must close a click-opened transient card');
 
-// 2. Clicking again releases.
+// 2. Clicking an open card trigger closes it; clicking while closed opens it.
+handIndicator.toggleMediaCard();
+assert.strictEqual(handCard.isOpen(), true, 'clicking after dismissal reopens the media card');
 handIndicator.toggleMediaCard();
 assert.strictEqual(handCard.isOpen(), false, 'a second click must close the media card');
-assert.strictEqual(handIndicator.isPinned, false, 'closing the card by click must release the pin');
+assert.strictEqual(handIndicator.isPinned, false, 'chip toggling must leave keyboard pin state clear');
 
-// 3. A file task taking the slot dismisses the card and must not strand the pin.
-handIndicator.toggleMediaCard();
-assert.strictEqual(handIndicator.isPinned, true, 'card re-pinned for the handover check');
+// 3. A keyboard pin remains explicit and is released if a file task takes the slot.
+handIndicator.pin();
+assert.strictEqual(handIndicator.isPinned, true, 'the explicit keyboard pin action must still pin the card');
 handTasks.add({ id: 'dl-pin-1', title: 'File.iso', progress: 0.5 });
 assert.strictEqual(handCard.isOpen(), false, 'a file task taking the slot must dismiss the media card');
 assert.strictEqual(handIndicator.isPinned, false, 'dismissing the card must release the pin, not strand it');
@@ -2280,7 +2339,7 @@ assert.strictEqual(handIndicator.has_style_class_name('fuhgawz-chip-compressed')
     'leaving the zone must clear the compressed chip class');
 
 handIndicator.destroy();
-console.log('-> Click Pinning, Pin Release & Compressed Chip PASSED.');
+console.log('-> Transient click dismissal, keyboard pin release & compressed chip PASSED.');
 
 
 
@@ -2492,3 +2551,366 @@ assert.strictEqual(contractIndicator._isCompressed, false, 'leaving the zone dec
 contractIndicator.destroy();
 console.log('-> Live indicator state model & idle menu collapse PASSED.');
 
+// ---------------------------------------------------------------------
+// 21. Screencast Regression: Media Indicator hover, width unpinning,
+//     AppMenu zone separation, and complete hide/restore lifecycle
+// ---------------------------------------------------------------------
+console.log('21. Verifying screencast regression fixes: media indicator hover, width unpinning, AppMenu zone separation, and complete hide/restore lifecycle...');
+
+const regSettings = new MockSettings();
+regSettings.set_boolean('enable-media-indicator', true);
+regSettings.set_boolean('indicator-hide-on-hover', true);
+regSettings.set_string('indicator-hide-return', 'zone-leave');
+regSettings.set_boolean('media-hover-popover', true);
+
+const regMedia = new MockMediaManager();
+const regIface = new MockInterfaceSettingsClass(false);
+const regIndicator = new TaskIndicatorButton(regSettings, null, {
+    mediaManager: regMedia,
+    interfaceSettings: regIface,
+});
+const regHost = new MockHostMenu();
+regIndicator.bindToAppMenu(regHost);
+assert.strictEqual(regIndicator._mediaChip.visible, false, 'No active media must leave the media chip hidden');
+assert.strictEqual(regIndicator._mediaChip.reactive, false, 'A hidden media chip must not receive pointer input');
+assert.strictEqual(regIndicator._mediaChip.can_focus, false, 'A hidden media chip must not receive keyboard focus');
+
+// Publish media track
+regMedia.publishTrack({
+    player: 'org.mpris.MediaPlayer2.spotify',
+    title: 'Outshined',
+    artist: 'Soundgarden',
+    lengthMs: 310000,
+    positionMs: 45000,
+});
+regMedia.publishStatus('Playing');
+regIndicator._syncVisibility();
+
+assert.strictEqual(regIndicator._isMediaDisplay, true, 'Indicator is in media display mode');
+assert.strictEqual(regIndicator.hasLiveIndicator(), true, 'Live indicator active');
+assert.strictEqual(regIndicator._mediaChip.visible, true, 'An active media chip must be visible');
+assert.strictEqual(regIndicator._mediaChip.reactive, true, 'An active media chip must receive pointer input');
+assert.strictEqual(regIndicator._mediaChip.can_focus, true, 'An active media chip must remain keyboard-focusable');
+assert(regIndicator._mediaChip.has_style_class_name('media-accent'), 'Accent Capsule must be the default media chip appearance');
+regSettings.set_string('media-chip-appearance', 'neutral');
+assert(regIndicator._mediaChip.has_style_class_name('media-neutral'), 'Changing the preference must apply the neutral media chip class immediately');
+assert(!regIndicator._mediaChip.has_style_class_name('media-accent'), 'Neutral appearance must remove the accent class');
+regSettings.set_string('media-chip-appearance', 'tonal');
+assert(regIndicator._mediaChip.has_style_class_name('media-tonal'), 'Changing the preference must apply the tonal media chip class immediately');
+assert(!regIndicator._mediaChip.has_style_class_name('media-neutral'), 'Tonal appearance must remove the neutral class');
+assert.strictEqual(['media-accent', 'media-neutral', 'media-tonal', 'media-outline']
+    .filter(className => regIndicator._mediaChip.has_style_class_name(className)).length, 1,
+    'Tonal appearance must leave exactly one media appearance class active');
+regSettings.set_string('media-chip-appearance', 'outline');
+assert(regIndicator._mediaChip.has_style_class_name('media-outline'), 'Changing the preference must apply the outlined media chip class immediately');
+assert(!regIndicator._mediaChip.has_style_class_name('media-tonal'), 'Outlined appearance must remove the tonal class');
+assert.strictEqual(['media-accent', 'media-neutral', 'media-tonal', 'media-outline']
+    .filter(className => regIndicator._mediaChip.has_style_class_name(className)).length, 1,
+    'Outlined appearance must leave exactly one media appearance class active');
+regSettings.set_string('media-chip-appearance', 'accent');
+assert(regIndicator._mediaChip.has_style_class_name('media-accent'), 'Changing back must restore the accent media chip class immediately');
+
+// A. Hovering AppMenuButton (onAppMenuEnter) must NEVER hide the chip or freeze its width
+regIndicator.onAppMenuEnter();
+assert.strictEqual(regIndicator.isHidden, false, 'onAppMenuEnter must not hide the media chip even with indicator-hide-on-hover true');
+assert.strictEqual(regIndicator.isCompressed, false, 'onAppMenuEnter must keep media chip uncompressed (title and artist visible)');
+assert.strictEqual(regIndicator._chipWidthPinned, false, 'onAppMenuEnter must not pin chip width');
+assert.strictEqual(regIndicator._chipActor._explicitWidth ?? -1, -1, 'Chip actor width must remain unpinned (-1) to avoid empty void');
+assert.strictEqual(regIndicator._mediaCard?._openTimerId ?? 0, 0, 'Hovering the app-menu host must not open the media card');
+
+regIndicator._mediaChip.hover = true;
+regIndicator.onAppMenuEnter();
+assert(regIndicator._mediaCard?._openTimerId > 0, 'The app-menu enter path may open the card only while the actual media chip is hovered');
+regIndicator._mediaChip.hover = false;
+
+// B. Hovering directly over media chip (onPointerEnter) schedules card open and keeps it uncompressed
+regIndicator._mediaCard?.hideCard?.();
+regIndicator._mediaChip.hover = true;
+regIndicator.onPointerEnter();
+assert.strictEqual(regIndicator.isCompressed, false, 'Media chip remains uncompressed on pointer enter');
+assert.strictEqual(regIndicator._chipWidthPinned, false, 'Media chip width remains unpinned on pointer enter');
+assert.strictEqual(regIndicator._chipActor._explicitWidth ?? -1, -1, 'Media chip actor width remains unpinned (-1)');
+assert(regIndicator._mediaCard?._openTimerId > 0, 'onPointerEnter over media chip schedules card open with dwell delay');
+regIndicator._mediaChip.hover = false;
+
+regMedia.publishStatus('Stopped');
+assert.strictEqual(regIndicator._mediaChip.visible, false, 'A stopped player must hide the media chip');
+assert.strictEqual(regIndicator._mediaChip.reactive, false, 'A stopped media chip must not intercept pointer input');
+assert.strictEqual(regIndicator._mediaChip.can_focus, false, 'A stopped media chip must not retain keyboard focus');
+regMedia.publishStatus('Playing');
+
+// C. Pointer enters menu zone (e.g. File/Edit top menu items) away from indicator with hide-on-hover ON:
+//    Indicator hides out cleanly to make room for menu.
+regIndicator.onMenuZoneEnter();
+assert.strictEqual(regIndicator.isHidden, true, 'Entering menu zone away from indicator triggers hideChipOut');
+assert.strictEqual(regIndicator._chipActor.opacity, 0, 'Indicator chip opacity is 0 when hidden');
+assert.strictEqual(regIndicator._chipActor.width, 0, 'Indicator chip width is 0 when hidden');
+assert.strictEqual(regIndicator.has_style_class_name('fuhgawz-chip-hidden'), true, 'Indicator has fuhgawz-chip-hidden class');
+
+// D. hideChipIn restores container visibility, opacity, and removes CSS class
+regIndicator.hideChipIn();
+assert.strictEqual(regIndicator.isHidden, false, 'hideChipIn restores isHidden to false');
+assert.strictEqual(regIndicator._chipActor.opacity, 255, 'Indicator chip opacity restored to 255');
+assert.strictEqual(regIndicator._chipActor._explicitWidth ?? -1, -1, 'Indicator chip width restored to unpinned');
+assert.strictEqual(regIndicator.has_style_class_name('fuhgawz-chip-hidden'), false, 'fuhgawz-chip-hidden class removed');
+
+// E. With hide-on-hover OFF, onMenuZoneEnter compresses media chip WITHOUT pinning fixed width
+regSettings.set_boolean('indicator-hide-on-hover', false);
+regIndicator.onMenuZoneEnter();
+assert.strictEqual(regIndicator.isHidden, false, 'Chip stays visible with indicator-hide-on-hover off');
+assert.strictEqual(regIndicator.isCompressed, true, 'Media chip compresses to make room for menu');
+assert.strictEqual(regIndicator._chipWidthPinned, false, 'Media chip width must NEVER be pinned (prevents empty blue void)');
+assert.strictEqual(regIndicator._chipActor._explicitWidth ?? -1, -1, 'Media chip width stays unpinned (-1)');
+
+// Leaving menu zone decompresses media chip
+regIndicator.onMenuZoneLeave({ immediate: true });
+assert.strictEqual(regIndicator.isCompressed, false, 'Media chip decompresses on zone leave');
+assert.strictEqual(regIndicator._chipWidthPinned, false, 'Media chip width remains unpinned');
+
+// F. Open hover card timer protection and lifecycle
+if (regIndicator._mediaCard) {
+    const dummyTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 10000, () => GLib.SOURCE_REMOVE);
+    regIndicator._mediaCard._openTimerId = dummyTimerId;
+    assert.strictEqual(regIndicator.isCardOpen(), false, 'isCardOpen returns false while card open timer is in flight');
+    let hideCalled = false;
+    const origHide = regIndicator._mediaCard.hideCard;
+    regIndicator._mediaCard.hideCard = () => { hideCalled = true; };
+
+    // While pointer is still over card or bridging, leave grace must not close card
+    regIndicator._mediaCard.isPointerOver = () => true;
+    regIndicator._handleLeaveGraceTrigger();
+    assert.strictEqual(hideCalled, false, '_handleLeaveGraceTrigger must NOT call hideCard when pointer is over card or bridge');
+
+    // When pointer leaves completely away from both indicator and card, pending timer is cancelled and hideCard called
+    regIndicator._mediaCard.isPointerOver = () => false;
+    regHost.hover = true;
+    regIndicator._mediaChip.hover = false;
+    regIndicator._handleLeaveGraceTrigger();
+    assert.strictEqual(regIndicator._mediaCard._openTimerId, 0, '_handleLeaveGraceTrigger cancels pending openTimerId on full exit');
+    assert.strictEqual(hideCalled, true, '_handleLeaveGraceTrigger closes the card even if the app-menu host is hovered');
+    regHost.hover = false;
+
+    regIndicator._mediaCard.hideCard = origHide;
+    delete regIndicator._mediaCard.isPointerOver;
+}
+
+regIndicator.destroy();
+
+// G. File task indicator (Nautilus copy/delete) lifecycle:
+//    Verifies that hovering the task indicator expands details and does not get stuck in compressed state
+const taskSettings = new MockSettings();
+taskSettings.set_boolean('enable-task-indicator', true);
+taskSettings.set_string('task-indicator-mode', 'hover');
+const taskIndicator = new TaskIndicatorButton(taskSettings, null, {
+    taskManager: new TaskManager(),
+});
+const taskHost = new MockHostMenu();
+taskIndicator.bindToAppMenu(taskHost);
+taskIndicator._activeTask = {
+    id: 'test-nautilus-copy',
+    appId: 'org.gnome.Nautilus',
+    title: 'Copying files',
+    state: 'running',
+    progress: 0.45,
+    summary: 'Copying 3 files to Documents',
+};
+taskIndicator._syncVisibility();
+assert.strictEqual(taskIndicator.hasLiveIndicator(), true, 'Task indicator active');
+assert.strictEqual(taskIndicator._isMediaDisplay, false, 'Indicator is in file task display mode');
+
+// Task-mode AppMenuButton hover intentionally keeps the old task interaction:
+// once the host is actually hovered, it delegates to onPointerEnter(), which
+// expands, compresses, and pins the task chip. This differs from the media
+// title-only contract above and must remain true after Task 3's menu-zone
+// presentation work.
+taskHost.hover = true;
+taskIndicator.onAppMenuEnter();
+assert.strictEqual(taskIndicator.isHidden, false, 'Task chip remains visible on AppMenu enter');
+assert.strictEqual(taskIndicator.isExpanded(), true, 'Task AppMenu hover expands details in hover mode');
+assert.strictEqual(taskIndicator.isCompressed, true, 'Task AppMenu hover compresses beside the menu');
+assert.strictEqual(taskIndicator._chipWidthPinned, true, 'Task AppMenu hover pins the task chip width');
+
+// The same task presentation persists across a global-menu → AppMenuButton
+// sibling crossing. The global-menu entry itself is intentionally unchanged:
+// it already selects compact/pinned task presentation when hide is disabled.
+taskHost.hover = false;
+taskIndicator.onMenuZoneLeave({ immediate: true });
+taskIndicator.onMenuZoneEnter();
+assert.strictEqual(taskIndicator.isCompressed, true, 'Global-menu entry keeps task chip compact');
+assert.strictEqual(taskIndicator._chipWidthPinned, true, 'Global-menu entry keeps task chip pinned');
+taskIndicator.onMenuZoneLeave();
+taskHost.hover = true;
+taskIndicator.onAppMenuEnter();
+assert.strictEqual(taskIndicator.isExpanded(), true, 'Task AppMenu sibling entry restores hover-mode expansion');
+assert.strictEqual(taskIndicator.isCompressed, true, 'Task AppMenu sibling entry preserves compact presentation');
+assert.strictEqual(taskIndicator._chipWidthPinned, true, 'Task AppMenu sibling entry preserves width pinning');
+
+// Leaving returns to unexpanded and uncompressed state
+taskHost.hover = false;
+taskIndicator.onMenuZoneLeave({ immediate: true });
+assert.strictEqual(taskIndicator.isExpanded(), false, 'Task indicator unexpands on pointer leave');
+assert.strictEqual(taskIndicator.isCompressed, false, 'Task indicator releases compression on pointer leave');
+
+// Live indicator-hide-on-hover setting transitions while task indicator is in global-menu zone
+taskIndicator.onMenuZoneEnter();
+assert.strictEqual(taskIndicator.isHidden, false, 'Task chip is not hidden when hide-on-hover is false');
+assert.strictEqual(taskIndicator.isCompressed, true, 'Task chip is compressed in global-menu zone when hide-on-hover is false');
+assert.strictEqual(taskIndicator._chipWidthPinned, true, 'Task chip width is pinned in global-menu zone when hide-on-hover is false');
+taskSettings.set_boolean('indicator-hide-on-hover', true);
+assert.strictEqual(taskIndicator.isHidden, true, 'Enabling hide-on-hover while in global-menu zone hides task chip immediately');
+assert.strictEqual(taskIndicator.isCompressed, false, 'Hiding task chip clears compression');
+assert.strictEqual(taskIndicator._chipWidthPinned, false, 'Hiding task chip clears width pin');
+// Crossing from global-menu to AppMenuButton while hidden preserves hidden presentation
+taskIndicator.onMenuZoneLeave();
+taskHost.hover = true;
+taskIndicator.onAppMenuEnter();
+assert.strictEqual(taskIndicator.isHidden, true, 'Task global-menu → AppMenuButton sibling crossing preserves hidden state');
+taskHost.hover = false;
+taskSettings.set_boolean('indicator-hide-on-hover', false);
+assert.strictEqual(taskIndicator.isHidden, false, 'Disabling hide-on-hover while in menu zone restores task chip immediately');
+assert.strictEqual(taskIndicator.isCompressed, true, 'Disabling hide-on-hover while in menu zone restores compact task state');
+assert.strictEqual(taskIndicator._chipWidthPinned, true, 'Disabling hide-on-hover while in menu zone re-pins task chip width');
+
+// Stale-presentation reset when task finishes while hidden in the menu zone
+taskSettings.set_boolean('indicator-hide-on-hover', true);
+taskIndicator.onMenuZoneEnter();
+assert.strictEqual(taskIndicator.isHidden, true, 'Task chip hidden in menu zone before completion');
+taskIndicator.setCompleted({ id: 'test-nautilus-copy', state: 'completed' });
+taskIndicator.onMenuZoneLeave({ immediate: true });
+taskIndicator.updateTask({
+    id: 'test-nautilus-move',
+    appId: 'org.gnome.Nautilus',
+    title: 'Moving files',
+    state: 'running',
+    progress: 0.3,
+    summary: 'Moving 2 files',
+});
+assert.strictEqual(taskIndicator.isHidden, false, 'Subsequent task starts visible after prior task finished in hidden menu zone');
+assert.strictEqual(taskIndicator.isCompressed, false, 'Subsequent task starts uncompressed');
+assert.strictEqual(taskIndicator._chipWidthPinned, false, 'Subsequent task starts unpinned');
+taskIndicator.onAppMenuEnter();
+assert.strictEqual(taskIndicator.isHidden, false, 'Fresh title-only AppMenu enter on new task does not inherit stale hidden presentation');
+
+taskIndicator.destroy();
+console.log('-> Screencast regression fixes & task lifecycle PASSED.');
+
+// ---------------------------------------------------------------------
+// 22. Verifying Media Chip Touch, Click (Button 1/2/3) and Anchor Hit-Testing Events
+// ---------------------------------------------------------------------
+console.log('22. Verifying media chip touch, button 1/2/3 click dispatch and anchor hit-testing...');
+
+const eventSettings = new MockSettings();
+eventSettings.set_boolean('enable-media-indicator', true);
+eventSettings.set_boolean('media-hover-popover', true);
+
+let playPauseInvoked = false;
+let raiseInvoked = false;
+
+const eventMedia = new MockMediaManagerClass();
+eventMedia.playPause = () => { playPauseInvoked = true; };
+eventMedia.raise = () => { raiseInvoked = true; };
+
+const eventCard = new MockMediaCard();
+const eventIndicator = new TaskIndicatorButton(eventSettings, null, {
+    mediaManager: eventMedia,
+    mediaCard: eventCard,
+});
+const eventHost = new MockHostMenu();
+eventIndicator.bindToAppMenu(eventHost);
+
+eventMedia.publishTrack(sampleTrack);
+eventMedia.publishStatus('Playing');
+eventIndicator._syncVisibility();
+assert.strictEqual(eventIndicator._isMediaDisplay, true, 'Indicator in media display mode');
+
+// A. Left-Click (button 1) on media chip opens the floating card immediately without pinning it
+const pressBtn1 = { get_button: () => 1, target: eventIndicator._mediaChip };
+const resPress1 = eventIndicator._handleIndicatorButtonPress(pressBtn1);
+assert.strictEqual(resPress1, true, '_handleIndicatorButtonPress with button 1 returns EVENT_STOP');
+assert.strictEqual(eventCard.isOpen(), true, 'Button 1 press opens media card');
+assert.strictEqual(eventIndicator.isPinned, false, 'Button 1 opens a transient media card without pinning it');
+assert.strictEqual(raiseInvoked, false, 'Button 1 press must NOT invoke raise command on media player');
+
+// Second Left-Click releases and closes card
+eventIndicator._handleIndicatorButtonPress(pressBtn1);
+assert.strictEqual(eventCard.isOpen(), false, 'Second Button 1 press closes media card');
+assert.strictEqual(eventIndicator.isPinned, false, 'Second Button 1 press unpins media card');
+
+// A2. Left-Click on container (indicator box or button) also toggles card, never invokes raise
+const pressBox = { get_button: () => 1, target: eventIndicator._box };
+eventIndicator._handleIndicatorButtonPress(pressBox);
+assert.strictEqual(eventCard.isOpen(), true, 'Button 1 press on _box opens media card');
+assert.strictEqual(raiseInvoked, false, 'Button 1 press on _box must not invoke raise');
+eventIndicator._handleIndicatorButtonPress(pressBox);
+assert.strictEqual(eventCard.isOpen(), false, 'Second Button 1 press on _box closes media card');
+
+// B. Middle-Click (button 2) invokes playPause
+const pressBtn2 = { get_button: () => 2, target: eventIndicator._mediaChip };
+const resPress2 = eventIndicator._handleIndicatorButtonPress(pressBtn2);
+assert.strictEqual(resPress2, true, '_handleIndicatorButtonPress with button 2 returns EVENT_STOP');
+assert.strictEqual(playPauseInvoked, true, 'Button 2 press invokes playPause');
+
+// C. Right-Click (button 3) propagates without invoking media transport (leaves context menu intact)
+const pressBtn3 = { get_button: () => 3, target: eventIndicator._mediaChip };
+const resPress3 = eventIndicator._handleIndicatorButtonPress(pressBtn3);
+assert.strictEqual(resPress3, false, '_handleIndicatorButtonPress with button 3 returns EVENT_PROPAGATE');
+assert.strictEqual(raiseInvoked, false, 'Button 3 press must NOT invoke raise (preserves right-click context menu)');
+
+// D. Touch events: TOUCH_BEGIN accepts sequence, TOUCH_END toggles card
+const touchBegin = { type: 9 }; // Clutter.EventType.TOUCH_BEGIN
+const resTouchBegin = eventIndicator._handleIndicatorTouchEvent(touchBegin);
+assert.strictEqual(resTouchBegin, true, 'TOUCH_BEGIN claims event sequence (EVENT_STOP)');
+assert.strictEqual(eventCard.isOpen(), false, 'TOUCH_BEGIN does not prematurely toggle card');
+
+const touchEnd = { type: 11 }; // Clutter.EventType.TOUCH_END
+const resTouchEnd = eventIndicator._handleIndicatorTouchEvent(touchEnd);
+assert.strictEqual(resTouchEnd, true, 'TOUCH_END handles event (EVENT_STOP)');
+assert.strictEqual(eventCard.isOpen(), true, 'TOUCH_END opens a transient media card');
+assert.strictEqual(eventIndicator.isPinned, false, 'TOUCH_END does not pin media card');
+
+// Second touch unpins and closes
+eventIndicator._handleIndicatorTouchEvent(touchEnd);
+assert.strictEqual(eventCard.isOpen(), false, 'Second TOUCH_END closes media card');
+assert.strictEqual(eventIndicator.isPinned, false, 'Second TOUCH_END leaves pin state clear');
+
+// D2. Touch and click delegation through host AppMenuButton
+if (typeof eventHost.emit === 'function') {
+    // Touch on host targeting indicator
+    eventHost.emit('touch-event', { type: 9, get_source: () => eventIndicator._mediaChip });
+    assert.strictEqual(eventCard.isOpen(), false, 'Host TOUCH_BEGIN claims sequence');
+    eventHost.emit('touch-event', { type: 11, get_source: () => eventIndicator._mediaChip });
+    assert.strictEqual(eventCard.isOpen(), true, 'Host TOUCH_END opens media card via delegation');
+    eventHost.emit('touch-event', { type: 11, get_source: () => eventIndicator._mediaChip });
+    assert.strictEqual(eventCard.isOpen(), false, 'Second Host TOUCH_END closes media card');
+
+    // Button 1 press on host targeting indicator
+    eventHost.emit('button-press-event', { get_button: () => 1, get_source: () => eventIndicator._mediaChip });
+    assert.strictEqual(eventCard.isOpen(), true, 'Host button-press opens media card via delegation');
+    eventHost.emit('button-press-event', { get_button: () => 1, get_source: () => eventIndicator._mediaChip });
+    assert.strictEqual(eventCard.isOpen(), false, 'Second Host button-press closes media card');
+}
+
+// E. Hit-testing: _isPointerOverIndicator must return true when host AppMenuButton has hover
+eventHost.hover = true;
+assert.strictEqual(eventIndicator._isPointerOverIndicator(), true, '_isPointerOverIndicator returns true when unified host AppMenuButton is hovered');
+eventHost.hover = false;
+
+// When _mediaChip has hover
+if (eventIndicator._mediaChip) {
+    eventIndicator._mediaChip.hover = true;
+    assert.strictEqual(eventIndicator._isPointerOverIndicator(), true, '_isPointerOverIndicator returns true when _mediaChip is hovered');
+    eventIndicator._mediaChip.hover = false;
+}
+
+// When a child of _mediaChip has hover
+if (eventIndicator._mediaChip && !eventIndicator._mediaChip.get_children) {
+    eventIndicator._mediaChip.get_children = () => [eventIndicator._mediaTitleLabel];
+}
+if (eventIndicator._mediaTitleLabel) {
+    eventIndicator._mediaTitleLabel.hover = true;
+    assert.strictEqual(eventIndicator._isPointerOverIndicator(), true, '_isPointerOverIndicator returns true when a child label is hovered');
+    eventIndicator._mediaTitleLabel.hover = false;
+}
+
+eventIndicator.destroy();
+console.log('-> Media chip touch, button 1/2/3 click and hit-testing PASSED.');

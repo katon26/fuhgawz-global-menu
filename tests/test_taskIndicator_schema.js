@@ -27,6 +27,7 @@ const requiredKeys = {
     'enable-media-indicator': { type: 'b', defaultVal: true },
     'media-spotify-priority': { type: 'b', defaultVal: true },
     'media-visualizer-style': { type: 's', defaultVal: 'wave', choices: ['wave', 'bar'] },
+    'media-chip-appearance': { type: 's', defaultVal: 'accent', choices: ['accent', 'neutral', 'tonal', 'outline'] },
     'media-persistent-idle': { type: 'b', defaultVal: true },
     'media-hover-popover': { type: 'b', defaultVal: true },
     'task-indicator-reveal': { type: 's', defaultVal: 'slide-fade', choices: ['slide-fade', 'fade', 'none'] },
@@ -126,11 +127,17 @@ if (settings.get_boolean('task-sync-recent-items') !== false) {
 settings.set_boolean('enable-media-indicator', false);
 settings.set_boolean('media-spotify-priority', false);
 settings.set_string('media-visualizer-style', 'bar');
+for (const appearance of ['neutral', 'tonal', 'outline']) {
+    settings.set_string('media-chip-appearance', appearance);
+    if (settings.get_string('media-chip-appearance') !== appearance)
+        throw new Error(`Failed to persist media-chip-appearance as ${appearance}`);
+}
 settings.set_boolean('media-persistent-idle', false);
 settings.set_boolean('media-hover-popover', false);
 if (settings.get_boolean('enable-media-indicator') !== false ||
     settings.get_boolean('media-spotify-priority') !== false ||
     settings.get_string('media-visualizer-style') !== 'bar' ||
+    settings.get_string('media-chip-appearance') !== 'outline' ||
     settings.get_boolean('media-persistent-idle') !== false ||
     settings.get_boolean('media-hover-popover') !== false) {
     throw new Error('Media preference write/read mismatch');
@@ -148,6 +155,9 @@ if (settings.get_string('task-indicator-mode') !== 'compact') {
 }
 if (settings.get_string('task-indicator-placement') !== 'unified') {
     throw new Error('Reset failed for task-indicator-placement');
+}
+if (settings.get_string('media-chip-appearance') !== 'accent') {
+    throw new Error('Reset failed for media-chip-appearance');
 }
 if (settings.get_int('task-auto-hide-seconds') !== 4) {
     throw new Error('Reset failed for task-auto-hide-seconds');
@@ -168,6 +178,7 @@ const expectedPrefsTokens = [
     'enable-media-indicator',
     'media-spotify-priority',
     'media-visualizer-style',
+    'media-chip-appearance',
     'media-persistent-idle',
     'media-hover-popover',
     'enable-task-indicator',
@@ -178,8 +189,14 @@ const expectedPrefsTokens = [
     'enable-media-indicator',
     'media-spotify-priority',
     'media-visualizer-style',
+    'media-chip-appearance',
     'media-persistent-idle',
     'media-hover-popover',
+    'Media Chip Appearance',
+    'Accent Capsule',
+    'Neutral',
+    'Tonal Accent',
+    'Outlined Accent',
     'Indicator Placement',
     'Unified Capsule (Inside AppMenu)',
     'Dedicated Slot (Beside AppMenu)',

@@ -67,6 +67,7 @@ class MockActor {
     get_transformed_position() { return [this.x, this.y]; }
     get_transformed_size() { return [this.width, this.height]; }
     set_position(x, y) { this.x = x; this.y = y; }
+    set_size(width, height) { this.width = width; this.height = height; }
     show() { this.visible = true; }
     hide() { this.visible = false; }
 
@@ -348,6 +349,8 @@ assert(!uiGroup.children.includes(card), 'destroy must unparent the card from th
 // Verify isPointerOver in vertical bridge between anchor and card
 const bridgeCard = new MediaFloatingCard(manager, { uiGroup, settings });
 const bridgeAnchor = new MockActor(100, 0, 200, 28);
+bridgeAnchor._mediaChip = new MockActor(100, 0, 200, 28);
+bridgeAnchor._appMenuButton = new MockActor(0, 0, 80, 28);
 bridgeCard.showForActor(bridgeAnchor, { title: 'Bridge Test', lengthMs: 200_000, positionMs: 50_000 }, 'Playing');
 await wait(OPEN_DELAY_MS + 50);
 bridgeCard.set_position(40, 36);
@@ -356,12 +359,121 @@ bridgeCard.height = 240;
 
 let pointerPos = [200, 32]; // Inside 8px gap between y=28 and y=36, x=200 is within [40, 360]
 const savedGlobal = globalThis.global;
-globalThis.global = { get_pointer: () => pointerPos, stage: { get_key_focus: () => null } };
+let focusedActor = null;
+const stageHandlers = new Map();
+let nextStageSignalId = 1;
+const testStage = {
+    connect(signal, handler) {
+        const id = nextStageSignalId++;
+        stageHandlers.set(id, { signal, handler });
+        return id;
+    },
+    disconnect(id) { stageHandlers.delete(id); },
+    emit(signal, event) {
+        let result;
+        for (const { signal: registered, handler } of stageHandlers.values()) {
+            if (registered === signal)
+                result = handler(this, event);
+        }
+        return result;
+    },
+    get_key_focus: () => focusedActor,
+};
+globalThis.global = { get_pointer: () => pointerPos, stage: testStage };
 
 assert(bridgeCard.isPointerOver(), 'isPointerOver must return true when pointer is in vertical bridge between anchor and card');
 
 pointerPos = [500, 32]; // Outside horizontal span of anchor & card
 assert(!bridgeCard.isPointerOver(), 'isPointerOver must return false when pointer is outside horizontal bridge');
+
+bridgeAnchor._appMenuButton.hover = true;
+pointerPos = [40, 15]; // On the app-menu host, away from the media chip
+assert(!bridgeCard.isPointerOver(), 'hovering the host app-menu button must not keep the media card open');
+bridgeAnchor._appMenuButton.hover = false;
+pointerPos = [50, 32]; // In the card gap, but outside the media chip's horizontal reach
+assert(!bridgeCard.isPointerOver(), 'the hover bridge must not extend across the neighboring app-menu title');
+bridgeCard.hover = true;
+bridgeAnchor._mediaChip.hover = true;
+pointerPos = [1200, 700];
+assert(!bridgeCard.isPointerOver(), 'stale hover properties must not override pointer coordinates outside the card and chip');
+bridgeCard.hover = false;
+bridgeAnchor._mediaChip.hover = false;
+focusedActor = bridgeAnchor._mediaChip;
+assert(bridgeCard._hasKeyboardFocus(), 'keyboard focus on the media control must count as anchor focus');
+focusedActor = null;
+
+const clickAwayCard = new MediaFloatingCard(manager, { uiGroup, settings, gracePeriodMs: 0 });
+const clickAwayAnchor = new MockActor(100, 400, 80, 28);
+clickAwayAnchor._mediaChip = new MockActor(100, 400, 80, 28);
+clickAwayAnchor.isPinned = true;
+clickAwayAnchor.unpin = () => { clickAwayAnchor.isPinned = false; };
+clickAwayCard.showForActor(clickAwayAnchor, { title: 'Click away test' }, 'Playing', { immediate: true });
+assert(clickAwayCard.isOpen(), 'click-away test card opens immediately');
+const makeStagePress = (source, coords) => ({
+    type: 'button-press',
+    get_source: () => source,
+    get_coords: () => coords,
+});
+const insideCardResult = testStage.emit('captured-event', makeStagePress(clickAwayCard._playPauseBtn, [220, 500]));
+assert(clickAwayCard.isOpen(), 'clicking a card control must not dismiss the card');
+assert(!insideCardResult, 'card-control clicks must propagate to the control');
+const insideAnchorResult = testStage.emit('captured-event', makeStagePress(clickAwayAnchor._mediaChip, [120, 410]));
+assert(clickAwayCard.isOpen(), 'clicking the media chip must not be treated as an outside click');
+assert(!insideAnchorResult, 'media-chip clicks must propagate to the chip');
+const outsideClickResult = testStage.emit('captured-event', makeStagePress(new MockActor(900, 700, 40, 30), [900, 700]));
+assert(!clickAwayCard.isOpen(), 'a click outside the card and chip must dismiss the card');
+assert(!clickAwayAnchor.isPinned, 'outside dismissal must release the media-chip pin');
+assert(!outsideClickResult, 'outside clicks must propagate to the underlying application');
+assert(stageHandlers.size === 0, 'hiding the card must disconnect its captured-event listener');
+clickAwayCard.destroy();
+
+const windowClickCard = new MediaFloatingCard(manager, { uiGroup, settings, gracePeriodMs: 0 });
+const windowClickAnchor = new MockActor(100, 400, 80, 28);
+windowClickAnchor._mediaChip = new MockActor(100, 400, 80, 28);
+windowClickAnchor.isPinned = true;
+windowClickAnchor.unpin = () => { windowClickAnchor.isPinned = false; };
+windowClickCard.showForActor(windowClickAnchor, { title: 'Window click test' }, 'Playing', { immediate: true });
+assert(windowClickCard._dismissLayer?.reactive, 'an open card must install a reactive desktop click dismissal layer');
+assert(uiGroup.children.includes(windowClickCard._dismissLayer), 'the dismissal layer must be attached to the Shell UI group while open');
+const backgroundClickResult = windowClickCard._dismissLayer.emit('button-press-event', makeStagePress(null, [900, 700]));
+assert(!windowClickCard.isOpen(), 'a click delivered to the transparent background layer must dismiss the card');
+assert(backgroundClickResult === true, 'the dismissing background click must be consumed after closing the card');
+assert(!windowClickAnchor.isPinned, 'a background click must release an explicit keyboard pin');
+assert(!uiGroup.children.includes(windowClickCard._dismissLayer), 'hiding the card must remove its background dismissal layer immediately');
+windowClickCard.destroy();
+
+const hoverExitCard = new MediaFloatingCard(manager, { uiGroup, settings, gracePeriodMs: 20 });
+const hoverExitAnchor = new MockActor(100, 100, 80, 28);
+hoverExitAnchor._mediaChip = new MockActor(100, 100, 80, 28);
+hoverExitCard.showForActor(hoverExitAnchor, { title: 'Hover exit test' }, 'Playing', { immediate: true });
+hoverExitCard.hover = true;
+pointerPos = [1400, 800];
+testStage.emit('captured-event', { type: 'motion', get_coords: () => pointerPos });
+assert(hoverExitCard._graceTimerId > 0, 'stage pointer motion outside the card must start hover dismissal');
+await wait(40);
+assert(!hoverExitCard.isOpen(), 'a hover-opened card must close after stage motion leaves the card and chip');
+assert(stageHandlers.size === 0, 'automatic hover dismissal must disconnect the stage listener');
+hoverExitCard.destroy();
+
+const negativeMonitorAnchor = new MockActor(-400, 100, 80, 28);
+negativeMonitorAnchor._mediaChip = new MockActor(-400, 100, 80, 28);
+const negativeMonitorCard = new MediaFloatingCard(manager, { uiGroup, settings });
+negativeMonitorCard.showForActor(negativeMonitorAnchor, { title: 'Negative monitor test' }, 'Playing', { immediate: true });
+pointerPos = [-360, 110];
+assert(negativeMonitorCard.isPointerOver(), 'negative stage coordinates on a left-hand monitor must remain valid pointer positions');
+negativeMonitorCard.destroy();
+
+const aboveCard = new MediaFloatingCard(manager, { uiGroup, settings });
+const aboveAnchor = new MockActor(100, 400, 200, 28);
+aboveAnchor._mediaChip = new MockActor(100, 400, 200, 28);
+aboveCard.showForActor(aboveAnchor, { title: 'Above Bridge Test' }, 'Playing');
+await wait(OPEN_DELAY_MS + 50);
+aboveCard.set_position(40, 152);
+aboveCard.width = 320;
+aboveCard.height = 240;
+pointerPos = [200, 396]; // 4px gap when the card flips above the panel anchor
+assert(aboveCard.isPointerOver(), 'isPointerOver must retain the pointer bridge when the card is above its anchor');
+aboveCard.destroy();
 
 // Verify scrubbing calculation and guard during drag
 bridgeCard._waveArea.width = 200;
@@ -377,6 +489,17 @@ bridgeCard._waveArea._progress = 0.75;
 bridgeCard._waveArea.update({ lengthMs: 200_000, positionMs: 10_000 }, 'Playing');
 assert(bridgeCard._waveArea._progress === 0.75, 'active drag must not be overwritten by incoming update()');
 bridgeCard._waveArea._dragging = false;
+
+let restoredFocus = null;
+globalThis.global.stage.set_key_focus = actor => {
+    restoredFocus = actor;
+    focusedActor = actor;
+};
+focusedActor = bridgeCard._prevBtn;
+assert(bridgeCard._isActorInsideCard(focusedActor), 'focused transport buttons must be recognized as children of the card');
+bridgeCard._handleKeyPress('Escape');
+assert(restoredFocus === bridgeAnchor._mediaChip,
+    'Escape must return keyboard focus to the media button that opened the card');
 
 bridgeCard.destroy();
 globalThis.global = savedGlobal;

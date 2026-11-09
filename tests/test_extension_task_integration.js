@@ -91,6 +91,64 @@ const systemMenuCode = readTextFile('./src/systemMenu.js');
 const recentItemsCode = readTextFile('./src/recentItemsSubmenu.js');
 const stylesheetCode = readTextFile('./stylesheet.css');
 
+function getCssRule(selector) {
+    const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = stylesheetCode.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
+    assert(match, `stylesheet.css must contain ${selector}`);
+    return match[1];
+}
+
+const mediaAccentRule = getCssRule('.fuhgawz-media-chip.media-accent');
+const mediaAccentHoverRule = getCssRule('.fuhgawz-media-chip.media-accent:hover');
+const mediaAccentActiveRule = getCssRule('.fuhgawz-media-chip.media-accent:active');
+const mediaTonalRule = getCssRule('.fuhgawz-media-chip.media-tonal');
+const mediaTonalHoverRule = getCssRule('.fuhgawz-media-chip.media-tonal:hover');
+const mediaTonalActiveRule = getCssRule('.fuhgawz-media-chip.media-tonal:active');
+const mediaTonalFocusRule = getCssRule('.fuhgawz-media-chip.media-tonal:focus');
+const mediaOutlineRule = getCssRule('.fuhgawz-media-chip.media-outline');
+const mediaOutlineHoverRule = getCssRule('.fuhgawz-media-chip.media-outline:hover');
+const mediaOutlineActiveRule = getCssRule('.fuhgawz-media-chip.media-outline:active');
+const mediaOutlineFocusRule = getCssRule('.fuhgawz-media-chip.media-outline:focus');
+assert(/background-color:\s*-st-accent-color\s*;/.test(mediaAccentRule),
+    'media accent chip must use the opaque theme accent fill');
+assert(/color:\s*-st-accent-fg-color\s*;/.test(mediaAccentRule),
+    'media accent chip must use the theme accent foreground');
+assert(/border-radius:\s*999px\s*;/.test(mediaAccentRule),
+    'media accent chip must use a pill radius');
+assert(/background-color:\s*st-lighten\(-st-accent-color,\s*8%\)\s*;/.test(mediaAccentHoverRule),
+    'media accent hover fill must be an opaque accent variation');
+assert(/background-color:\s*st-darken\(-st-accent-color,\s*8%\)\s*;/.test(mediaAccentActiveRule),
+    'media accent active fill must be an opaque accent variation');
+assert(/background-color:\s*st-mix\(-st-accent-color,\s*transparent,\s*16%\)\s*;/.test(mediaTonalRule) &&
+    /border-width:\s*0\s*;/.test(mediaTonalRule) &&
+    /color:\s*-st-fg-color\s*;/.test(mediaTonalRule),
+    'tonal media chip must use a borderless 16% accent surface with normal foreground text');
+assert(/background-color:\s*st-mix\(-st-accent-color,\s*transparent,\s*22%\)\s*;/.test(mediaTonalHoverRule),
+    'tonal media chip hover must use a 22% accent surface');
+assert(/background-color:\s*st-mix\(-st-accent-color,\s*transparent,\s*28%\)\s*;/.test(mediaTonalActiveRule),
+    'tonal media chip active state must use a 28% accent surface');
+assert(/outline-color:\s*-st-accent-color\s*;/.test(mediaTonalFocusRule) && /outline-width:\s*2px\s*;/.test(mediaTonalFocusRule),
+    'tonal media chip focus must use a 2px theme-accent outline');
+assert(/background-color:\s*st-mix\(-st-accent-color,\s*transparent,\s*6%\)\s*;/.test(mediaOutlineRule) &&
+    /border-width:\s*1px\s*;/.test(mediaOutlineRule) &&
+    /border-color:\s*st-mix\(-st-accent-color,\s*transparent,\s*58%\)\s*;/.test(mediaOutlineRule) &&
+    /color:\s*-st-fg-color\s*;/.test(mediaOutlineRule),
+    'outlined media chip must use a 6% accent surface, 58% accent border, and normal foreground text');
+assert(/background-color:\s*st-mix\(-st-accent-color,\s*transparent,\s*13%\)\s*;/.test(mediaOutlineHoverRule),
+    'outlined media chip hover must use a 13% accent surface');
+assert(/background-color:\s*st-mix\(-st-accent-color,\s*transparent,\s*18%\)\s*;/.test(mediaOutlineActiveRule),
+    'outlined media chip active state must use an 18% accent surface');
+assert(/outline-color:\s*-st-accent-color\s*;/.test(mediaOutlineFocusRule) && /outline-width:\s*2px\s*;/.test(mediaOutlineFocusRule),
+    'outlined media chip focus must use a 2px theme-accent outline');
+const mediaTonalOutlineGlyphWaveRule = getCssRule(
+    '.fuhgawz-media-chip.media-tonal .fuhgawz-media-glyph-icon,\n' +
+    '.fuhgawz-media-chip.media-tonal .fuhgawz-media-wave,\n' +
+    '.fuhgawz-media-chip.media-outline .fuhgawz-media-glyph-icon,\n' +
+    '.fuhgawz-media-chip.media-outline .fuhgawz-media-wave'
+);
+assert(/color:\s*-st-accent-color\s*;/.test(mediaTonalOutlineGlyphWaveRule),
+    'tonal and outlined media chips must tint glyph icon and waveform with -st-accent-color');
+
 // Verify extension.js imports
 assert(extensionCode.includes("import { TaskManager } from './src/taskManager.js'"),
     'extension.js must import TaskManager');
