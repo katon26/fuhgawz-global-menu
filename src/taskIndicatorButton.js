@@ -341,6 +341,11 @@ class BaseIndicatorLogic {
         this._settings = settings;
         this._taskManager = taskManager;
         this._options = options;
+        this._mediaChipUsesButton ??= Boolean(
+            this._mediaChip &&
+            typeof this._mediaChip.set_child === 'function' &&
+            typeof this._mediaChip.connect === 'function'
+        );
 
         this._mode = 'compact';
         this._placement = 'unified';
@@ -380,6 +385,7 @@ class BaseIndicatorLogic {
         this._marqueeWidthPinned = false;
         this._customMenuIdleHide = undefined;
         this._isPointerInZone = false;
+        this._menuZonePresentation = 'full';
         this._isHidden = false;
         this._isCompressed = false;
         this._chipWidthPinned = false;
@@ -480,7 +486,7 @@ class BaseIndicatorLogic {
                 this._settingsSignalIds.push(sModeId, sPlacementId, sEnableId);
             } catch (e) {}
 
-            for (const key of ['enable-media-indicator', 'media-persistent-idle', 'media-hover-popover']) {
+            for (const key of ['enable-media-indicator', 'media-persistent-idle', 'media-hover-popover', 'media-chip-appearance']) {
                 try {
                     const id = this._settings.connect(`changed::${key}`, () => {
                         if (this._destroyed)
@@ -499,8 +505,14 @@ class BaseIndicatorLogic {
                     const id = this._settings.connect(`changed::${key}`, () => {
                         if (this._destroyed)
                             return;
-                        if (key === 'indicator-hide-on-hover' && !this._hideEnabled && this._isHidden) {
-                            this.hideChipIn();
+                        if (key === 'indicator-hide-on-hover') {
+                            if (this._isPointerInZone && this.hasLiveIndicator() &&
+                                this._menuZonePresentation !== 'full') {
+                                this._menuZonePresentation = this._hideEnabled ? 'hidden' : 'compact';
+                                this._applyMenuZonePresentation();
+                            } else if (!this._hideEnabled && this._isHidden) {
+                                this.hideChipIn();
+                            }
                         }
                         if (key === 'menu-hide-when-idle') {
                             // Turning idle hide off must show the menu now, not on
@@ -663,6 +675,8 @@ class BaseIndicatorLogic {
         this._labelText = `${player} • ${state} ${title}${artist ? ` - ${artist}` : ''}`;
         this._expandedText = '';
         this._isMediaDisplay = true;
+        if (!this._isHidden)
+            this._pinChipWidth(false);
     }
 
     _refreshMediaIndicator() {
@@ -688,18 +702,38 @@ class BaseIndicatorLogic {
         if (this.isDescendantOf(source, this._sliderToggleWidget) || this.isDescendantOf(source, this._actionButton))
             return Clutter ? Clutter.EVENT_STOP : true;
 
+        // In the GNOME UI the media chip is a real St.Button. Let its native
+        // clicked signal own primary-button activation; handling it here too
+        // would open on press and close again on release.
+        if (this._mediaChipUsesButton && this.isDescendantOf(source, this._mediaChip))
+            return Clutter ? Clutter.EVENT_PROPAGATE : false;
+        if (this._mediaChipUsesButton && this._mediaChip?.pressed)
+            return Clutter ? Clutter.EVENT_PROPAGATE : false;
+
         if (this._isMediaDisplay) {
-            let button = 0;
-            try { button = event?.get_button?.() ?? event?.button ?? 0; } catch (error) {}
-            if (button === 1) {
-                this._invokeMediaCommand('raise');
-                return Clutter ? Clutter.EVENT_STOP : true;
+            let button = 1;
+            try { button = event?.get_button?.() ?? event?.button ?? 1; } catch (error) {}
+            if (source === this._compactLabelWidget) {
+                if (button === 1) {
+                    this._invokeMediaCommand('raise');
+                    return Clutter ? Clutter.EVENT_STOP : true;
+                }
+                if (button === 2) {
+                    this._invokeMediaCommand('playPause');
+                    return Clutter ? Clutter.EVENT_STOP : true;
+                }
+                return Clutter ? Clutter.EVENT_PROPAGATE : false;
             }
             if (button === 2) {
                 this._invokeMediaCommand('playPause');
                 return Clutter ? Clutter.EVENT_STOP : true;
             }
-            return Clutter ? Clutter.EVENT_PROPAGATE : false;
+            if (button === 3) {
+                return Clutter ? Clutter.EVENT_PROPAGATE : false;
+            }
+            // Button 1 (Left click) and any default pointer click on media chip/box/button toggles the media card
+            this.toggleMediaCard();
+            return Clutter ? Clutter.EVENT_STOP : true;
         }
 
         // The whole chip is the details target — in every placement. The
@@ -709,6 +743,30 @@ class BaseIndicatorLogic {
         if (this._activeTask || this._isCompleted || this._hasActiveTask()) {
             this.toggleDropdown();
             return Clutter ? Clutter.EVENT_STOP : true;
+        }
+        return Clutter ? Clutter.EVENT_PROPAGATE : false;
+    }
+
+    _handleIndicatorTouchEvent(event) {
+        const eventType = typeof event?.type === 'function' ? event.type() : event?.type;
+        const source = event?.get_source ? event.get_source() : (event?.target || null);
+        if (this._mediaChipUsesButton && this.isDescendantOf(source, this._mediaChip))
+            return Clutter ? Clutter.EVENT_PROPAGATE : false;
+        if (this._mediaChipUsesButton && this._mediaChip?.pressed)
+            return Clutter ? Clutter.EVENT_PROPAGATE : false;
+        if (eventType === Clutter?.EventType?.TOUCH_BEGIN || eventType === 9) {
+            return Clutter ? Clutter.EVENT_STOP : true;
+        }
+        if (eventType === Clutter?.EventType?.TOUCH_END || eventType === 11) {
+            this.handleHideReturnClick();
+            if (this._isMediaDisplay) {
+                this.toggleMediaCard();
+                return Clutter ? Clutter.EVENT_STOP : true;
+            }
+            if (this._activeTask || this._isCompleted || this._hasActiveTask()) {
+                this.toggleDropdown();
+                return Clutter ? Clutter.EVENT_STOP : true;
+            }
         }
         return Clutter ? Clutter.EVENT_PROPAGATE : false;
     }
@@ -793,34 +851,30 @@ class BaseIndicatorLogic {
 
         if (this._placement === 'standalone') {
             if (shouldShow) {
-                if (this.container && typeof this.container.show === 'function') {
+                if (this.container && this.container !== this && typeof this.container.show === 'function') {
                     this.container.show();
                     this.container.visible = true;
                 }
-                if (typeof this.show === 'function') this.show();
-                this.visible = true;
-            } else {
-                if (this.container && typeof this.container.hide === 'function') {
-                    this.container.hide();
-                    this.container.visible = false;
+                if (!this._isHidden) {
+                    if (typeof this.show === 'function') this.show();
+                    this.visible = true;
                 }
-                if (typeof this.hide === 'function') this.hide();
-                this.visible = false;
+            } else {
+                this._hideIndicator();
             }
         } else {
             // Unified placement
             if (shouldShow) {
-                if (typeof this.show === 'function') this.show();
-                this.visible = true;
+                if (!this._isHidden) {
+                    if (typeof this.show === 'function') this.show();
+                    this.visible = true;
+                    this.opacity = 255;
+                }
                 if (this._appMenuButton && typeof this._appMenuButton.show === 'function') {
                     this._appMenuButton.show();
                 }
             } else {
-                if (typeof this.hide === 'function') this.hide();
-                this.visible = false;
-                if (this._appMenuButton && !this._appMenuButton._window && typeof this._appMenuButton.hide === 'function') {
-                    this._appMenuButton.hide();
-                }
+                this._hideIndicator();
             }
         }
 
@@ -832,6 +886,11 @@ class BaseIndicatorLogic {
     }
 
     _hideIndicator() {
+        this._menuZonePresentation = 'full';
+        if (this._isHidden)
+            this.hideChipIn();
+        this._setChipCompressed(false);
+        this._pinChipWidth(false);
         if (typeof this.hide === 'function') this.hide();
         this.visible = false;
         if (this._placement === 'standalone') {
@@ -1484,8 +1543,11 @@ class BaseIndicatorLogic {
     // Mode Interaction & Pointer Handlers
     // ---------------------------------------------------------------------
 
-    onPointerEnter() {
+    onPointerEnter(sourceActor = null) {
         if (this._destroyed) return;
+        const directMediaChipEnter = this.isDescendantOf(sourceActor, this._mediaChip);
+        if (this._isMediaDisplay && directMediaChipEnter)
+            this._menuZonePresentation = 'full';
         this._cancelLeaveGraceTimer();
         if (this._isHidden) {
             this.hideChipIn();
@@ -1500,9 +1562,13 @@ class BaseIndicatorLogic {
             // Full numbers live in the dropdown, one click away.
             this._setChipCompressed(true);
             this._pinChipWidth(true);
+        } else {
+            this._setChipCompressed(false);
+            this._pinChipWidth(false);
         }
 
-        if (this._isMediaDisplay && this._readMediaSetting('media-hover-popover', true)) {
+        if (this._isMediaDisplay && this._readMediaSetting('media-hover-popover', true) &&
+            (directMediaChipEnter || this._isPointerOverMediaChip())) {
             this._mediaCard?.showForActor?.(this, this._mediaTrack, this._mediaPlaybackStatus);
         }
         if (this._mode === 'hover') {
@@ -1561,24 +1627,72 @@ class BaseIndicatorLogic {
         return false;
     }
 
-    _isPointerOverIndicator() {
-        if (this._isHidden) return false;
-        if (this.hover || this._box?.hover || this._compactLabelWidget?.hover || this._statusIconWidget?.hover || this._mediaChip?.hover) return true;
+    _isPointerOverMediaChip(px = null, py = null) {
+        const chip = this._mediaChip;
+        if (!chip || chip.visible === false || this._isHidden)
+            return false;
+        if (px === null && py === null) {
+            if (chip.hover)
+                return true;
+            if (chip.get_children?.().some(child => child.hover))
+                return true;
+        }
+        try {
+            let x = px;
+            let y = py;
+            if (x === null || y === null || x < 0 || y < 0) {
+                [x, y] = (typeof global !== 'undefined' && global.get_pointer) ? global.get_pointer() : [-1, -1];
+            }
+            if (x >= 0 && y >= 0 && typeof chip.get_transformed_position === 'function') {
+                const [ax, ay] = chip.get_transformed_position();
+                let width = 0;
+                let height = 0;
+                if (typeof chip.get_transformed_size === 'function') {
+                    try { [width, height] = chip.get_transformed_size(); } catch (e) {}
+                }
+                if (width <= 0) width = chip.get_width?.() ?? chip.width ?? 0;
+                if (height <= 0) height = chip.get_height?.() ?? chip.height ?? 0;
+                return width > 0 && height > 0 && x >= ax && x <= ax + width && y >= ay && y <= ay + height;
+            }
+        } catch (e) {}
+        return false;
+    }
+
+    _isPointerOverIndicator(px = null, py = null) {
         if (this._isPointerOverCard()) return true;
-        if (typeof global !== 'undefined' && global.get_pointer) {
+        if (this._isHidden) return false;
+        const isPointQuery = (px !== null && py !== null);
+        if (!isPointQuery) {
+            if (this._mediaChip?.hover || this._compactLabelWidget?.hover || this._statusIconWidget?.hover || this._box?.hover || this.hover) return true;
+            if (this._mediaChip?.get_children?.().some(c => c.hover)) return true;
+            if (this._appMenuButton?.hover || this._appMenuButton?._box?.hover) return true;
+        }
+        if (typeof global !== 'undefined' || isPointQuery) {
             try {
-                const [x, y] = global.get_pointer();
+                let x = px, y = py;
+                if (x === null || y === null || x < 0 || y < 0) {
+                    [x, y] = (typeof global !== 'undefined' && global.get_pointer) ? global.get_pointer() : [-1, -1];
+                }
                 if (x >= 0 && y >= 0) {
-                    const target = (this._mediaChip && this._mediaChip.visible) ? this._mediaChip : (this._customChipActor || this._box || this);
-                    if (typeof target.get_transformed_position === 'function') {
-                        const [ax, ay] = target.get_transformed_position();
-                        let aw = 0, ah = 0;
-                        if (typeof target.get_transformed_size === 'function') {
-                            try { [aw, ah] = target.get_transformed_size(); } catch (e) {}
+                    const targets = [this._mediaChip, this._box, this, this._customChipActor];
+                    if (this._mediaChip?.get_children) {
+                        try { targets.push(...this._mediaChip.get_children()); } catch (e) {}
+                    }
+                    if (!isPointQuery && this._placement === 'unified' && this._appMenuButton && this._appMenuButton.visible) {
+                        targets.push(this._appMenuButton);
+                        if (this._appMenuButton._box) targets.push(this._appMenuButton._box);
+                    }
+                    for (const target of targets.filter(t => t && t.visible !== false)) {
+                        if (typeof target.get_transformed_position === 'function') {
+                            const [ax, ay] = target.get_transformed_position();
+                            let aw = 0, ah = 0;
+                            if (typeof target.get_transformed_size === 'function') {
+                                try { [aw, ah] = target.get_transformed_size(); } catch (e) {}
+                            }
+                            if (aw <= 0) aw = target.get_width?.() ?? target.width ?? 0;
+                            if (ah <= 0) ah = target.get_height?.() ?? target.height ?? 0;
+                            if (aw > 0 && ah > 0 && x >= ax - 6 && x <= ax + aw + 6 && y >= ay - 6 && y <= ay + ah + 10) return true;
                         }
-                        if (aw <= 0) aw = target.get_width?.() ?? target.width ?? 0;
-                        if (ah <= 0) ah = target.get_height?.() ?? target.height ?? 0;
-                        if (aw > 0 && ah > 0 && x >= ax - 4 && x <= ax + aw + 4 && y >= ay - 2 && y <= ay + ah + 2) return true;
                     }
                 }
             } catch (e) {}
@@ -1588,26 +1702,41 @@ class BaseIndicatorLogic {
 
     _handleLeaveGraceTrigger() {
         if (this._destroyed || this._isPinned) return;
-        if (this._isPointerInZone || this._isPointerOverIndicator() || this._isPointerOverCard() || this._isPointerOverDropdown() || (this._mediaCard?._waveArea?._dragging) || (this._mediaManager?.isSeeking?.())) return;
+
+        // 1. Media card / dropdown lifecycle:
+        // When pointer leaves the indicator and card, close the media card / dropdown
+        const pointerOverCard = this._isPointerOverCard() || this._mediaCard?.isPointerOver?.();
+        const pointerOverIndicator = this._isPointerOverIndicator();
+        const pointerOverMediaChip = this._isPointerOverMediaChip();
+        const isDraggingOrSeeking = Boolean(this._mediaCard?._waveArea?._dragging || this._mediaManager?.isSeeking?.());
+
+        if (this._isMediaDisplay) {
+            if (!pointerOverCard && !pointerOverMediaChip && !isDraggingOrSeeking) {
+                if (this._mediaCard?._openTimerId) {
+                    GLib.source_remove(this._mediaCard._openTimerId);
+                    this._mediaCard._openTimerId = 0;
+                }
+                this._mediaCard?.hideCard?.();
+            }
+        } else if (this.isDropdownOpen()) {
+            if (!this._isPointerOverDropdown() && !pointerOverIndicator) {
+                this.closeDropdown();
+            }
+        }
+
+        // 2. If pointer is still in menu zone, over indicator, over card, or dragging/seeking, do not collapse menu zone
+        if (this._isPointerInZone || pointerOverIndicator || pointerOverCard || this._isPointerOverDropdown() || isDraggingOrSeeking) return;
         if (this._appMenuButton && typeof this._appMenuButton.isAnyMenuOpen === 'function' && this._appMenuButton.isAnyMenuOpen()) return;
+
         this._setChipCompressed(false);
         this._pinChipWidth(false);
+        this._menuZonePresentation = 'full';
         if (this._mode === 'hover') {
             this.setExpanded(false);
         }
-        this._pinChipWidth(false);
-        if (this._isMediaDisplay) {
-            this._mediaCard?.hideCard?.();
-        } else if (this.isDropdownOpen()) {
-            this.closeDropdown();
-        }
-        // Restore a chip hidden by indicator-hide-on-hover on zone leave,
-        // whatever is on display — the hidden state was never media-specific.
         if (this._isHidden && this.getHideReturnTrigger() === 'zone-leave') {
             this.hideChipIn();
         }
-        // Single decision point: chip visible again + pointer away → the
-        // indicator owns the slot; anything else reveals the menu.
         this._syncMenuZone();
     }
 
@@ -1832,13 +1961,14 @@ class BaseIndicatorLogic {
     toggleMediaCard() {
         if (this._destroyed || !this._isMediaDisplay)
             return;
-        if (this._mediaCard?.isOpen?.() && this._isPinned) {
+        if (this._mediaCard?.isOpen?.()) {
             this._hideMediaCard();
         } else {
-            // Click pins: a card the pointer opened is a preview and dies with
-            // the pointer, a card the user clicked stays until they dismiss it.
-            this._isPinned = true;
-            this._mediaCard?.showForActor?.(this, this._mediaTrack, this._mediaPlaybackStatus);
+            // A panel click opens a transient card. It remains interactive
+            // while the pointer is on the chip/card, then leaves with the
+            // pointer; keyboard pinning remains an explicit F10 action.
+            this._isPinned = false;
+            this._mediaCard?.showForActor?.(this, this._mediaTrack, this._mediaPlaybackStatus, { immediate: true });
         }
     }
 
@@ -2211,9 +2341,9 @@ class BaseIndicatorLogic {
     }
 
     hideChipOut() {
-        if (this._isHidden)
+        if (this._destroyed || this._isHidden)
             return;
-        if (!this._hideEnabled || this.isCardOpen())
+        if (!this._hideEnabled || this.isCardOpen() || this._mediaCard?._openTimerId || this._isPointerOverCard() || this._isPointerOverIndicator())
             return;
         if (this._menuActionInProgress)
             return;
@@ -2228,20 +2358,31 @@ class BaseIndicatorLogic {
         this._setChipCompressed(false);
         this._pinChipWidth(false);
         this._chipActor.remove_all_transitions?.();
-        const currentPrefWidth = typeof this._chipActor.get_preferred_width === 'function'
-            ? this._chipActor.get_preferred_width(-1)[1]
-            : (this._chipActor._naturalWidth ?? this._chipActor.width ?? 120);
+        let currentPrefWidth = 120;
+        if (this._isMediaDisplay && this._mediaChip) {
+            currentPrefWidth = typeof this._mediaChip.get_preferred_width === 'function'
+                ? this._mediaChip.get_preferred_width(-1)[1]
+                : (this._mediaChip.width || 120);
+        } else {
+            currentPrefWidth = typeof this._chipActor.get_preferred_width === 'function'
+                ? this._chipActor.get_preferred_width(-1)[1]
+                : (this._chipActor._naturalWidth ?? this._chipActor.width ?? 120);
+        }
         if (currentPrefWidth > 0) {
             this._hideNaturalWidth = currentPrefWidth;
         }
 
         this._isHidden = true;
         this._syncMenuZone();
+        this._chipActor.add_style_class_name?.('fuhgawz-chip-hidden');
+        this.add_style_class_name?.('fuhgawz-chip-hidden');
         if (this._shouldReduceMotion()) {
             this._chipActor.opacity = 0;
             this._chipActor.width = 0;
+            this.visible = false;
             if (this !== this._chipActor) {
-                this.visible = false;
+                this.opacity = 0;
+                if (typeof this.set_width === 'function') this.set_width(0); else this.width = 0;
             }
             return;
         }
@@ -2251,8 +2392,12 @@ class BaseIndicatorLogic {
             duration: 160,
             mode: Clutter?.AnimationMode?.EASE_OUT_CUBIC ?? 32,
             onComplete: () => {
-                if (this._isHidden && this !== this._chipActor) {
+                if (this._isHidden) {
                     this.visible = false;
+                    if (this !== this._chipActor) {
+                        this.opacity = 0;
+                        if (typeof this.set_width === 'function') this.set_width(0); else this.width = 0;
+                    }
                 }
             },
         });
@@ -2262,19 +2407,36 @@ class BaseIndicatorLogic {
         if (!this._isHidden)
             return;
         this._isHidden = false;
-        if (this !== this._chipActor && this.hasLiveIndicator()) {
+        this._chipActor.remove_style_class_name?.('fuhgawz-chip-hidden');
+        this.remove_style_class_name?.('fuhgawz-chip-hidden');
+        if (this.hasLiveIndicator()) {
             this.visible = true;
             this.show?.();
+            if (this !== this._chipActor) {
+                this.opacity = 255;
+                if (typeof this.set_width === 'function') this.set_width(-1); else this.width = -1;
+            }
         }
         this._syncMenuZone();
         this._chipActor.remove_all_transitions?.();
         const naturalWidth = this._hideNaturalWidth || (typeof this._chipActor.get_preferred_width === 'function'
             ? this._chipActor.get_preferred_width(-1)[1]
             : (this._chipActor._naturalWidth ?? this._chipActor.width ?? 120));
-        if (this._shouldReduceMotion()) {
+        if (this._shouldReduceMotion() || !this.hasLiveIndicator()) {
             this._chipActor.width = naturalWidth;
             this._chipActor.opacity = 255;
-            this._chipActor.width = -1;
+            if (typeof this._chipActor.set_width === 'function') {
+                this._chipActor.set_width(-1);
+            } else {
+                this._chipActor.width = -1;
+            }
+            if (this !== this._chipActor) {
+                this.opacity = 255;
+                if (typeof this.set_width === 'function') this.set_width(-1); else this.width = -1;
+            }
+            if (this.hasLiveIndicator() && this._isPointerOverIndicator()) {
+                this.onPointerEnter();
+            }
             return;
         }
         this._chipActor.ease({
@@ -2283,7 +2445,18 @@ class BaseIndicatorLogic {
             duration: 200,
             mode: Clutter?.AnimationMode?.EASE_IN_CUBIC ?? 31,
             onComplete: () => {
-                this._chipActor.width = -1;
+                if (typeof this._chipActor.set_width === 'function') {
+                    this._chipActor.set_width(-1);
+                } else {
+                    this._chipActor.width = -1;
+                }
+                if (this !== this._chipActor) {
+                    this.opacity = 255;
+                    if (typeof this.set_width === 'function') this.set_width(-1); else this.width = -1;
+                }
+                if (this.hasLiveIndicator() && this._isPointerOverIndicator()) {
+                    this.onPointerEnter();
+                }
             },
         });
     }
@@ -2314,20 +2487,96 @@ class BaseIndicatorLogic {
         this._isPointerInZone = true;
         this._cancelLeaveGraceTimer();
         this._syncMenuZone();
-        if (this.hasLiveIndicator()) {
-            if (this._hideEnabled && !this._isPointerOverIndicator()) {
-                this.hideChipOut();
-            } else {
-                // The menu is revealed next to the chip: compress once and pin
-                // that width, so the chip settles immediately instead of jumping
-                // again on every pointer move or telemetry tick.
-                this._setChipCompressed(true);
-                this._pinChipWidth(true);
-                if (this._isMediaDisplay) {
-                    this.onPointerEnter();
-                }
-            }
+        if (!this.hasLiveIndicator())
+            return;
+
+        const pointerOverTrigger = this._isMediaDisplay
+            ? this._isPointerOverMediaChip()
+            : this._isPointerOverIndicator();
+        if (pointerOverTrigger) {
+            // A direct chip hover is stronger than the sibling menu state.
+            this._menuZonePresentation = 'full';
+            this.onPointerEnter();
+            return;
         }
+
+        this._menuZonePresentation = this._hideEnabled ? 'hidden' : 'compact';
+        this._applyMenuZonePresentation();
+    }
+
+    /**
+     * The pointer entered the AppMenuButton (which hosts the application title
+     * and live indicator).
+     *
+     * Entering AppMenuButton reveals the global menu zone beside it, but NEVER
+     * triggers chip hide-out: the indicator is embedded inside AppMenuButton,
+     * so entering AppMenuButton means the user is viewing or hovering the
+     * indicator.
+     *
+     * @returns {void}
+     */
+    onAppMenuEnter() {
+        if (this._destroyed) return;
+        this._isPointerInZone = true;
+        this._cancelLeaveGraceTimer();
+        this._syncMenuZone();
+        const directMediaChipEnter = this._isMediaDisplay && this._isPointerOverMediaChip();
+        if (directMediaChipEnter) {
+            this._menuZonePresentation = 'full';
+            this.onPointerEnter();
+            return;
+        }
+        // Preserve the pre-Task-3 task-chip contract: hovering its unified
+        // AppMenuButton host is equivalent to entering the task chip itself.
+        // Media title-only hover deliberately does not use this branch.
+        if (!this._isMediaDisplay && this._isPointerOverIndicator()) {
+            this.onPointerEnter();
+            return;
+        }
+        // AppMenuButton is a sibling of the global-menu items. Preserve the
+        // presentation those items selected; only a fresh entry (which is
+        // still 'full') should show the complete media chip here.
+        this._applyMenuZonePresentation();
+    }
+
+    /**
+     * Applies the presentation chosen for the combined AppMenu/global-menu
+     * hover zone. Keeping this in one place prevents sibling enter events from
+     * hide/reveal or compress/expand oscillations.
+     *
+     * @returns {void}
+     */
+    _applyMenuZonePresentation() {
+        if (this._destroyed || !this.hasLiveIndicator())
+            return;
+
+        if (this._menuZonePresentation === 'hidden') {
+            if (this._mediaCard?._openTimerId) {
+                GLib.source_remove(this._mediaCard._openTimerId);
+                this._mediaCard._openTimerId = 0;
+            }
+            if (!this._isHidden)
+                this.hideChipOut();
+            return;
+        }
+
+        if (this._menuZonePresentation === 'compact') {
+            if (this._isHidden)
+                this.hideChipIn();
+            if (!this._isCompressed)
+                this._setChipCompressed(true);
+            const shouldPin = !this._isMediaDisplay;
+            if (this._chipWidthPinned !== shouldPin)
+                this._pinChipWidth(shouldPin);
+            return;
+        }
+
+        if (this._isHidden)
+            this.hideChipIn();
+        if (this._isCompressed)
+            this._setChipCompressed(false);
+        if (this._chipWidthPinned)
+            this._pinChipWidth(false);
     }
 
     /**
@@ -2419,31 +2668,15 @@ class BaseIndicatorLogic {
         if (this._destroyed || this._isPinned) return;
         this._isPointerInZone = false;
         if (this.hasLiveIndicator()) {
-            if (this._isHidden) {
-                if (this.getHideReturnTrigger() === 'zone-leave') {
-                    const graceMs = options.graceMs ?? this._leaveGraceMs;
-                    if (options.immediate || graceMs <= 0) {
-                        this._cancelLeaveGraceTimer();
-                        this._handleLeaveGraceTrigger();
-                    } else {
-                        this._cancelLeaveGraceTimer();
-                        this._leaveGraceTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, graceMs, () => {
-                            this._leaveGraceTimerId = 0;
-                            if (this._destroyed) return GLib.SOURCE_REMOVE;
-                            if (this._isHidden && this.getHideReturnTrigger() === 'zone-leave' && !this._isPinned) {
-                                this._handleLeaveGraceTrigger();
-                            }
-                            return GLib.SOURCE_REMOVE;
-                        });
-                    }
-                }
-            } else {
-                this._setChipCompressed(false);
-                this._pinChipWidth(false);
-                this.onPointerLeave(options);
-            }
+            // A leave can be immediately followed by the other sibling's
+            // enter-event. Let the grace handler prove the combined zone was
+            // actually left before restoring the full presentation.
+            this.onPointerLeave(options);
         } else {
             this._cancelLeaveGraceTimer();
+            this._menuZonePresentation = 'full';
+            if (this._isHidden)
+                this.hideChipIn();
             this._setChipCompressed(false);
             this._pinChipWidth(false);
             this._syncMenuZone();
@@ -2483,8 +2716,26 @@ class BaseIndicatorLogic {
      * @returns {void}
      */
     _pinChipWidth(pinned) {
+        if (this._isMediaDisplay) {
+            this._chipWidthPinned = false;
+            if (this._chipActor) {
+                if (typeof this._chipActor.set_width === 'function') {
+                    this._chipActor.set_width(-1);
+                } else {
+                    this._chipActor.width = -1;
+                }
+            }
+            if (this !== this._chipActor) {
+                if (typeof this.set_width === 'function') {
+                    this.set_width(-1);
+                } else {
+                    this.width = -1;
+                }
+            }
+            return;
+        }
         const chip = this._chipActor;
-        if (!chip || typeof chip.set_width !== 'function')
+        if (!chip)
             return;
         if (pinned) {
             if (this._chipWidthPinned)
@@ -2500,13 +2751,26 @@ class BaseIndicatorLogic {
             if (!Number.isFinite(natural) || natural <= 0)
                 return;
             this._chipWidthPinned = true;
-            chip.set_width(natural);
+            if (typeof chip.set_width === 'function') {
+                chip.set_width(natural);
+            } else {
+                chip.width = natural;
+            }
             try { chip.clip_to_allocation = true; } catch (e) {}
         } else {
-            if (!this._chipWidthPinned)
-                return;
             this._chipWidthPinned = false;
-            chip.set_width(-1);
+            if (typeof chip.set_width === 'function') {
+                chip.set_width(-1);
+            } else {
+                chip.width = -1;
+            }
+            if (this !== chip) {
+                if (typeof this.set_width === 'function') {
+                    this.set_width(-1);
+                } else {
+                    this.width = -1;
+                }
+            }
             try { chip.clip_to_allocation = false; } catch (e) {}
         }
     }
@@ -2518,7 +2782,7 @@ class BaseIndicatorLogic {
     }
 
     // ---------------------------------------------------------------------
-    // Keyboard Pinning (F10 / Alt+F / Esc) & Pinning State Machine
+    // Keyboard Pinning (F10 / Esc) & Pinning State Machine
     // ---------------------------------------------------------------------
 
     get isPinned() {
@@ -2584,21 +2848,16 @@ class BaseIndicatorLogic {
             : (event.state ?? event.modifier ?? event.modifiers ?? 0);
 
         const keyF10 = Clutter?.KEY_F10 ?? 0xffc7;
-        const keyf = Clutter?.KEY_f ?? 0x66;
-        const keyF = Clutter?.KEY_F ?? 0x46;
         const keyEscape = Clutter?.KEY_Escape ?? 0xff1b;
         const mod1Mask = Clutter?.ModifierType?.MOD1_MASK ?? 8;
         const ctrlMask = Clutter?.ModifierType?.CONTROL_MASK ?? 4;
         const shiftMask = Clutter?.ModifierType?.SHIFT_MASK ?? 1;
 
         const isF10 = symbol === keyF10 || symbol === 'F10';
-        const isF = symbol === keyf || symbol === keyF || symbol === 'f' || symbol === 'F';
-        const isAlt = Boolean(state & mod1Mask);
         const isPlainF10 = isF10 && !(state & (mod1Mask | ctrlMask | shiftMask));
-        const isPureAltF = isF && isAlt && !(state & ctrlMask);
         const isEscape = symbol === keyEscape || symbol === 'Escape' || event?.keyName === 'Escape';
 
-        if (isPlainF10 || isPureAltF) {
+        if (isPlainF10) {
             this.togglePinned();
             return Clutter?.EVENT_STOP ?? true;
         }
@@ -2755,7 +3014,7 @@ class BaseIndicatorLogic {
             });
 
             const cardBox = new St.BoxLayout({
-                vertical: true,
+                orientation: Clutter.Orientation.VERTICAL,
                 style_class: 'fuhgawz-popover-card',
             });
 
@@ -2765,7 +3024,7 @@ class BaseIndicatorLogic {
 
                 // Header: doc icon + filename or title
                 const headerBox = new St.BoxLayout({
-                    vertical: false,
+                    orientation: Clutter.Orientation.HORIZONTAL,
                     style_class: 'fuhgawz-popover-header',
                 });
                 const headerIconName = card.opType === 'delete'
@@ -2789,7 +3048,7 @@ class BaseIndicatorLogic {
 
                 // Progress Bar: 6px rounded wrapper
                 const progressWrapper = new St.BoxLayout({
-                    vertical: true,
+                    orientation: Clutter.Orientation.VERTICAL,
                     style_class: 'fuhgawz-popover-progress-wrapper',
                 });
                 const cardProgressBar = new TaskProgressBar({
@@ -2804,7 +3063,7 @@ class BaseIndicatorLogic {
 
                 // Stats row (3 columns: time/ETA, speed, bytes)
                 const statsBox = new St.BoxLayout({
-                    vertical: false,
+                    orientation: Clutter.Orientation.HORIZONTAL,
                     style_class: 'fuhgawz-popover-stats',
                 });
                 let timeStr = '';
@@ -2841,7 +3100,7 @@ class BaseIndicatorLogic {
 
                 // Action buttons row (3 side-by-side buttons)
                 const actionsBox = new St.BoxLayout({
-                    vertical: false,
+                    orientation: Clutter.Orientation.HORIZONTAL,
                     style_class: 'fuhgawz-popover-actions',
                 });
 
@@ -2852,7 +3111,7 @@ class BaseIndicatorLogic {
                     can_focus: true,
                     x_expand: true,
                 });
-                const pauseContent = new St.BoxLayout({ vertical: false, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
+                const pauseContent = new St.BoxLayout({ orientation: Clutter.Orientation.HORIZONTAL, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
                 const pauseText = new St.Label({ text: card.paused ? 'Resume' : 'Pause' });
                 pauseContent.add_child(pauseText);
                 pauseBtn.set_child(pauseContent);
@@ -2870,7 +3129,7 @@ class BaseIndicatorLogic {
                         can_focus: true,
                         x_expand: true,
                     });
-                    const cancelContent = new St.BoxLayout({ vertical: false, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
+                    const cancelContent = new St.BoxLayout({ orientation: Clutter.Orientation.HORIZONTAL, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
                     const cancelText = new St.Label({ text: 'Cancel' });
                     cancelContent.add_child(cancelText);
                     cancelBtn.set_child(cancelContent);
@@ -2888,7 +3147,7 @@ class BaseIndicatorLogic {
                     can_focus: true,
                     x_expand: true,
                 });
-                const revealContent = new St.BoxLayout({ vertical: false, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
+                const revealContent = new St.BoxLayout({ orientation: Clutter.Orientation.HORIZONTAL, x_align: Clutter?.ActorAlign?.CENTER ?? 0 });
                 const revealText = new St.Label({ text: 'Show in Files' });
                 revealContent.add_child(revealText);
                 revealBtn.set_child(revealContent);
@@ -2917,7 +3176,7 @@ class BaseIndicatorLogic {
                         x_expand: true,
                     });
                     const itemBox = new St.BoxLayout({
-                        vertical: false,
+                        orientation: Clutter.Orientation.HORIZONTAL,
                         x_expand: true,
                     });
                     const checkIcon = new St.Icon({
@@ -3133,11 +3392,39 @@ class BaseIndicatorLogic {
             this._revealMenuZone();
         }
 
-        // Event delegation: Prevent child button clicks inside _box from triggering AppMenuButton popup
+        // Event delegation: Route indicator clicks & touches inside AppMenuButton to toggle card/dropdown
         if (this._appMenuSignalIds.length === 0 && typeof appMenuButton.connect === 'function') {
             const pId = appMenuButton.connect('button-press-event', (actor, event) => {
                 const source = event?.get_source ? event.get_source() : (event?.target || null);
-                if (this._isChildButton(source)) {
+                if (this._mediaChipUsesButton && this.isDescendantOf(source, this._mediaChip))
+                    return Clutter ? Clutter.EVENT_PROPAGATE : false;
+                if (this._mediaChipUsesButton && this._mediaChip?.pressed)
+                    return Clutter ? Clutter.EVENT_PROPAGATE : false;
+                let isChild = this._isChildButton(source);
+                if (!isChild) {
+                    try {
+                        const coords = event?.get_coords?.();
+                        const x = coords?.[0] ?? -1;
+                        const y = coords?.[1] ?? -1;
+                        if (this._isPointerOverIndicator(x, y)) isChild = true;
+                    } catch (e) {}
+                }
+                if (isChild) {
+                    let button = 1;
+                    try { button = event?.get_button?.() ?? event?.button ?? 1; } catch (e) {}
+                    if (this._isMediaDisplay) {
+                        if (button === 2) {
+                            this._invokeMediaCommand('playPause');
+                            return Clutter ? Clutter.EVENT_STOP : true;
+                        } else if (button === 3) {
+                            return Clutter ? Clutter.EVENT_PROPAGATE : false;
+                        } else {
+                            this.toggleMediaCard();
+                            return Clutter ? Clutter.EVENT_STOP : true;
+                        }
+                    } else if (this._activeTask || this._isCompleted || this._hasActiveTask()) {
+                        this.toggleDropdown();
+                    }
                     return Clutter ? Clutter.EVENT_STOP : true;
                 }
                 return Clutter ? Clutter.EVENT_PROPAGATE : false;
@@ -3150,16 +3437,50 @@ class BaseIndicatorLogic {
                 }
                 return Clutter ? Clutter.EVENT_PROPAGATE : false;
             });
+            const tId = appMenuButton.connect('touch-event', (actor, event) => {
+                const eventType = typeof event?.type === 'function' ? event.type() : event?.type;
+                const source = event?.get_source ? event.get_source() : (event?.target || null);
+                if (this._mediaChipUsesButton && this.isDescendantOf(source, this._mediaChip))
+                    return Clutter ? Clutter.EVENT_PROPAGATE : false;
+                if (this._mediaChipUsesButton && this._mediaChip?.pressed)
+                    return Clutter ? Clutter.EVENT_PROPAGATE : false;
+                let isChild = this._isChildButton(source);
+                if (!isChild) {
+                    try {
+                        const coords = event?.get_coords?.();
+                        const x = coords?.[0] ?? -1;
+                        const y = coords?.[1] ?? -1;
+                        if (this._isPointerOverIndicator(x, y)) isChild = true;
+                    } catch (e) {}
+                }
+                if (!isChild)
+                    return Clutter ? Clutter.EVENT_PROPAGATE : false;
+
+                if (eventType === Clutter?.EventType?.TOUCH_BEGIN || eventType === 9) {
+                    return Clutter ? Clutter.EVENT_STOP : true;
+                }
+                if (eventType === Clutter?.EventType?.TOUCH_END || eventType === 11) {
+                    this.handleHideReturnClick();
+                    if (this._isMediaDisplay) {
+                        this.toggleMediaCard();
+                    } else if (this._activeTask || this._isCompleted || this._hasActiveTask()) {
+                        this.toggleDropdown();
+                    }
+                    return Clutter ? Clutter.EVENT_STOP : true;
+                }
+                return Clutter ? Clutter.EVENT_STOP : true;
+            });
             const enterId = appMenuButton.connect('enter-event', () => {
-                this.onMenuZoneEnter();
+                this.onAppMenuEnter();
             });
             const leaveId = appMenuButton.connect('leave-event', () => {
                 this.onMenuZoneLeave();
             });
+            appMenuButton._hasIndicatorEnterHandler = true;
             const keyId = appMenuButton.connect('key-press-event', (actor, event) => {
                 return this.handleKeyPress(event);
             });
-            this._appMenuSignalIds.push(pId, rId, enterId, leaveId, keyId);
+            this._appMenuSignalIds.push(pId, rId, tId, enterId, leaveId, keyId);
         }
 
         if (!this._origAppMenuToggle && appMenuButton.menu && typeof appMenuButton.menu.toggle === 'function') {
@@ -3182,6 +3503,9 @@ class BaseIndicatorLogic {
     }
 
     _unbindAppMenu() {
+        if (this._appMenuButton) {
+            this._appMenuButton._hasIndicatorEnterHandler = false;
+        }
         if (this._appMenuButton && this._appMenuSignalIds && this._appMenuSignalIds.length > 0) {
             for (const id of this._appMenuSignalIds) {
                 try {
@@ -3205,8 +3529,24 @@ class BaseIndicatorLogic {
     // UI Component Updates
     // ---------------------------------------------------------------------
 
+    _applyMediaChipAppearance() {
+        if (!this._mediaChip)
+            return;
+        let appearance = 'accent';
+        try {
+            appearance = this._settings?.get_string('media-chip-appearance') ?? 'accent';
+        } catch (e) {}
+        if (!['accent', 'neutral', 'tonal', 'outline'].includes(appearance))
+            appearance = 'accent';
+
+        for (const className of ['media-accent', 'media-neutral', 'media-tonal', 'media-outline'])
+            this._mediaChip.remove_style_class_name?.(className);
+        this._mediaChip.add_style_class_name?.(`media-${appearance}`);
+    }
+
     _updateUiComponents() {
         this._syncIndicatorDisplay();
+        this._applyMediaChipAppearance();
 
         const hasTaskContent = Boolean(this._activeTask || this._isCompleted);
 
@@ -3260,6 +3600,8 @@ class BaseIndicatorLogic {
         }
 
         if (this._mediaChip) {
+            this._mediaChip.reactive = Boolean(this._isMediaDisplay);
+            this._mediaChip.can_focus = Boolean(this._isMediaDisplay);
             if (this._isMediaDisplay) {
                 if (typeof this._mediaChip.show === 'function')
                     this._mediaChip.show();
@@ -3270,6 +3612,7 @@ class BaseIndicatorLogic {
                 if (this._mediaTitleLabel) {
                     this._mediaTitleLabel.text = title;
                 }
+                this._mediaChip.accessible_name = `Open media controls for ${title}`;
 
                 let player = track?.playerTitle;
                 if (!player || /(^|\b|_|-|:)instance[\d\-_() ]*($|\b|_|-|:)/i.test(player)) {
@@ -3914,17 +4257,28 @@ if (hasStWidget) {
                 this._box.add_child(this._compactLabelWidget);
 
                 // Media Chip — Wave (pen design: mhytu)
-                this._mediaChip = new St.BoxLayout({
+                this._mediaChip = new St.Button({
                     style_class: 'fuhgawz-media-chip',
-                    reactive: true,
+                    reactive: false,
+                    can_focus: false,
                     track_hover: true,
                     y_align: Clutter.ActorAlign.CENTER,
                 });
+                this._mediaChip.accessible_name = 'Open media controls';
+                this._mediaChipUsesButton = true;
                 this._mediaChip.hide();
                 this._mediaChip.visible = false;
 
+                this._mediaChipContent = new St.BoxLayout({
+                    style_class: 'fuhgawz-media-chip-content',
+                    reactive: false,
+                    y_align: Clutter.ActorAlign.CENTER,
+                });
+                this._mediaChip.set_child(this._mediaChipContent);
+
                 this._mediaGlyph = new St.BoxLayout({
                     style_class: 'fuhgawz-media-glyph',
+                    reactive: false,
                     y_align: Clutter.ActorAlign.CENTER,
                     x_align: Clutter.ActorAlign.CENTER,
                 });
@@ -3934,49 +4288,64 @@ if (hasStWidget) {
                     y_align: Clutter.ActorAlign.CENTER,
                 });
                 this._mediaGlyph.add_child(this._mediaGlyphIcon);
-                this._mediaChip.add_child(this._mediaGlyph);
+                this._mediaChipContent.add_child(this._mediaGlyph);
 
                 this._mediaTitleLabel = new St.Label({
                     style_class: 'fuhgawz-media-title',
+                    reactive: false,
                     y_align: Clutter.ActorAlign.CENTER,
                 });
                 if (this._mediaTitleLabel.clutter_text)
                     this._mediaTitleLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
-                this._mediaChip.add_child(this._mediaTitleLabel);
+                this._mediaChipContent.add_child(this._mediaTitleLabel);
 
                 this._mediaWaveWidget = new MiniWaveWidget();
-                this._mediaChip.add_child(this._mediaWaveWidget);
+                this._mediaChipContent.add_child(this._mediaWaveWidget);
 
                 this._mediaAppLabel = new St.Label({
                     style_class: 'fuhgawz-media-app',
+                    reactive: false,
                     y_align: Clutter.ActorAlign.CENTER,
                 });
                 if (this._mediaAppLabel.clutter_text)
                     this._mediaAppLabel.clutter_text.ellipsize = Pango.EllipsizeMode.END;
-                this._mediaChip.add_child(this._mediaAppLabel);
+                this._mediaChipContent.add_child(this._mediaAppLabel);
 
                 this._mediaDividerWidget = new St.Widget({
                     style_class: 'fuhgawz-media-divider',
+                    reactive: false,
                     y_align: Clutter.ActorAlign.CENTER,
                 });
-                this._mediaChip.add_child(this._mediaDividerWidget);
+                this._mediaChipContent.add_child(this._mediaDividerWidget);
 
                 this._mediaTimeLabel = new St.Label({
                     style_class: 'fuhgawz-media-time',
+                    reactive: false,
                     y_align: Clutter.ActorAlign.CENTER,
                 });
-                this._mediaChip.add_child(this._mediaTimeLabel);
+                this._mediaChipContent.add_child(this._mediaTimeLabel);
 
+                this._mediaChip.connect('button-press-event', (_actor, event) => {
+                    let button = 1;
+                    try { button = event?.get_button?.() ?? 1; } catch (e) {}
+                    if (button === 2) {
+                        this._invokeMediaCommand('playPause');
+                        return Clutter ? Clutter.EVENT_STOP : true;
+                    }
+                    return Clutter ? Clutter.EVENT_PROPAGATE : false;
+                });
+                this._mediaChip.connect('clicked', () => this.toggleMediaCard());
                 this._mediaChip.connect('button-release-event', (_actor, event) => {
                     let button = 0;
                     try { button = event?.get_button?.() ?? 0; } catch (e) {}
-                    if (button === 3)
-                        return Clutter.EVENT_PROPAGATE;
-                    this.toggleMediaCard();
-                    return Clutter.EVENT_STOP;
+                    return button === 2
+                        ? (Clutter ? Clutter.EVENT_STOP : true)
+                        : (Clutter ? Clutter.EVENT_PROPAGATE : false);
                 });
-                this._mediaChip.connect('enter-event', () => this.onPointerEnter());
+                this._mediaChip.connect('enter-event', actor => this.onPointerEnter(actor));
                 this._mediaChip.connect('leave-event', () => this.onPointerLeave());
+                this._mediaChip.connect('key-focus-in', () => this.onFocusEnter());
+                this._mediaChip.connect('key-focus-out', () => this.onFocusLeave());
 
                 this._box.add_child(this._mediaChip);
 
@@ -4055,6 +4424,9 @@ if (hasStWidget) {
                 this.connect('button-press-event', (actor, event) => {
                     return this._handleIndicatorButtonPress(event);
                 });
+                this.connect('touch-event', (actor, event) => {
+                    return this._handleIndicatorTouchEvent(event);
+                });
 
                 this.connect('key-press-event', (actor, event) => {
                     return this.handleKeyPress(event);
@@ -4064,6 +4436,9 @@ if (hasStWidget) {
                 this.connect('leave-event', () => this.onPointerLeave());
                 this._box.connect('enter-event', () => this.onPointerEnter());
                 this._box.connect('leave-event', () => this.onPointerLeave());
+                this._box.connect('touch-event', (actor, event) => {
+                    return this._handleIndicatorTouchEvent(event);
+                });
                 this._compactLabelWidget.connect('enter-event', () => this.onPointerEnter());
                 this._compactLabelWidget.connect('leave-event', () => this.onPointerLeave());
                 this._statusIconWidget.reactive = true;
@@ -4231,6 +4606,10 @@ if (hasStWidget) {
                     param_types: [GObject.TYPE_JSOBJECT],
                     return_type: GObject.TYPE_BOOLEAN,
                 },
+                'touch-event': {
+                    param_types: [GObject.TYPE_JSOBJECT],
+                    return_type: GObject.TYPE_BOOLEAN,
+                },
                 'key-press-event': {
                     param_types: [GObject.TYPE_JSOBJECT],
                     return_type: GObject.TYPE_BOOLEAN,
@@ -4245,7 +4624,7 @@ if (hasStWidget) {
                 super._init();
                 this.x = 0;
                 this.y = 0;
-                this.width = 120;
+                this.width = -1;
                 this.height = 0;
                 this.opacity = 255;
                 this.visible = true;
@@ -4304,11 +4683,41 @@ if (hasStWidget) {
                 this._mediaTimeLabel = { text: '', visible: true, show() { this.visible = true; }, hide() { this.visible = false; } };
                 this._mediaChip = {
                     visible: false,
+                    reactive: false,
+                    can_focus: false,
+                    style_classes: new Set(),
+                    _handlers: new Map(),
+                    _nextSignalId: 1,
                     show() { this.visible = true; },
                     hide() { this.visible = false; },
                     add_child() {},
-                    connect() { return 1; },
+                    connect(signal, handler) {
+                        if (!this._handlers.has(signal)) this._handlers.set(signal, []);
+                        const id = this._nextSignalId++;
+                        this._handlers.get(signal).push({ id, handler });
+                        return id;
+                    },
+                    disconnect(id) {
+                        for (const handlers of this._handlers.values()) {
+                            const index = handlers.findIndex(entry => entry.id === id);
+                            if (index >= 0) {
+                                handlers.splice(index, 1);
+                                return;
+                            }
+                        }
+                    },
+                    emit(signal, ...args) {
+                        for (const { handler } of this._handlers.get(signal) || [])
+                            handler(this, ...args);
+                    },
+                    add_style_class_name(name) { this.style_classes.add(name); },
+                    remove_style_class_name(name) { this.style_classes.delete(name); },
+                    has_style_class_name(name) { return this.style_classes.has(name); },
                 };
+                this._mediaChip.connect('enter-event', actor => this.onPointerEnter(actor));
+                this._mediaChip.connect('leave-event', () => this.onPointerLeave());
+                this._mediaChip.connect('key-focus-in', () => this.onFocusEnter());
+                this._mediaChip.connect('key-focus-out', () => this.onFocusLeave());
                 
                 this._sliderToggleIcon = {
                     icon_name: 'go-next-symbolic',
@@ -4373,6 +4782,9 @@ if (hasStWidget) {
                 this.connect('button-press-event', (actor, event) => {
                     return this._handleIndicatorButtonPress(event);
                 });
+                this.connect('touch-event', (actor, event) => {
+                    return this._handleIndicatorTouchEvent(event);
+                });
 
                 this.connect('key-press-event', (actor, event) => {
                     return this.handleKeyPress(event);
@@ -4430,12 +4842,12 @@ if (hasStWidget) {
             }
 
             get_width() {
-                return this.width;
+                return (this.width !== undefined && this.width > 0) ? this.width : (this._naturalWidth ?? 120);
             }
 
             set_width(w) {
                 this._explicitWidth = w;
-                this.width = w > 0 ? w : (this._naturalWidth ?? 120);
+                this.width = w;
             }
 
             get_height() {
@@ -4443,7 +4855,7 @@ if (hasStWidget) {
             }
 
             get_preferred_width(forHeight = -1) {
-                const natWidth = this._naturalWidth !== undefined ? this._naturalWidth : (this.width || 120);
+                const natWidth = this._naturalWidth !== undefined ? this._naturalWidth : ((this.width !== undefined && this.width > 0) ? this.width : 120);
                 return [this._minWidth ?? 0, natWidth];
             }
 

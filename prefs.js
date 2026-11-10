@@ -671,6 +671,33 @@ function createGlobalMenuPage(settings, gettextFunc) {
     });
     mediaGroup.add(visualizerRow);
 
+    const chipAppearanceList = new Gtk.StringList();
+    chipAppearanceList.append(gettextFunc('Accent Capsule'));
+    chipAppearanceList.append(gettextFunc('Neutral'));
+    chipAppearanceList.append(gettextFunc('Tonal Accent'));
+    chipAppearanceList.append(gettextFunc('Outlined Accent'));
+    const chipAppearances = ['accent', 'neutral', 'tonal', 'outline'];
+    const chipAppearanceRow = new Adw.ComboRow({
+        title: gettextFunc('Media Chip Appearance'),
+        subtitle: gettextFunc('Choose a solid, tonal, outlined, or neutral pill appearance.'),
+        model: chipAppearanceList,
+        selected: Math.max(0, chipAppearances.indexOf(settings.get_string('media-chip-appearance'))),
+    });
+    chipAppearanceRow.connect('notify::selected', widget => {
+        const appearance = chipAppearances[widget.selected];
+        if (appearance && settings.get_string('media-chip-appearance') !== appearance)
+            settings.set_string('media-chip-appearance', appearance);
+    });
+    const chipAppearanceSettingsSignalId = settings.connect('changed::media-chip-appearance', () => {
+        const index = chipAppearances.indexOf(settings.get_string('media-chip-appearance'));
+        if (index >= 0 && chipAppearanceRow.selected !== index)
+            chipAppearanceRow.selected = index;
+    });
+    chipAppearanceRow.connect('unrealize', () => {
+        try { settings.disconnect(chipAppearanceSettingsSignalId); } catch (error) {}
+    });
+    mediaGroup.add(chipAppearanceRow);
+
     const persistentIdleRow = new Adw.SwitchRow({
         title: gettextFunc('Keep Paused Track Visible'),
         subtitle: gettextFunc('Keep showing the last track while its player is paused.'),

@@ -426,20 +426,93 @@ class AppMenuButton extends PanelMenu.Button {
 
         this.connect('button-press-event', (actor, event) => {
             const source = event?.get_source ? event.get_source() : (event?.target || null);
-            if (this._isIndicatorActor(source)) {
+            if (this._taskIndicator?._mediaChipUsesButton && this._isMediaChipActor(source)) {
+                // Keep this event on the St.Button. Its clicked signal opens
+                // the media card after a complete press/release activation.
                 return Clutter ? Clutter.EVENT_PROPAGATE : false;
             }
-            try {
-                const [x, y] = global.get_pointer ? global.get_pointer() : [-1, -1];
-                if (this._isIndicatorAtPoint(x, y)) {
-                    return Clutter ? Clutter.EVENT_PROPAGATE : false;
+            if (this._taskIndicator?._mediaChipUsesButton && this._taskIndicator?._mediaChip?.pressed)
+                return Clutter ? Clutter.EVENT_PROPAGATE : false;
+            let isIndicator = this._isIndicatorActor(source);
+            if (!isIndicator) {
+                try {
+                    const coords = event?.get_coords?.();
+                    const x = coords?.[0] ?? -1;
+                    const y = coords?.[1] ?? -1;
+                    if (this._isIndicatorAtPoint(x, y)) {
+                        isIndicator = true;
+                    }
+                } catch (e) {}
+            }
+            if (isIndicator) {
+                let button = 1;
+                try { button = event?.get_button?.() ?? 1; } catch (e) {}
+                if (this._taskIndicator?._isMediaDisplay) {
+                    if (button === 2) {
+                        this._taskIndicator._invokeMediaCommand?.('playPause');
+                    } else if (button === 3) {
+                        return Clutter ? Clutter.EVENT_PROPAGATE : false;
+                    } else {
+                        this._taskIndicator.toggleMediaCard();
+                    }
+                    return Clutter ? Clutter.EVENT_STOP : true;
+                } else if (this._taskIndicator) {
+                    this._taskIndicator.toggleDropdown();
+                    return Clutter ? Clutter.EVENT_STOP : true;
                 }
-            } catch (e) {}
+                return Clutter ? Clutter.EVENT_STOP : true;
+            }
 
             if (this.menu && typeof this.menu.toggle === 'function') {
                 this.menu.toggle();
             }
             return Clutter ? Clutter.EVENT_STOP : true;
+        });
+
+        this.connect('touch-event', (actor, event) => {
+            const eventType = typeof event?.type === 'function' ? event.type() : event?.type;
+            const source = event?.get_source ? event.get_source() : (event?.target || null);
+            if (this._taskIndicator?._mediaChipUsesButton && this._isMediaChipActor(source))
+                return Clutter ? Clutter.EVENT_PROPAGATE : false;
+            if (this._taskIndicator?._mediaChipUsesButton && this._taskIndicator?._mediaChip?.pressed)
+                return Clutter ? Clutter.EVENT_PROPAGATE : false;
+            let isIndicator = this._isIndicatorActor(source);
+            if (!isIndicator) {
+                try {
+                    const coords = event?.get_coords?.();
+                    const x = coords?.[0] ?? -1;
+                    const y = coords?.[1] ?? -1;
+                    if (this._isIndicatorAtPoint(x, y)) {
+                        isIndicator = true;
+                    }
+                } catch (e) {}
+            }
+
+            if (isIndicator) {
+                if (eventType === Clutter?.EventType?.TOUCH_BEGIN || eventType === 9) {
+                    return Clutter ? Clutter.EVENT_STOP : true;
+                }
+                if (eventType === Clutter?.EventType?.TOUCH_END || eventType === 11) {
+                    if (this._taskIndicator?._isMediaDisplay) {
+                        this._taskIndicator.toggleMediaCard();
+                    } else if (this._taskIndicator) {
+                        this._taskIndicator.toggleDropdown();
+                    }
+                    return Clutter ? Clutter.EVENT_STOP : true;
+                }
+                return Clutter ? Clutter.EVENT_STOP : true;
+            }
+
+            if (eventType === Clutter?.EventType?.TOUCH_BEGIN || eventType === 9) {
+                return Clutter ? Clutter.EVENT_STOP : true;
+            }
+            if (eventType === Clutter?.EventType?.TOUCH_END || eventType === 11) {
+                if (this.menu && typeof this.menu.toggle === 'function') {
+                    this.menu.toggle();
+                }
+                return Clutter ? Clutter.EVENT_STOP : true;
+            }
+            return Clutter ? Clutter.EVENT_PROPAGATE : false;
         });
 
         if (this.menu && typeof this.menu.toggle === 'function') {
@@ -470,10 +543,14 @@ class AppMenuButton extends PanelMenu.Button {
         this._idleRevealMs = 180;
 
         this.connect('enter-event', () => {
-            this._globalMenu?._taskIndicator?.onMenuZoneEnter?.();
+            if (!this._hasIndicatorEnterHandler) {
+                this._globalMenu?._taskIndicator?.onAppMenuEnter?.();
+            }
         });
         this.connect('leave-event', () => {
-            this._globalMenu?._taskIndicator?.onMenuZoneLeave?.();
+            if (!this._hasIndicatorEnterHandler) {
+                this._globalMenu?._taskIndicator?.onMenuZoneLeave?.();
+            }
         });
 
         if (!metaWindow) {
@@ -607,21 +684,49 @@ class AppMenuButton extends PanelMenu.Button {
         if (this._taskIndicator._mediaChip && typeof this._taskIndicator._mediaChip.contains === 'function') {
             try { if (this._taskIndicator._mediaChip.contains(source)) return true; } catch (e) {}
         }
+        if (typeof this._taskIndicator.isDescendantOf === 'function') {
+            try {
+                if (this._taskIndicator.isDescendantOf(source, this._taskIndicator)) return true;
+                if (this._taskIndicator._box && this._taskIndicator.isDescendantOf(source, this._taskIndicator._box)) return true;
+                if (this._taskIndicator._mediaChip && this._taskIndicator.isDescendantOf(source, this._taskIndicator._mediaChip)) return true;
+            } catch (e) {}
+        }
         return false;
+    }
+
+    _isMediaChipActor(source) {
+        const chip = this._taskIndicator?._mediaChip;
+        if (!source || !chip) return false;
+        if (source === chip) return true;
+        try {
+            return this._taskIndicator.isDescendantOf(source, chip);
+        } catch (e) {
+            return false;
+        }
     }
 
     _isIndicatorAtPoint(x, y) {
         if (x < 0 || y < 0 || !this._taskIndicator) return false;
-        const target = this._taskIndicator._box || this._taskIndicator;
-        if (!target.visible) return false;
-        if (typeof target.get_transformed_position === 'function' && typeof target.get_transformed_size === 'function') {
-            try {
-                const [tx, ty] = target.get_transformed_position();
-                const [tw, th] = target.get_transformed_size();
-                if (x >= tx && x <= tx + tw && y >= ty && y <= ty + th) {
-                    return true;
-                }
-            } catch (e) {}
+        const targets = [];
+        if (this._taskIndicator._mediaChip && this._taskIndicator._mediaChip.visible) {
+            targets.push(this._taskIndicator._mediaChip);
+            if (this._taskIndicator._mediaChip.get_children) {
+                try { targets.push(...this._taskIndicator._mediaChip.get_children()); } catch (e) {}
+            }
+        }
+        if (this._taskIndicator._box) targets.push(this._taskIndicator._box);
+        targets.push(this._taskIndicator);
+
+        for (const target of targets.filter(t => t && t.visible !== false)) {
+            if (typeof target.get_transformed_position === 'function' && typeof target.get_transformed_size === 'function') {
+                try {
+                    const [tx, ty] = target.get_transformed_position();
+                    const [tw, th] = target.get_transformed_size();
+                    if (tw > 0 && th > 0 && x >= tx - 6 && x <= tx + tw + 6 && y >= ty - 6 && y <= ty + th + 10) {
+                        return true;
+                    }
+                } catch (e) {}
+            }
         }
         return false;
     }

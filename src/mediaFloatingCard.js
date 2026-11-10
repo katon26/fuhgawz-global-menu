@@ -153,10 +153,12 @@ class MockActor {
     disconnect(id) { this._signals.delete(id); }
 
     emit(signal, ...args) {
+        let result;
         for (const { signal: registered, callback } of [...this._signals.values()]) {
             if (registered === signal)
-                callback(this, ...args);
+                result = callback(this, ...args);
         }
+        return result;
     }
 
     add_child(child) {
@@ -720,8 +722,13 @@ class MediaFloatingCardLogic {
         this._gracePeriodMs = Math.max(0, options.gracePeriodMs ?? GRACE_PERIOD_MS);
         this._fadeDurationMs = Math.max(0, options.fadeDurationMs ?? FADE_DURATION_MS);
         this._anchorActor = null;
+        this._anchorHoverActor = null;
         this._anchorHoverSignalId = 0;
         this._selfHoverSignalId = 0;
+        this._outsideClickStage = null;
+        this._outsideClickSignalId = 0;
+        this._dismissLayer = null;
+        this._dismissLayerSignalIds = [];
         this._keySignalId = 0;
         this._keyboardFocusSignalIds = [];
         this._focusExitTimerId = 0;
@@ -816,7 +823,7 @@ class MediaFloatingCardLogic {
 
             this._metadataBox = new St.BoxLayout({
                 style_class: 'fuhgawz-media-metadata-box',
-                vertical: true,
+                orientation: Clutter.Orientation.VERTICAL,
                 x_expand: true,
                 y_align: Clutter.ActorAlign.CENTER,
             });
@@ -846,12 +853,16 @@ class MediaFloatingCardLogic {
 
             this._recentDrawer = new St.BoxLayout({
                 style_class: 'fuhgawz-media-recent-drawer',
-                vertical: true,
+                orientation: Clutter.Orientation.VERTICAL,
                 x_expand: true,
                 visible: false,
             });
             this._recentTitle = new St.Label({ style_class: 'fuhgawz-media-recent-title', text: 'Recently played' });
-            this._recentListBox = new St.BoxLayout({ style_class: 'fuhgawz-media-recent-list', vertical: true, x_expand: true });
+            this._recentListBox = new St.BoxLayout({
+                style_class: 'fuhgawz-media-recent-list',
+                orientation: Clutter.Orientation.VERTICAL,
+                x_expand: true,
+            });
             this._recentDrawer.add_child(this._recentTitle);
             this._recentDrawer.add_child(this._recentListBox);
             this.add_child(this._recentDrawer);
@@ -871,6 +882,9 @@ class MediaFloatingCardLogic {
         this._prevBtn = this._createControlButton('media-skip-backward-symbolic', 'Previous track', () => this._invoke('previous'));
         this._playPauseBtn = this._createControlButton('media-playback-start-symbolic', 'Play or pause', () => this._invoke('playPause'), true);
         this._nextBtn = this._createControlButton('media-skip-forward-symbolic', 'Next track', () => this._invoke('next'));
+        this._controlsBox.add_child(this._prevBtn);
+        this._controlsBox.add_child(this._playPauseBtn);
+        this._controlsBox.add_child(this._nextBtn);
         this._waveBox = new MockActor({ style_class: 'fuhgawz-media-wave-container' });
         this._waveArea = new MockWaveArea(this);
         this._watchFocusableActor(this._waveArea);
@@ -1052,7 +1066,7 @@ class MediaFloatingCardLogic {
         return button;
     }
 
-    showForActor(anchorActor, trackInfo = null, playbackStatus = null) {
+    showForActor(anchorActor, trackInfo = null, playbackStatus = null, options = {}) {
         if (this._destroyed || !anchorActor)
             return;
         if (this._anchorActor !== anchorActor)
@@ -1063,6 +1077,14 @@ class MediaFloatingCardLogic {
         this._cancelGraceTimer();
         if (this._isOpen) {
             this._positionCard();
+            return;
+        }
+        if (options.immediate) {
+            if (this._openTimerId) {
+                GLib.source_remove(this._openTimerId);
+                this._openTimerId = 0;
+            }
+            this._openCard();
             return;
         }
         if (!this._openTimerId) {
@@ -1138,21 +1160,32 @@ class MediaFloatingCardLogic {
     }
 
     _isPointerOver(actor) {
-        if (!actor || !actor.visible)
+        if (!actor || (!actor.visible && (!actor._mediaChip || !actor._mediaChip.visible)))
             return false;
         if (actor.hover)
             return true;
         if (actor._box?.hover || actor._compactLabelWidget?.hover || actor._statusIconWidget?.hover || actor._mediaChip?.hover)
+            return true;
+        if (actor._mediaChip?.get_children?.().some(c => c.hover))
+            return true;
+        if (actor._appMenuButton?.hover || actor._appMenuButton?._box?.hover)
             return true;
         if (typeof global !== 'undefined' && global.get_pointer) {
             try {
                 const [x, y] = global.get_pointer();
                 if (x >= 0 && y >= 0) {
                     const targets = [];
-                    if (actor._mediaChip && actor._mediaChip.visible) targets.push(actor._mediaChip);
+                    if (actor._mediaChip && actor._mediaChip.visible) {
+                        targets.push(actor._mediaChip);
+                        if (actor._mediaChip.get_children) {
+                            try { targets.push(...actor._mediaChip.get_children()); } catch (e) {}
+                        }
+                    }
                     if (actor._box) targets.push(actor._box);
                     targets.push(actor);
-                    for (const target of targets) {
+                    if (actor._appMenuButton && actor._appMenuButton.visible) targets.push(actor._appMenuButton);
+                    if (actor._appMenuButton?._box && actor._appMenuButton._box.visible) targets.push(actor._appMenuButton._box);
+                    for (const target of targets.filter(t => t && t.visible !== false)) {
                         if (typeof target.get_transformed_position === 'function') {
                             const [ax, ay] = target.get_transformed_position();
                             let aw = 0, ah = 0;
@@ -1161,7 +1194,7 @@ class MediaFloatingCardLogic {
                             }
                             if (aw <= 0) aw = target.get_width?.() ?? target.width ?? 0;
                             if (ah <= 0) ah = target.get_height?.() ?? target.height ?? 0;
-                            if (x >= ax - 2 && x <= ax + aw + 2 && y >= ay - 2 && y <= ay + ah + 2)
+                            if (aw > 0 && ah > 0 && x >= ax - 1 && x <= ax + aw + 1 && y >= ay - 1 && y <= ay + ah + 1)
                                 return true;
                         }
                     }
@@ -1183,8 +1216,10 @@ class MediaFloatingCardLogic {
                 return GLib.SOURCE_REMOVE;
             const stage = typeof global !== 'undefined' ? global.stage : null;
             const focusedActor = stage?.get_key_focus?.() ?? null;
-            const pointerIsInside = this._isPointerOver(this) || this._isPointerOver(this._anchorActor);
-            const keyboardIsInside = focusedActor === this._anchorActor || this._isActorInsideCard(focusedActor);
+            const pointerIsInside = this.isPointerOver();
+            const keyboardAnchor = this._pointerAnchor();
+            const keyboardIsInside = focusedActor === this._anchorActor ||
+                focusedActor === keyboardAnchor || this._isActorInsideCard(focusedActor);
             if (!pointerIsInside && !keyboardIsInside)
                 this.hideCard();
             return GLib.SOURCE_REMOVE;
@@ -1204,7 +1239,8 @@ class MediaFloatingCardLogic {
     _hasKeyboardFocus() {
         const stage = typeof global !== 'undefined' ? global.stage : null;
         const focusedActor = stage?.get_key_focus?.() ?? null;
-        return focusedActor === this._anchorActor || this._isActorInsideCard(focusedActor);
+        return focusedActor === this._anchorActor ||
+            focusedActor === this._pointerAnchor() || this._isActorInsideCard(focusedActor);
     }
 
     _handleKeyPress(keyName) {
@@ -1214,71 +1250,122 @@ class MediaFloatingCardLogic {
         const focusedActor = stage?.get_key_focus?.() ?? null;
         const restoreFocus = this._isActorInsideCard(focusedActor);
         const anchor = this._anchorActor;
+        const focusTarget = this._pointerAnchor(anchor);
         // The card owns the focus here, so the indicator never sees this Escape.
         // Release its pin too, otherwise the dismissed card leaves it stuck.
         if (typeof anchor?.unpin === 'function')
             anchor.unpin();
         this.hideCard();
-        if (restoreFocus && anchor && stage?.set_key_focus) {
+        if (restoreFocus && focusTarget && stage?.set_key_focus) {
             anchor.suppressNextKeyboardCardOpen?.();
-            stage.set_key_focus(anchor);
+            stage.set_key_focus(focusTarget);
         }
         return true;
     }
 
     _setAnchor(actor) {
-        if (this._anchorActor && this._anchorHoverSignalId) {
-            try { this._anchorActor.disconnect(this._anchorHoverSignalId); } catch (error) {}
+        if (this._anchorHoverActor && this._anchorHoverSignalId) {
+            try { this._anchorHoverActor.disconnect(this._anchorHoverSignalId); } catch (error) {}
+            this._anchorHoverSignalId = 0;
         }
         this._anchorActor = actor;
-        this._anchorHoverSignalId = actor.connect('notify::hover', () => this._onHoverChanged());
+        this._anchorHoverActor = this._pointerAnchor(actor);
+        if (this._anchorHoverActor && typeof this._anchorHoverActor.connect === 'function') {
+            this._anchorHoverSignalId = this._anchorHoverActor.connect('notify::hover', () => this._onHoverChanged());
+        }
+    }
+
+    _pointerAnchor(actor = this._anchorActor) {
+        const mediaChip = actor?._mediaChip;
+        return mediaChip && mediaChip.visible !== false ? mediaChip : actor;
+    }
+
+    _containsPoint(actor, x, y, margin = 0) {
+        if (!actor || actor.visible === false)
+            return false;
+        try {
+            let ax = 0, ay = 0, width = 0, height = 0;
+            if (typeof actor.get_transformed_position === 'function')
+                [ax, ay] = actor.get_transformed_position();
+            else {
+                ax = actor.x ?? 0;
+                ay = actor.y ?? 0;
+            }
+            if (typeof actor.get_transformed_size === 'function') {
+                try { [width, height] = actor.get_transformed_size(); } catch (e) {}
+            }
+            if (width <= 0) width = actor.get_width?.() ?? actor.width ?? 0;
+            if (height <= 0) height = actor.get_height?.() ?? actor.height ?? 0;
+            return width > 0 && height > 0 &&
+                x >= ax - margin && x <= ax + width + margin &&
+                y >= ay - margin && y <= ay + height + margin;
+        } catch (e) {
+            return false;
+        }
     }
 
     isPointerOver() {
-        if (this._isPointerOver(this) || this._isPointerOver(this._anchorActor))
-            return true;
-        if (typeof global !== 'undefined' && global.get_pointer && this._isOpen && this._anchorActor && this.visible) {
+        const anchor = this._pointerAnchor();
+        if (typeof global !== 'undefined' && global.get_pointer) {
             try {
                 const [x, y] = global.get_pointer();
-                if (x >= 0 && y >= 0) {
-                    const target = this._anchorActor._mediaChip || this._anchorActor._box || this._anchorActor;
-                    if (typeof target.get_transformed_position === 'function' && typeof this.get_transformed_position === 'function') {
-                        const [ax, ay] = target.get_transformed_position();
-                        let aw = 0, ah = 0;
-                        if (typeof target.get_transformed_size === 'function') {
-                            try { [aw, ah] = target.get_transformed_size(); } catch (e) {}
-                        }
-                        if (aw <= 0) aw = target.get_width?.() ?? target.width ?? 0;
-                        if (ah <= 0) ah = target.get_height?.() ?? target.height ?? 0;
+                if (Number.isFinite(x) && Number.isFinite(y)) {
+                    // The Shell hover pseudo-class can remain stale while a
+                    // panel actor moves. When coordinates are available, use
+                    // the actors' current transformed bounds as the source of
+                    // truth instead of letting that stale state keep the card.
+                    if (this._containsPoint(this, x, y) || this._containsPoint(anchor, x, y))
+                        return true;
+                    if (!this._isOpen || !anchor || !this.visible)
+                        return false;
 
-                        const [cx, cy] = this.get_transformed_position();
-                        let cw = 0, ch = 0;
-                        if (typeof this.get_transformed_size === 'function') {
-                            try { [cw, ch] = this.get_transformed_size(); } catch (e) {}
-                        }
-                        if (cw <= 0) cw = this.get_width?.() ?? this.width ?? 0;
-                        if (ch <= 0) ch = this.get_height?.() ?? this.height ?? 0;
-
-                        // Only check the small vertical bridge directly between anchor bottom and card top
-                        const gapTop = Math.min(ay + ah, cy);
-                        const gapBottom = Math.max(ay + ah, cy);
-                        if (gapBottom >= gapTop && gapBottom - gapTop <= 24 && y >= gapTop - 1 && y <= gapBottom + 1) {
-                            const minX = Math.min(ax, cx) - 8;
-                            const maxX = Math.max(ax + aw, cx + cw) + 8;
-                            if (x >= minX && x <= maxX)
-                                return true;
-                        }
+                    let ax = 0, ay = 0, aw = 0, ah = 0;
+                    let cx = 0, cy = 0, cw = 0, ch = 0;
+                    try {
+                        [ax, ay] = anchor.get_transformed_position();
+                        [cx, cy] = this.get_transformed_position();
+                        [aw, ah] = anchor.get_transformed_size();
+                        [cw, ch] = this.get_transformed_size();
+                    } catch (e) {
+                        return false;
                     }
+                    if (aw <= 0) aw = anchor.get_width?.() ?? anchor.width ?? 0;
+                    if (ah <= 0) ah = anchor.get_height?.() ?? anchor.height ?? 0;
+                    if (cw <= 0) cw = this.get_width?.() ?? this.width ?? 0;
+                    if (ch <= 0) ch = this.get_height?.() ?? this.height ?? 0;
+
+                    let gapTop;
+                    let gapBottom;
+                    if (cy >= ay + ah) {
+                        gapTop = ay + ah;
+                        gapBottom = cy;
+                    } else if (cy + ch <= ay) {
+                        gapTop = cy + ch;
+                        gapBottom = ay;
+                    }
+                    if (gapTop !== undefined && gapBottom - gapTop <= 48) {
+                        const overlapLeft = Math.max(ax, cx);
+                        const overlapRight = Math.min(ax + aw, cx + cw);
+                        const minX = overlapLeft <= overlapRight
+                            ? overlapLeft - 12
+                            : Math.min(ax, cx) - 8;
+                        const maxX = overlapLeft <= overlapRight
+                            ? overlapRight + 12
+                            : Math.max(ax + aw, cx + cw) + 8;
+                        if (x >= minX && x <= maxX && y >= gapTop - 2 && y <= gapBottom + 2)
+                            return true;
+                    }
+                    return false;
                 }
             } catch (e) {}
         }
-        return false;
+        return this._isPointerOver(this) || this._isPointerOver(anchor);
     }
 
     _onHoverChanged() {
         if (this._destroyed)
             return;
-        if (this._waveArea?._dragging || this.isPointerOver() || this._hasKeyboardFocus() || this._mediaManager?.isSeeking?.()) {
+        if (this._anchorActor?.isPinned || this._waveArea?._dragging || this.isPointerOver() || this._hasKeyboardFocus() || this._mediaManager?.isSeeking?.()) {
             this._cancelGraceTimer();
             this._cancelKeyboardFocusClose();
             if (this._anchorActor && typeof this._anchorActor._cancelLeaveGraceTimer === 'function')
@@ -1320,7 +1407,7 @@ class MediaFloatingCardLogic {
             return monitors.find(monitor => point[0] >= monitor.x && point[0] < monitor.x + monitor.width) ??
                 Main.layoutManager.primaryMonitor ?? monitors[0];
         }
-        const stage = this._anchorActor?.get_stage?.() ?? global.stage;
+        const stage = this._anchorActor?.get_stage?.() ?? (typeof global !== 'undefined' ? global.stage : null);
         return { x: 0, y: 0, width: stage?.width ?? CARD_WIDTH + 24, height: stage?.height ?? 600 };
     }
 
@@ -1338,19 +1425,29 @@ class MediaFloatingCardLogic {
             ? Number(monitor.height)
             : 600;
 
+        let anchor = (this._anchorActor?._mediaChip && this._anchorActor._mediaChip.visible)
+            ? this._anchorActor._mediaChip
+            : this._anchorActor;
         let anchorX = monitorX + monitorWidth / 2;
         let anchorY = monitorY;
         let anchorWidth = 0;
         let anchorHeight = 0;
         try {
-            [anchorX, anchorY] = this._anchorActor.get_transformed_position();
-            [anchorWidth, anchorHeight] = this._anchorActor.get_transformed_size();
+            [anchorX, anchorY] = anchor.get_transformed_position();
+            [anchorWidth, anchorHeight] = anchor.get_transformed_size();
         } catch (error) {
-            const extents = this._anchorActor.get_transformed_extents?.();
-            anchorX = extents?.x ?? this._anchorActor.x ?? 0;
-            anchorY = extents?.y ?? this._anchorActor.y ?? 0;
-            anchorWidth = extents?.width ?? this._anchorActor.width ?? 0;
-            anchorHeight = extents?.height ?? this._anchorActor.height ?? 0;
+            const extents = anchor.get_transformed_extents?.();
+            anchorX = extents?.x ?? anchor.x ?? 0;
+            anchorY = extents?.y ?? anchor.y ?? 0;
+            anchorWidth = extents?.width ?? anchor.width ?? 0;
+            anchorHeight = extents?.height ?? anchor.height ?? 0;
+        }
+
+        if ((anchorWidth <= 0 || !Number.isFinite(anchorWidth)) && anchor !== this._anchorActor) {
+            try {
+                [anchorX, anchorY] = this._anchorActor.get_transformed_position();
+                [anchorWidth, anchorHeight] = this._anchorActor.get_transformed_size();
+            } catch (e) {}
         }
 
         if (!Number.isFinite(anchorX))
@@ -1377,10 +1474,187 @@ class MediaFloatingCardLogic {
         this.set_position?.(Math.round(x), Math.round(y));
     }
 
+    _isActorInsideAnchor(actor) {
+        const anchor = this._anchorActor;
+        const pointerAnchor = this._pointerAnchor(anchor);
+        let current = actor;
+        while (current) {
+            if (current === anchor || current === pointerAnchor)
+                return true;
+            current = current.get_parent?.() ?? current._parent ?? null;
+        }
+        return false;
+    }
+
+    _connectOutsideClickHandler() {
+        const stage = typeof global !== 'undefined' ? global.stage : null;
+        if (!stage || typeof stage.connect !== 'function' || this._outsideClickSignalId)
+            return;
+
+        this._outsideClickStage = stage;
+        this._outsideClickSignalId = stage.connect('captured-event', (_stage, event) => {
+            const eventType = typeof event?.type === 'function' ? event.type() : event?.type;
+            const buttonPressType = Clutter?.EventType?.BUTTON_PRESS ?? 6;
+            const motionType = Clutter?.EventType?.MOTION ?? 3;
+            if (!this._isOpen)
+                return Clutter?.EVENT_PROPAGATE ?? false;
+
+            if (eventType === motionType || eventType === 'motion' || eventType === 'MOTION') {
+                if (this._anchorActor?.isPinned || this._waveArea?._dragging || this._mediaManager?.isSeeking?.())
+                    return Clutter?.EVENT_PROPAGATE ?? false;
+                if (this.isPointerOver())
+                    this._cancelGraceTimer();
+                else
+                    this._startGraceTimer();
+                return Clutter?.EVENT_PROPAGATE ?? false;
+            }
+            if (eventType !== buttonPressType && eventType !== 'button-press' && eventType !== 'BUTTON_PRESS')
+                return Clutter?.EVENT_PROPAGATE ?? false;
+
+            let x = Number.NaN;
+            let y = Number.NaN;
+            try { [x, y] = event?.get_coords?.() ?? [Number.NaN, Number.NaN]; } catch (e) {}
+            x = Number(x);
+            y = Number(y);
+            let source = null;
+            try { source = this._outsideClickStage?.get_event_actor?.(event) ?? null; } catch (e) {}
+            source ??= event?.get_source?.() ?? event?.source ?? event?.target ?? null;
+            if (Number.isFinite(x) && Number.isFinite(y)) {
+                if (this._containsPoint(this, x, y) || this._containsPoint(this._pointerAnchor(), x, y))
+                    return Clutter?.EVENT_PROPAGATE ?? false;
+            } else {
+                if (!source || this._isActorInsideCard(source) || this._isActorInsideAnchor(source))
+                    return Clutter?.EVENT_PROPAGATE ?? false;
+            }
+
+            this._anchorActor?.unpin?.();
+            this.hideCard();
+            return Clutter?.EVENT_PROPAGATE ?? false;
+        });
+    }
+
+    _disconnectOutsideClickHandler() {
+        if (this._outsideClickStage && this._outsideClickSignalId) {
+            try { this._outsideClickStage.disconnect(this._outsideClickSignalId); } catch (e) {}
+        }
+        this._outsideClickStage = null;
+        this._outsideClickSignalId = 0;
+    }
+
+    _ensureDismissLayer() {
+        if (this._dismissLayer)
+            return this._dismissLayer;
+
+        this._dismissLayer = hasStWidget
+            ? new St.Widget({ reactive: true, can_focus: false, track_hover: true, visible: false })
+            : new MockActor({ reactive: true, can_focus: false, track_hover: true, visible: false });
+        this._dismissLayerSignalIds.push(this._dismissLayer.connect('button-press-event', (_actor, event) => {
+            if (!this._isOpen)
+                return Clutter?.EVENT_PROPAGATE ?? false;
+
+            let x = Number.NaN;
+            let y = Number.NaN;
+            try { [x, y] = event?.get_coords?.() ?? [Number.NaN, Number.NaN]; } catch (e) {}
+            if (Number.isFinite(Number(x)) && Number.isFinite(Number(y)) &&
+                (this._containsPoint(this, Number(x), Number(y)) ||
+                    this._containsPoint(this._pointerAnchor(), Number(x), Number(y))))
+                return Clutter?.EVENT_PROPAGATE ?? false;
+
+            this._anchorActor?.unpin?.();
+            this.hideCard();
+            // A Shell-owned transparent actor cannot forward this press to the
+            // Wayland window underneath it. Consume only the dismissing press.
+            return Clutter?.EVENT_STOP ?? true;
+        }));
+        this._dismissLayerSignalIds.push(this._dismissLayer.connect('motion-event', () => {
+            if (!this._isOpen || this._anchorActor?.isPinned || this._waveArea?._dragging || this._mediaManager?.isSeeking?.())
+                return Clutter?.EVENT_PROPAGATE ?? false;
+            if (this.isPointerOver())
+                this._cancelGraceTimer();
+            else
+                this._startGraceTimer();
+            return Clutter?.EVENT_PROPAGATE ?? false;
+        }));
+        return this._dismissLayer;
+    }
+
+    _dismissLayerBounds() {
+        const monitors = Main?.layoutManager?.monitors ?? [];
+        if (monitors.length) {
+            const left = Math.min(...monitors.map(monitor => Number(monitor.x) || 0));
+            const top = Math.min(...monitors.map(monitor => Number(monitor.y) || 0));
+            const right = Math.max(...monitors.map(monitor => (Number(monitor.x) || 0) + (Number(monitor.width) || 0)));
+            const bottom = Math.max(...monitors.map(monitor => (Number(monitor.y) || 0) + (Number(monitor.height) || 0)));
+            if (right > left && bottom > top)
+                return [left, top, right - left, bottom - top];
+        }
+
+        const stage = this._anchorActor?.get_stage?.() ??
+            (typeof global !== 'undefined' ? global.stage : null) ?? this._uiGroup;
+        const width = stage?.width ?? stage?.get_width?.() ?? this._uiGroup?.get_width?.() ?? CARD_WIDTH + 24;
+        const height = stage?.height ?? stage?.get_height?.() ?? this._uiGroup?.get_height?.() ?? 600;
+        return [0, 0, width, height];
+    }
+
+    _attachDismissLayer() {
+        if (!this._uiGroup)
+            return;
+        const layer = this._ensureDismissLayer();
+        const [x, y, width, height] = this._dismissLayerBounds();
+        layer.set_position?.(x, y);
+        layer.set_size?.(width, height);
+        if (typeof layer.set_position !== 'function') {
+            layer.x = x;
+            layer.y = y;
+        }
+        if (typeof layer.set_size !== 'function') {
+            layer.width = width;
+            layer.height = height;
+        }
+        layer.reactive = true;
+        layer.visible = true;
+        if (layer.get_parent?.() !== this._uiGroup) {
+            try { this._uiGroup.add_child(layer); } catch (e) {}
+        }
+
+        // Keep panel actors interactive. The full-screen layer sits directly
+        // below the top-level UI actor that contains the chip, but above app
+        // windows so their clicks and pointer movement can dismiss the card.
+        let anchorRoot = this._pointerAnchor();
+        let parent = anchorRoot?.get_parent?.() ?? anchorRoot?._parent ?? null;
+        while (parent && parent !== this._uiGroup) {
+            anchorRoot = parent;
+            parent = anchorRoot.get_parent?.() ?? anchorRoot._parent ?? null;
+        }
+        try {
+            if (parent === this._uiGroup)
+                this._uiGroup.set_child_below_sibling?.(layer, anchorRoot);
+            else
+                this._uiGroup.set_child_below_sibling?.(layer, this);
+            this._uiGroup.set_child_above_sibling?.(this, layer);
+        } catch (e) {}
+    }
+
+    _detachDismissLayer() {
+        if (!this._dismissLayer)
+            return;
+        this._dismissLayer.reactive = false;
+        this._dismissLayer.visible = false;
+        if (this._uiGroup) {
+            try { this._uiGroup.remove_child(this._dismissLayer); } catch (e) {}
+        }
+    }
+
     _openCard() {
+        this._attachDismissLayer();
+        if (this._uiGroup && typeof this._uiGroup.set_child_above_sibling === 'function') {
+            try { this._uiGroup.set_child_above_sibling(this, null); } catch (e) {}
+        }
         this._positionCard();
         this.visible = true;
+        this.reactive = true;
         this._isOpen = true;
+        this._connectOutsideClickHandler();
         this._fadeSerial++;
         this._easeOpacity(255);
         this._waveArea.update(this._trackInfo, this._playbackStatus, this._visualizerStyle);
@@ -1416,6 +1690,8 @@ class MediaFloatingCardLogic {
     hideCard() {
         if (this._destroyed)
             return;
+        this._disconnectOutsideClickHandler();
+        this._detachDismissLayer();
         if (this._openTimerId) {
             GLib.source_remove(this._openTimerId);
             this._openTimerId = 0;
@@ -1425,6 +1701,7 @@ class MediaFloatingCardLogic {
         if (!this._isOpen && !this.visible)
             return;
         this._isOpen = false;
+        this.reactive = false;
         this._fadeSerial++;
         this._waveArea.stopAnimation();
         this._easeOpacity(0);
@@ -1439,6 +1716,8 @@ class MediaFloatingCardLogic {
             return;
         this._destroyed = true;
         this._isOpen = false;
+        this._disconnectOutsideClickHandler();
+        this._detachDismissLayer();
         this.remove_all_transitions?.();
         if (this._openTimerId)
             GLib.source_remove(this._openTimerId);
@@ -1448,10 +1727,11 @@ class MediaFloatingCardLogic {
         this._graceTimerId = 0;
         this._cancelKeyboardFocusClose();
 
-        if (this._anchorActor && this._anchorHoverSignalId) {
-            try { this._anchorActor.disconnect(this._anchorHoverSignalId); } catch (error) {}
+        if (this._anchorHoverActor && this._anchorHoverSignalId) {
+            try { this._anchorHoverActor.disconnect(this._anchorHoverSignalId); } catch (error) {}
         }
         this._anchorHoverSignalId = 0;
+        this._anchorHoverActor = null;
         this._anchorActor = null;
         if (this._selfHoverSignalId) {
             try { this.disconnect(this._selfHoverSignalId); } catch (error) {}
@@ -1473,6 +1753,14 @@ class MediaFloatingCardLogic {
             }
         }
         this._settingsSignalIds = [];
+        if (this._dismissLayer) {
+            for (const id of this._dismissLayerSignalIds) {
+                try { this._dismissLayer.disconnect(id); } catch (e) {}
+            }
+            this._dismissLayerSignalIds = [];
+            this._dismissLayer.destroy?.();
+            this._dismissLayer = null;
+        }
         for (const [actor, id] of this._buttonSignals) {
             try { actor.disconnect(id); } catch (error) {}
         }
@@ -1511,7 +1799,7 @@ if (hasStWidget) {
             _init(mediaManager = null, options = {}) {
                 super._init({
                     style_class: 'popup-menu popup-menu-content fuhgawz-media-popover-card',
-                    vertical: true,
+                    orientation: Clutter.Orientation.VERTICAL,
                     reactive: true,
                     track_hover: true,
                     width: CARD_WIDTH,
