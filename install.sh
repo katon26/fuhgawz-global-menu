@@ -16,6 +16,21 @@ success() { echo -e "${GREEN}[OK]${RESET}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
 error()   { echo -e "${RED}[ERROR]${RESET} $*" >&2; }
 
+print_shell_reload_instructions() {
+    info "GNOME Shell caches loaded extension modules; copying files or toggling the extension does not reload changed JavaScript."
+    case "${XDG_SESSION_TYPE:-}" in
+        wayland)
+            warn "Log out of GNOME and sign back in to load the installed code in this Wayland session."
+            ;;
+        x11)
+            warn "Restart GNOME Shell with Alt+F2, then r, or log out and sign back in to load the installed code."
+            ;;
+        *)
+            warn "Restart GNOME Shell or log out and sign back in to load the installed code."
+            ;;
+    esac
+}
+
 UUID="fuhgawzglbmenu@katon26.github.io"
 EXT_DIR="${HOME}/.local/share/gnome-shell/extensions/${UUID}"
 
@@ -34,6 +49,7 @@ if [[ "${1:-}" == "--link" ]]; then
         glib-compile-schemas schemas/
         success "Schemas recompiled in place."
     fi
+    print_shell_reload_instructions
     exit 0
 fi
 
@@ -137,8 +153,7 @@ fi
 
 echo
 echo -e "${BOLD}${GREEN}Installation Complete!${RESET}"
-echo -e "To apply the changes:"
-echo -e "  ${CYAN}1.${RESET} Log out and log back in (so GNOME Shell and apps reload the new module/extension)."
-echo -e "  ${CYAN}2.${RESET} Enable the extension using Extension Manager or command line:"
-echo -e "       ${BOLD}gnome-extensions enable ${UUID}${RESET}"
+print_shell_reload_instructions
+echo -e "If the extension is disabled, enable it with:"
+echo -e "  ${BOLD}gnome-extensions enable ${UUID}${RESET}"
 echo

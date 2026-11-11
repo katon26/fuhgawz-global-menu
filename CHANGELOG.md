@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+
+* **Media Chip Appearance Presets (`prefs.js`, `schemas/`)**:
+  * Added `tonal` (16% theme accent surface) and `outline` (1px accent-mix border) style presets to GSettings and Libadwaita ComboRow preferences.
+  * Shell theme-derived styling using `-st-accent-color` and `-st-accent-fg-color` without hardcoded color palettes.
+* **Outside-Click Dismissal Layer (`src/mediaFloatingCard.js`)**:
+  * Added a temporary `global.stage` captured-event listener and transparent dismissal layer below the panel indicator to dismiss unpinned cards on outside clicks.
+* **Screencast Regression Test Suite (`tests/test_screencast_regression.js`)**:
+  * Added deep lifecycle test coverage for rapid hover transitions, anchor hit-testing, and menu-zone presentation consistency.
+
+---
+
+### Changed
+
+* **GNOME Shell 51 Layout Orientation Migration (`src/mediaFloatingCard.js`, `src/userSwitcher.js`)**:
+  * Migrated `St.BoxLayout` actors from the removed `vertical` boolean property to explicit `orientation: Clutter.Orientation.VERTICAL` and `orientation: Clutter.Orientation.HORIZONTAL` as required by GNOME Shell 51 ([GNOME Shell 51 migration guide](https://gjs.guide/extensions/upgrading/gnome-shell-51.html)).
+* **Keyboard Shortcut Deconfliction (`src/taskIndicatorButton.js`, `README.md`)**:
+  * Removed `Alt+F` global panel shortcut grab to allow application menu access keys to pass through to active windows; `F10` and `Escape` remain dedicated card pinning/dismissal shortcuts.
+
+---
+
+### Fixed
+
+* **Direct Media Chip Hover Reliability (`src/taskIndicatorButton.js`)**:
+  * Direct chip pointer enter events now take immediate precedence, preventing missed hovers before geometry settles.
+* **Menu-Zone Sibling Arbitration (`src/taskIndicatorButton.js`, `extension.js`)**:
+  * Harmonized `onMenuZoneEnter` and `onAppMenuEnter` transitions between AppMenuButton and global menus to prevent presentation oscillation.
+* **Installer Session Reload Guidance (`install.sh`)**:
+  * Added session reload instructions explaining Wayland logout vs. X11 restart requirements.
+
+---
+
 ## [1.1.1] - 2026-09-28
 
 ### Major Architectural Highlights

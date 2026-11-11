@@ -15,7 +15,7 @@ I'm just trying to maximize workspace utilization, reclaim some vertical screen,
 - **Dynamic Live Activity Indicator:** Monitors active Nautilus file copy telemetry and universal MPRIS media players with dedicated player priority (Spotify, VLC, browser tabs).
 - **Interactive Waveform Scrubbing:** Real-time Cairo wave equalizer with direct seek scrubbing, elapsed/total playback time display, and album art caching.
 - **Idle Global Menu Collapse:** Automatically collapses the application menu into the live indicator while idle, smoothly expanding on pointer hover without panel layout jitter (`menu-hide-when-idle`).
-- **Keyboard Navigation & Floating Popover Pinning:** Inspect media and task status via floating cards with full keyboard shortcuts (`F10`, `Alt+F`, `Esc`).
+- **Keyboard Navigation & Floating Popover Pinning:** Inspect media and task status via floating cards with keyboard shortcuts (`F10`, `Esc`).
 - **Dynamic 6-Tier Architecture:** Overcomes modern Wayland and GTK 4 limitations through native GMenuModel, DBusMenu registrar, declarative JSON profiles with dynamic browser bookmark expansion, GTK 4 Action heuristics, and restricted AT-SPI scanning.
 - **Native Libadwaita Preferences:** 3-page configuration dialog (*About*, *Global Menu*, *System Menu*) for animations, layout, visualizer styles, and custom branding.
 - **Broad Compatibility:** Fully supported on GNOME 45 through 51 across both Wayland and X11 sessions.
@@ -24,10 +24,11 @@ I'm just trying to maximize workspace utilization, reclaim some vertical screen,
 
 | Action | Shortcut / Trigger | Description |
 | :--- | :--- | :--- |
-| **Toggle / Pin Media Popover** | `F10` or `Alt+F` | Opens and pins the floating media card for keyboard and mouse interaction. |
+| **Pin Media Popover** | `F10` | Opens and pins the floating media card for keyboard and mouse interaction. |
+| **Open Media Card** | Click the Indicator Chip | Opens a transient floating card without pinning it. |
 | **Dismiss Media Popover** | `Escape` | Closes and unpins the floating media card, returning focus to the panel. |
 | **Seek Playback Position** | Left-Click on Waveform | Instantly seeks the active MPRIS track to the clicked relative position. |
-| **Inspect Live Indicator** | Hover over Indicator Chip | Displays the floating progress card with transfer telemetry or media metadata. |
+| **Preview Live Indicator** | Hover over Indicator Chip | Previews transfer telemetry or media metadata in the floating card. |
 | **Reveal Idle Menu** | Hover over Menu Zone | Expands the collapsed global menu when idle collapse mode is active. |
 | **Force Quit Window** | `<Alt><Super>Escape` | Interactive application force-quit picker (configurable in preferences). |
 
